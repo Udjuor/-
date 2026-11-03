@@ -79,6 +79,19 @@ jobs:
           $ownUsers = (Get-Acl $root).Access | Where-Object { $_.IdentityReference -match 'Users' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($ownUsers) { throw 'Обычные пользователи могут менять файлы обновления' }
 
+          # Настоящий запуск задачи от SYSTEM: ошибку в её команде потом не исправить удалённо.
+          $launch = (Get-ScheduledTask -TaskName StudentCalendarLaunch).Actions[0].Execute
+          if ($launch -ne $env:CAL_EXE) { throw "Задача запуска указывает на $launch" }
+          Remove-Item (Join-Path $root 'status.json') -ErrorAction SilentlyContinue
+          Start-ScheduledTask -TaskName StudentCalendarUpdate
+          foreach ($i in 1..24) {
+            if (Test-Path (Join-Path $root 'status.json')) { break }
+            Start-Sleep -Seconds 5
+          }
+          $own = Get-Content (Join-Path $root 'status.json') -Raw | ConvertFrom-Json
+          Write-Host ($own | ConvertTo-Json)
+          if (-not $own.current) { throw 'Задача не определила версию программы' }
+
           $setup = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
           $name = Split-Path $setup -Leaf
           New-Item -ItemType Directory -Force feed/v99.0.0, feed/latest/download | Out-Null
