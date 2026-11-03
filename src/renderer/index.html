@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'">
+  <title>Календарь мероприятий</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="period">
+      <button class="icon" id="prev" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 4 7 12l8 8"/></svg></button>
+      <button class="icon" id="next" aria-label="Вперёд"><svg viewBox="0 0 24 24"><path d="m9 4 8 8-8 8"/></svg></button>
+      <button class="text" id="today">Сегодня</button>
+      <h1 id="title"></h1>
+    </div>
+    <div class="tools">
+      <div class="views" role="group" aria-label="Вид календаря">
+        <button data-view="day">День</button>
+        <button data-view="week">Неделя</button>
+        <button data-view="month">Месяц</button>
+      </div>
+      <button class="primary" id="add">Добавить мероприятие</button>
+      <time id="clock"></time>
+      <button class="icon" id="settings" aria-label="Настройки"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+      <button class="icon" id="minimize" aria-label="Свернуть программу"><svg viewBox="0 0 24 24"><path d="M5 19h14"/></svg></button>
+    </div>
+  </header>
+  <div id="banner" class="banner" role="alert" hidden></div>
+  <main id="board"></main>
+
+  <dialog id="details" class="sheet"></dialog>
+  <dialog id="form" class="sheet wide"></dialog>
+  <dialog id="preferences" class="sheet"></dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

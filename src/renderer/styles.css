@@ -1,0 +1,311 @@
+:root {
+  --board: #1d3f36;
+  --board-deep: #17332c;
+  --rule: #33604f;
+  --chalk: #f4f2e8;
+  --chalk-soft: #bcd0c3;
+  --stick: #dbe7dc;
+  --yellow: #f6d658;
+  --pink: #f5b3a8;
+  --ink: #16302a;
+  color-scheme: dark;
+  /* Панели бывают от Full HD до 4K: размеры привязаны к ширине экрана. */
+  font-size: clamp(14px, 1.04vw, 44px);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--board);
+  color: var(--chalk);
+  font-family: Bahnschrift, "Segoe UI", "Noto Sans", sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+h1, h2, h3, p, ul, ol { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+
+button, input, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  min-height: 3rem;
+  border: 0;
+  border-radius: .35rem;
+  background: none;
+  cursor: pointer;
+}
+
+button:active { filter: brightness(1.15); }
+
+:focus-visible { outline: .2rem solid var(--yellow); outline-offset: .1rem; }
+
+/* Верхняя панель */
+.topbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: .7rem 1.25rem;
+  background: var(--board-deep);
+}
+
+.period, .tools { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.tools { flex: none; gap: .75rem; }
+
+h1 {
+  margin-left: .75rem;
+  overflow: hidden;
+  font-size: 2.1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.icon { flex: none; width: 3rem; padding: .55rem; }
+.icon svg { display: block; width: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.text { padding: 0 1rem; border: .1rem solid var(--rule); font-size: 1.1rem; }
+
+.views { display: flex; padding: .2rem; border-radius: .45rem; background: var(--board); }
+.views button { padding: 0 1.2rem; font-size: 1.1rem; }
+.views button[aria-pressed="true"] { background: var(--chalk); color: var(--ink); }
+
+.primary { padding: 0 1.4rem; background: var(--yellow); color: var(--ink); font-size: 1.1rem; font-weight: 600; }
+.primary:disabled { opacity: .6; }
+
+#clock { min-width: 5.2rem; font-size: 2.1rem; font-weight: 600; text-align: right; }
+
+.banner { flex: none; padding: .6rem 1.25rem; background: var(--pink); color: var(--ink); font-size: 1.1rem; }
+
+main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+
+/* Сетка времени: день и неделя */
+.dayhead { display: flex; flex: none; padding-left: 4.5rem; border-bottom: .12rem solid var(--rule); }
+
+.dayhead button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 1.1rem;
+  padding: .55rem .7rem;
+  border-left: .06rem solid var(--rule);
+  border-radius: 0;
+  color: var(--chalk-soft);
+  font-size: 1.15rem;
+  text-align: left;
+}
+
+.dayhead .number { font-size: 1.9rem; font-weight: 600; color: var(--chalk); }
+.dayhead .off, .dayhead .off .number { color: var(--chalk-soft); }
+
+/* Сегодняшнее число обведено мелом, как на настоящей доске. */
+.circled { position: relative; display: inline-block; min-width: 1.6em; text-align: center; }
+.circled svg { position: absolute; top: -.26em; left: -.24em; width: calc(100% + .48em); height: calc(100% + .52em); overflow: visible; pointer-events: none; }
+.circled path { fill: none; stroke: var(--yellow); stroke-width: 2.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+.timegrid { position: relative; display: flex; flex: 1; min-height: 0; }
+.hours { position: relative; flex: none; width: 4.5rem; }
+.hours span { position: absolute; right: .6rem; color: var(--chalk-soft); font-size: 1rem; transform: translateY(-50%); }
+.hours span:first-child { transform: none; }
+
+.days { position: relative; display: flex; flex: 1; min-width: 0; }
+
+.lines { position: absolute; inset: 0; pointer-events: none; }
+.lines i { position: absolute; right: 0; left: 0; border-top: .06rem solid var(--rule); }
+
+.day { position: relative; flex: 1 1 0; min-width: 0; border-left: .06rem solid var(--rule); cursor: cell; }
+.day.today { background: rgb(255 255 255 / .045); }
+
+.block {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 1.7rem;
+  padding: .2rem .55rem;
+  overflow: hidden;
+  border-radius: .3rem;
+  background: var(--stick);
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.22;
+  text-align: left;
+}
+
+.block strong { display: block; flex: none; overflow-wrap: anywhere; font-size: 1.1rem; font-weight: 600; }
+.block strong.clamped { display: -webkit-box; flex: 0 1 auto; overflow: hidden; -webkit-box-orient: vertical; }
+.block span { display: block; flex: none; max-width: 100%; }
+.block.narrow { padding: .2rem .35rem; font-size: .92rem; }
+.block.narrow strong { font-size: .95rem; }
+.block.past { border: .08rem solid var(--rule); background: var(--board-deep); color: var(--chalk-soft); }
+.block.now { background: var(--yellow); }
+
+.dayview .block { flex-flow: row wrap; align-content: flex-start; align-items: baseline; gap: 0 1.8rem; padding: .3rem .9rem; font-size: 1.2rem; }
+.dayview .block strong { max-width: 100%; font-size: 1.5rem; }
+
+.nowline { position: absolute; right: 0; left: 0; z-index: 0; border-top: .18rem solid var(--yellow); pointer-events: none; }
+.nowline::before { position: absolute; top: -.42rem; left: -.35rem; width: .7rem; height: .7rem; border-radius: 50%; background: var(--yellow); content: ""; }
+
+.hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  color: var(--chalk-soft);
+  font-size: 1.5rem;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Месяц */
+.monthhead { display: grid; flex: none; grid-template-columns: repeat(7, 1fr); border-bottom: .12rem solid var(--rule); }
+.monthhead span { padding: .35rem .7rem; color: var(--chalk-soft); font-size: 1.15rem; }
+
+.month { display: grid; flex: 1; grid-auto-rows: 1fr; grid-template-columns: repeat(7, minmax(0, 1fr)); min-height: 0; }
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: .18rem;
+  min-height: 0;
+  padding: .2rem .4rem;
+  overflow: hidden;
+  border-right: .06rem solid var(--rule);
+  border-bottom: .06rem solid var(--rule);
+  cursor: pointer;
+}
+
+.cell.outside { background: var(--board-deep); }
+.cell.outside .date { color: #7a9c8e; }
+.cell.today { background: rgb(255 255 255 / .045); }
+.cell .date { flex: none; height: 1.9rem; padding: .22rem .3rem 0; font-size: 1.3rem; font-weight: 600; line-height: 1.5rem; }
+
+.chip {
+  flex: none;
+  height: 1.75rem;
+  min-height: 0;
+  padding: 0 .4rem;
+  overflow: hidden;
+  border-radius: .25rem;
+  background: var(--stick);
+  color: var(--ink);
+  font-size: .98rem;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chip.past { background: none; color: var(--chalk-soft); }
+.chip.now { background: var(--yellow); }
+.more { flex: none; height: 1.4rem; padding-left: .4rem; color: var(--chalk-soft); font-size: .98rem; }
+
+/* Окна */
+dialog.sheet {
+  width: min(38rem, 94vw);
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0 0 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: var(--chalk);
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+dialog.sheet.wide { width: min(58rem, 96vw); }
+dialog.sheet[open] { display: flex; flex-direction: column; }
+dialog::backdrop { background: rgb(10 25 20 / .6); }
+
+.sheethead { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.5rem .6rem; }
+.sheethead h2 { padding-top: .25rem; font-size: 1.9rem; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; user-select: text; }
+.sheetbody { flex: 1; min-height: 0; padding: .4rem 1.5rem 1.2rem; overflow-y: auto; overscroll-behavior: contain; }
+.sheetfoot { display: flex; flex: none; gap: .75rem; align-items: center; padding: .9rem 1.5rem; background: var(--stick); }
+.sheetfoot .spacer { flex: 1; }
+.sheetfoot .message { flex: 1; font-size: 1.05rem; }
+
+.plain { padding: 0 1.2rem; border: .1rem solid var(--ink); color: var(--ink); font-size: 1.1rem; }
+.danger { padding: 0 1.2rem; background: #a5322a; color: #fff; font-size: 1.1rem; font-weight: 600; }
+dialog .primary { background: var(--board); color: var(--chalk); }
+dialog .icon { color: var(--ink); }
+
+/* Карточка мероприятия */
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1.2rem; margin-bottom: 1.3rem; }
+.facts dt { color: #4e6a60; }
+.facts dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+
+.group { margin-bottom: 1.3rem; }
+.group h3 { margin-bottom: .4rem; font-size: 1.3rem; font-weight: 600; }
+.group ol, .group ul { columns: 2; column-gap: 1.5rem; }
+.group ol { padding-left: 2.2rem; list-style: decimal; }
+.group li { padding: .14rem 0; break-inside: avoid; overflow-wrap: anywhere; user-select: text; }
+.group .empty { color: #4e6a60; }
+.notes { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
+/* Форма */
+.fields { display: grid; grid-template-columns: repeat(6, 1fr); gap: .9rem 1rem; }
+.field { display: flex; grid-column: span 6; flex-direction: column; gap: .25rem; min-width: 0; }
+.field.half { grid-column: span 3; }
+.field.third { grid-column: span 2; }
+.field > label, .field > .label { font-size: 1.02rem; color: #38544a; }
+
+.field input, .field textarea {
+  width: 100%;
+  min-height: 3rem;
+  padding: .45rem .7rem;
+  border: .1rem solid #7f9a8e;
+  border-radius: .3rem;
+  background: #fff;
+  color: var(--ink);
+  user-select: text;
+  color-scheme: light;
+}
+
+.field textarea { min-height: 5rem; resize: none; }
+.field.invalid input { border-color: #a5322a; }
+.error { color: #a5322a; font-size: 1.02rem; }
+
+.adder { display: flex; gap: .5rem; }
+.adder input { flex: 1; min-width: 0; }
+.adder button { flex: none; padding: 0 1.1rem; border: .1rem solid var(--ink); color: var(--ink); }
+
+.tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.tags:empty { display: none; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .1rem;
+  min-height: 2.6rem;
+  padding: 0 .1rem 0 .7rem;
+  border-radius: .3rem;
+  background: var(--stick);
+  overflow-wrap: anywhere;
+}
+
+.tag button { min-width: 2.6rem; min-height: 2.6rem; color: var(--ink); font-size: 1.3rem; line-height: 1; }
+
+.conflicts { grid-column: span 6; padding: .7rem .9rem; border-radius: .3rem; background: #fbdcd5; }
+.conflicts[hidden] { display: none; }
+.conflicts h3 { margin-bottom: .25rem; font-size: 1.1rem; font-weight: 600; }
+
+/* Настройки */
+.setting { margin-bottom: 1.3rem; }
+.check { display: flex; align-items: center; gap: .8rem; min-height: 3rem; }
+.check input { width: 1.8rem; height: 1.8rem; accent-color: var(--board); }
+.help { margin-top: .35rem; color: #4e6a60; font-size: 1.02rem; }
+
+.sheetform { display: flex; flex: 1; flex-direction: column; min-height: 0; }

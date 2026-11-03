@@ -1,0 +1,41 @@
+{
+  "name": "student-calendar",
+  "productName": "Календарь мероприятий",
+  "version": "1.0.0",
+  "description": "Календарь распределения студентов на мероприятия для интерактивных панелей в аудиториях",
+  "author": "Udjuor",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "38.2.0",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "ru.udjuor.studentcalendar",
+    "executableName": "StudentCalendar",
+    "artifactName": "StudentCalendar-Setup-${version}.${ext}",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Календарь мероприятий",
+      "installerLanguages": ["ru_RU"],
+      "language": "1049",
+      "include": "build/installer.nsh"
+    }
+  }
+}
