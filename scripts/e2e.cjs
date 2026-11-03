@@ -410,6 +410,7 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, pdf);
   await page.click('#paper >> text=Сохранить PDF');
   await until(() => fs.existsSync(pdf) && fs.statSync(pdf).size > 1000, 'файл PDF');
+  await page.waitForSelector('#toast:has-text("PDF сохранён")');
   assert.equal(fs.readFileSync(pdf).subarray(0, 4).toString(), '%PDF');
   if (process.env.PDF_COPY) fs.copyFileSync(pdf, process.env.PDF_COPY);
   await page.click('#paper [aria-label=Закрыть]');
@@ -492,7 +493,7 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.selectOption('#rp-group', '');
   await page.click('#reports .tabs >> text=Проведённые пары');
   await page.click('#reports >> text=Сохранить для Excel');
-  await until(() => fs.existsSync(saved), 'файл отчёта');
+  await until(() => fs.existsSync(saved) && fs.readFileSync(saved, 'utf8').includes('Подготовка к олимпиаде'), 'файл отчёта');
   const csv = fs.readFileSync(saved, 'utf8');
   assert.ok(csv.startsWith('\uFEFFДата;Время;Тип;Название'), 'заголовок отчёта');
   assert.ok(csv.includes('Подготовка к олимпиаде'), 'строки отчёта');
