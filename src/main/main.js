@@ -156,6 +156,7 @@ function registerHandlers() {
     peers: config.peers,
     showAll: config.showAll,
     theme: config.theme,
+    uiSize: config.uiSize,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
   }));
@@ -190,6 +191,31 @@ function registerHandlers() {
     config = { ...config, theme };
     nativeTheme.themeSource = theme;
     saveConfig(homeDir(), config);
+  }));
+
+  ipcMain.handle('size:set', (_e, uiSize) => respond(() => {
+    if (!['small', 'medium', 'large'].includes(uiSize)) return;
+    config = { ...config, uiSize };
+    saveConfig(homeDir(), config);
+  }));
+
+  // Печатается текущая страница: стили @media print оставляют на ней только лист.
+  ipcMain.handle('paper:print', () => new Promise((resolve) => {
+    win.webContents.print({ printBackground: false }, (success, reason) => {
+      resolve({ ok: success || reason === 'Print job canceled', printed: success, reason });
+    });
+  }));
+
+  ipcMain.handle('paper:pdf', (_e, fileName) => respond(async () => {
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Сохранить техническое задание',
+      defaultPath: path.join(app.getPath('documents'), fileName.replace(/[\\/:*?"<>|]/g, ' ')),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (result.canceled) return false;
+    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: false, preferCSSPageSize: true });
+    await fs.writeFile(result.filePath, pdf);
+    return true;
   }));
 
   ipcMain.handle('sync:status', () => (sync ? sync.status() : { enabled: false, problem: syncProblem, peers: [], unreachable: [] }));

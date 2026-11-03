@@ -381,6 +381,39 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(13, 17, 23)');
   await page.click('#preferences [aria-label=Закрыть]');
 
+  // Размер интерфейса.
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  const rootSize = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+  const medium = await rootSize();
+  await page.click('#preferences .targets button:has-text("Крупный")');
+  await page.waitForFunction((m) => parseFloat(getComputedStyle(document.documentElement).fontSize) > m, medium);
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /uiSize=large/);
+  await page.click('#preferences .targets button:has-text("Мелкий")');
+  await page.waitForFunction((m) => parseFloat(getComputedStyle(document.documentElement).fontSize) <= m, medium);
+  await page.click('#preferences .targets button:has-text("Обычный")');
+  await page.click('#preferences [aria-label=Закрыть]');
+
+  // Техническое задание по событию: чек-лист и PDF.
+  await page.click('#today');
+  await page.click('[data-view=day]');
+  await page.click('.block:has-text("Волонтёры дня открытых дверей")');
+  await page.click('#details >> text=Тех. задание');
+  await page.waitForSelector('#paper[open]');
+  const sheet = page.locator('#paper .paper');
+  assert.match(await sheet.textContent(), /Техническое задание на 3 ноября 2026/);
+  assert.equal(await sheet.locator('tbody tr').count(), 3, 'строка на каждую единицу техники');
+  assert.equal(await sheet.locator('tbody .box').count(), 9, 'отметки подготовки, выдачи и возврата');
+  assert.equal(await sheet.locator('.people li').count(), 4, 'участники списком');
+  await shot('paper');
+  const pdf = path.join(home, 'task.pdf');
+  await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, pdf);
+  await page.click('#paper >> text=Сохранить PDF');
+  await until(() => fs.existsSync(pdf) && fs.statSync(pdf).size > 1000, 'файл PDF');
+  assert.equal(fs.readFileSync(pdf).subarray(0, 4).toString(), '%PDF');
+  if (process.env.PDF_COPY) fs.copyFileSync(pdf, process.env.PDF_COPY);
+  await page.click('#paper [aria-label=Закрыть]');
+
   // Типы событий различаются цветом, новое занятие выбирается в форме.
   await page.click('[data-view=week]');
   assert.equal(await page.locator('.block.t-lesson').count(), 2, 'занятия');

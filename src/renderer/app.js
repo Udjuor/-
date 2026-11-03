@@ -115,9 +115,11 @@ function fitBlock(block) {
   // Время важнее хвоста названия: сокращаем название до целых строк.
   const box = getComputedStyle(block);
   const room = block.clientHeight - parseFloat(box.paddingTop) - parseFloat(box.paddingBottom) - time.offsetHeight;
+  const lines = Math.floor(room / parseFloat(getComputedStyle(title).lineHeight));
   title.classList.add('clamped');
-  title.style.webkitLineClamp = Math.max(1, Math.floor(room / parseFloat(getComputedStyle(title).lineHeight)));
-  if (overflows()) time.remove();
+  title.style.webkitLineClamp = Math.max(1, lines);
+  // Сжатое название наехало бы на время: в совсем низком блоке остаётся только оно.
+  if (lines < 1 || overflows()) time.remove();
 }
 
 function timeGrid(days, dayView) {
@@ -355,6 +357,7 @@ function showDetails(id) {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, `Отметка: ${countPresent(event)} из ${event.participants.length}`),
+    h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, 'Тех. задание'),
     h('div', { class: 'spacer' }),
     h('button', { class: 'plain', onclick: showConfirm }, 'Удалить'),
   );
@@ -1210,6 +1213,95 @@ function openRoll(id) {
   dialog.showModal();
 }
 
+/* Техническое задание */
+
+const checkBox = () => h('span', { class: 'box', 'aria-hidden': 'true' });
+
+/** Лист чек-листа. Один и тот же для предпросмотра и печати. */
+function paperSheet(event) {
+  const date = fmt(event.date, { day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '');
+  const weekday = fmt(event.date, { weekday: 'long' });
+  const groupNames = new Map(refsOf('group').map((group) => [group.id, group.name]));
+  const groupOf = new Map(refsOf('student').map((student) => [nameKey(student.name), groupNames.get(student.groupId)]));
+  const fact = (name, value) => (value ? [h('dt', {}, name), h('dd', {}, value)] : []);
+  const tasks = event.notes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const gear = event.equipment.map((name) => h('tr', {},
+    h('td', {}, name),
+    h('td', { class: 'num' }, String(equipmentCount(event, name))),
+    h('td', { class: 'mark' }, checkBox()),
+    h('td', { class: 'mark' }, checkBox()),
+    h('td', { class: 'mark' }, checkBox())));
+
+  return h('article', { class: 'paper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, `Техническое задание на ${date}`),
+      h('h2', {}, event.title)),
+    h('dl', {},
+      fact('Тип', typeName(event.type)),
+      fact('День', `${weekday}, ${date}`),
+      fact('Время', timeRange(event)),
+      fact('Место', event.place),
+      fact('Ответственный', event.responsible),
+      fact('Участников', event.participants.length ? String(event.participants.length) : '')),
+    h('section', {},
+      h('h3', {}, 'Техника'),
+      gear.length
+        ? h('table', {},
+          h('thead', {}, h('tr', {},
+            h('th', {}, 'Наименование'),
+            h('th', { class: 'num' }, 'Кол-во'),
+            h('th', { class: 'mark' }, 'Подготовлено'),
+            h('th', { class: 'mark' }, 'Выдано'),
+            h('th', { class: 'mark' }, 'Возвращено'))),
+          h('tbody', {}, gear))
+        : h('p', {}, 'Техника не указана.'),
+      event.ownCameras.length > 0 && h('p', { class: 'own' }, `Со своей камерой: ${event.ownCameras.join(', ')}.`)),
+    tasks.length > 0 && h('section', {},
+      h('h3', {}, 'Задачи'),
+      h('ul', { class: 'checks' }, tasks.map((task) => h('li', {}, checkBox(), h('span', {}, task))))),
+    event.participants.length > 0 && h('section', {},
+      h('h3', {}, 'Участники'),
+      h('ul', { class: 'checks people' }, event.participants.map((name) => {
+        const group = groupOf.get(nameKey(name));
+        return h('li', {}, checkBox(), h('span', {}, group ? `${name}, ${group}` : name));
+      }))),
+    h('footer', {},
+      h('p', {}, h('span', {}, 'Ответственный'), h('i'), h('span', {}, event.responsible || 'подпись')),
+      h('p', {}, h('span', {}, 'Технику принял'), h('i'), h('span', {}, 'подпись'))));
+}
+
+function openPaper(id) {
+  const event = state.allEvents.find((e) => e.id === id);
+  if (!event) return;
+  const dialog = $('paper');
+  const failure = h('p', { class: 'message error' });
+  $('printarea').replaceChildren(paperSheet(event));
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, 'Техническое задание'), closeButton(dialog)),
+    h('div', { class: 'sheetbody paperview' }, paperSheet(event)),
+    h('div', { class: 'sheetfoot' },
+      h('button', {
+        class: 'primary',
+        type: 'button',
+        onclick: async () => {
+          const result = await api.printPaper();
+          failure.textContent = result.ok ? '' : 'Не удалось напечатать. Проверьте принтер или сохраните PDF.';
+        },
+      }, 'Печать'),
+      h('button', {
+        class: 'plain',
+        type: 'button',
+        onclick: async () => {
+          const result = await api.savePaperPdf(`ТЗ ${event.title} ${event.date}.pdf`);
+          if (!result.ok) failure.textContent = 'PDF не сохранён: нет доступа к выбранной папке.';
+          else if (result.value) toast('PDF сохранён.');
+        },
+      }, 'Сохранить PDF'),
+      failure),
+  );
+  dialog.showModal();
+}
+
 /* Отчёты */
 
 const TYPE_FILTERS = [
@@ -1419,6 +1511,20 @@ async function openSettings() {
       },
     }, label)));
   drawThemes();
+  let size = current.uiSize;
+  const sizeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-size' });
+  const drawSizes = () => sizeRow.replaceChildren(...[['small', 'Мелкий'], ['medium', 'Обычный'], ['large', 'Крупный']].map(([id, label]) =>
+    h('button', {
+      type: 'button',
+      'aria-pressed': String(size === id),
+      onclick: async () => {
+        size = id;
+        await api.setSize(id);
+        applySize(id);
+        drawSizes();
+      },
+    }, label)));
+  drawSizes();
   const message = h('p', { class: 'message error' });
   const devices = h('div', { id: 's-devices' });
   const drawDevices = async () => devices.replaceChildren(...deviceList(await api.syncStatus()));
@@ -1451,6 +1557,10 @@ async function openSettings() {
       h('div', { class: 'setting field' },
         h('span', { class: 'label', id: 'l-theme' }, 'Оформление'),
         themeRow),
+      h('div', { class: 'setting field' },
+        h('span', { class: 'label', id: 'l-size' }, 'Размер интерфейса'),
+        sizeRow,
+        h('p', { class: 'help' }, 'Настраивается отдельно на каждом устройстве. Для большой панели подойдёт «Крупный».')),
       h('div', { class: 'setting field' },
         h('label', { for: 's-name' }, 'Название устройства'),
         name,
@@ -1515,7 +1625,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -1548,9 +1658,15 @@ function wire() {
   }
 }
 
+function applySize(size) {
+  document.documentElement.dataset.size = size;
+  render();
+}
+
 async function start() {
   wire();
   state.settings = await api.getSettings();
+  applySize(state.settings.uiSize);
   api.onChanged(refresh);
   render();
   tick();

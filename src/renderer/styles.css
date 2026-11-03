@@ -23,8 +23,12 @@
   --now-ring: #fff;
   --backdrop: rgb(1 4 9 / .7);
   /* Экраны бывают от Full HD до 4K: размеры привязаны к ширине. */
-  font-size: clamp(14px, 1.04vw, 44px);
+  --ui-scale: .84;
+  font-size: clamp(13px, calc(var(--ui-scale) * 1vw), 48px);
 }
+
+:root[data-size="small"] { --ui-scale: .72; }
+:root[data-size="large"] { --ui-scale: 1.04; }
 
 * { box-sizing: border-box; }
 
@@ -491,4 +495,44 @@ dialog::backdrop { background: var(--backdrop); }
   .t-event { --type: #1f883d; --type-bg: #dafbe1; }
 
   .rollname[aria-pressed="true"] { border-color: var(--success-emphasis); }
+}
+
+/* Техническое задание: лист бумаги и в предпросмотре, и на печати */
+#printarea { display: none; }
+.paperview { background: var(--canvas-inset); }
+
+.paper { max-width: 180mm; margin: 0 auto; padding: 12mm; background: #fff; color: #000; font-size: 11pt; line-height: 1.35; user-select: text; }
+.paper header { margin-bottom: 4mm; padding-bottom: 3mm; border-bottom: 1.5pt solid #000; }
+.paper .kicker { font-size: 11pt; }
+.paper h2 { font-size: 18pt; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.paper h3 { margin: 5mm 0 2mm; font-size: 12.5pt; font-weight: 600; }
+.paper dl { display: grid; grid-template-columns: max-content 1fr; gap: .8mm 6mm; margin: 0; }
+.paper dt { color: #444; }
+.paper dd { margin: 0; overflow-wrap: anywhere; }
+.paper table { width: 100%; border-collapse: collapse; }
+.paper th, .paper td { padding: 1.6mm 2mm; border: .5pt solid #000; text-align: left; overflow-wrap: anywhere; }
+.paper th { padding-inline: 1mm; font-size: 9.5pt; font-weight: 600; overflow-wrap: normal; white-space: nowrap; }
+.paper .num { width: 15mm; text-align: center; }
+.paper .mark { width: 27mm; text-align: center; }
+.paper tr, .paper li { break-inside: avoid; }
+.paper .own { margin-top: 2mm; }
+.paper .box { display: inline-block; flex: none; width: 4mm; height: 4mm; border: .75pt solid #000; vertical-align: -.6mm; }
+.paper .checks { display: flex; flex-direction: column; gap: 1.2mm; }
+.paper .checks li { display: flex; gap: 2.5mm; align-items: flex-start; overflow-wrap: anywhere; }
+.paper .checks .box { margin-top: .4mm; }
+.paper .people { display: block; columns: 2; column-gap: 8mm; }
+.paper .people li { margin-bottom: 1.2mm; }
+.paper footer { display: flex; flex-direction: column; gap: 5mm; margin-top: 9mm; break-inside: avoid; }
+.paper footer p { display: flex; gap: 3mm; align-items: flex-end; }
+.paper footer span:first-child { width: 32mm; }
+.paper footer i { flex: 1; border-bottom: .5pt solid #000; }
+.paper footer span:last-child { width: 45mm; overflow-wrap: anywhere; }
+
+@page { size: A4; margin: 12mm; }
+
+@media print {
+  html, body { display: block; height: auto; overflow: visible; background: #fff; }
+  body > *, dialog { display: none !important; }
+  body > #printarea { display: block !important; }
+  .paper { max-width: none; margin: 0; padding: 0; }
 }

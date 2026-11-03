@@ -238,15 +238,17 @@ test('настройки: значения по умолчанию, запись
   const first = loadConfig(home);
   assert.equal(first.dataDir, path.join(home, 'data'));
   assert.equal(first.fullscreen, true);
+  assert.equal(first.uiSize, 'medium');
   assert.equal(first.deviceName, os.hostname());
   assert.match(first.deviceId, /^[0-9a-f-]{36}$/);
   assert.equal(loadConfig(home).deviceId, first.deviceId, 'номер устройства не меняется между запусками');
-  saveConfig(home, { ...first, fullscreen: false, syncKey: 'ABCD-EFGH-IJKL', peers: ['10.0.2.5', '10.0.3.7:47800'], showAll: true, deviceName: 'Ауд. 204' });
+  saveConfig(home, { ...first, uiSize: 'small', fullscreen: false, syncKey: 'ABCD-EFGH-IJKL', peers: ['10.0.2.5', '10.0.3.7:47800'], showAll: true, deviceName: 'Ауд. 204' });
   const again = loadConfig(home);
   assert.deepEqual(again.peers, ['10.0.2.5', '10.0.3.7:47800']);
   assert.equal(again.syncKey, 'ABCD-EFGH-IJKL');
   assert.equal(again.deviceName, 'Ауд. 204');
   assert.equal(again.showAll, true);
   assert.equal(again.fullscreen, false);
+  assert.equal(again.uiSize, 'small');
   assert.deepEqual(parseIni('\uFEFF[calendar]\r\ndataDir=\\\\srv\\a=b\r\n; комментарий\r\n'), { dataDir: '\\\\srv\\a=b' });
 });

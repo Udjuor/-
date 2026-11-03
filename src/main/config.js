@@ -31,6 +31,7 @@ function saveConfig(homeDir, config) {
     `peers=${config.peers.join(',')}`,
     `showAll=${config.showAll ? 1 : 0}`,
     `theme=${config.theme}`,
+    `uiSize=${config.uiSize}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -52,6 +53,7 @@ function loadConfig(homeDir) {
     peers: splitPeers(values.peers),
     showAll: values.showAll === '1',
     theme: ['dark', 'light', 'system'].includes(values.theme) ? values.theme : 'dark',
+    uiSize: ['small', 'medium', 'large'].includes(values.uiSize) ? values.uiSize : 'medium',
   };
   if (!values.deviceId) {
     try {
