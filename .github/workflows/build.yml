@@ -26,6 +26,13 @@ jobs:
       - name: Модульные тесты
         run: npm test
 
+      - name: Взять версию из метки релиза
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          npm version $version --no-git-tag-version --allow-same-version
+
       - name: Собрать установщик
         run: npm run dist
 
