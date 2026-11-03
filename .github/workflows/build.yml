@@ -96,13 +96,14 @@ jobs:
           if ($launch -ne $env:CAL_EXE) { throw "Задача запуска указывает на $launch" }
           Remove-Item (Join-Path $root 'status.json') -ErrorAction SilentlyContinue
           # Запуск от обычной учётной записи: так проверку начинает кнопка на панели.
-          $password = 'Pw' + [guid]::NewGuid().ToString('N') + '!'
-          net user calcheck $password /add | Out-Null
+          $password = 'Pw1!' + [guid]::NewGuid().ToString('N').Substring(0, 10)
           $secure = ConvertTo-SecureString $password -AsPlainText -Force
-          $credential = New-Object System.Management.Automation.PSCredential('calcheck', $secure)
+          New-LocalUser -Name calcheck -Password $secure -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member calcheck
+          $credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\calcheck", $secure)
           $check = Start-Process schtasks.exe -ArgumentList '/Run', '/TN', 'StudentCalendarUpdate' -Credential $credential -WorkingDirectory $env:SystemRoot -Wait -PassThru -WindowStyle Hidden
           Write-Host "schtasks от обычного пользователя: код $($check.ExitCode)"
-          net user calcheck /delete | Out-Null
+          Remove-LocalUser -Name calcheck
           if ($check.ExitCode -ne 0) { throw 'Обычный пользователь не может запустить проверку обновлений' }
           foreach ($i in 1..24) {
             if (Test-Path (Join-Path $root 'status.json')) { break }
