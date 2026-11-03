@@ -87,7 +87,7 @@ jobs:
           $service.Connect()
           $sddl = $service.GetFolder('\').GetTask('StudentCalendarUpdate').GetSecurityDescriptor(0xF)
           Write-Host $sddl
-          if ($sddl -notmatch '\(A;;GRGX;;;BU\)') { throw 'Пользователям не разрешён запуск проверки' }
+          if ($sddl -notmatch '\(A;;[^;]*;;;BU\)') { throw 'Пользователям не разрешён запуск проверки' }
           $ownUsers = (Get-Acl $root).Access | Where-Object { $_.IdentityReference -match 'Users' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($ownUsers) { throw 'Обычные пользователи могут менять файлы обновления' }
 

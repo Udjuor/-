@@ -42,7 +42,7 @@ $service = New-Object -ComObject Schedule.Service
 $service.Connect()
 $task = $service.GetFolder('\').GetTask('StudentCalendarUpdate')
 $sddl = $task.GetSecurityDescriptor(0xF)
-if ($sddl -notmatch '\(A;;GRGX;;;BU\)') {
+if ($sddl -notmatch '\(A;;[^;]*;;;BU\)') {
   $sddl = [regex]::Replace($sddl, '^(.*?D:[^(]*(?:\([^)]*\))*)', '$1(A;;GRGX;;;BU)')
   $task.SetSecurityDescriptor($sddl, 0)
 }
