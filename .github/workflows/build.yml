@@ -71,6 +71,8 @@ jobs:
         shell: pwsh
         run: |
           $root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+          Get-ChildItem $root | Format-Table Name, Length | Out-String | Write-Host
+          Get-Content (Join-Path $root 'register.log') | Write-Host
           $task = Get-ScheduledTask -TaskName StudentCalendarUpdate
           if ($task.Principal.UserId -ne 'SYSTEM') { throw "Задача обновления не от SYSTEM: $($task.Principal.UserId)" }
           Get-ScheduledTask -TaskName StudentCalendarLaunch | Out-Null

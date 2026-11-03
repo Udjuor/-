@@ -2,7 +2,13 @@
 # Keep this file ASCII: Windows PowerShell 5.1 misreads UTF-8 without a BOM.
 $ErrorActionPreference = 'Stop'
 
-$root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+$root = $PSScriptRoot
+$log = Join-Path $root 'register.log'
+trap {
+  "$(Get-Date -Format s) $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)" | Set-Content -LiteralPath $log
+  exit 1
+}
+
 $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
 $exe = $run.Trim('"')
 
@@ -28,3 +34,5 @@ if (-not (Get-ScheduledTask -TaskName 'StudentCalendarUpdate' -ErrorAction Silen
     -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
     -Settings $settings | Out-Null
 }
+
+"$(Get-Date -Format s) ok" | Set-Content -LiteralPath $log

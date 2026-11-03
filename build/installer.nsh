@@ -40,7 +40,8 @@
   File "${BUILD_RESOURCES_DIR}\update.ps1"
   File "${BUILD_RESOURCES_DIR}\register-tasks.ps1"
   SetOutPath "$INSTDIR"
-  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PROGRAMFILES64\StudentCalendarUpdate\register-tasks.ps1"'
+  ; Установщик 32-битный: sysnative запускает 64-битный PowerShell.
+  nsExec::ExecToLog '"$WINDIR\sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PROGRAMFILES64\StudentCalendarUpdate\register-tasks.ps1"'
   Pop $calOutput
 
   ; Установка на все устройства: Setup.exe /S /SYNCKEY=ключ /PEERS=10.0.2.15,10.0.3.7

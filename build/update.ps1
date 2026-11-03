@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+$root = $PSScriptRoot
 $statusFile = Join-Path $root 'status.json'
 $installer = $null
 $script:currentVersion = ''
