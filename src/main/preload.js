@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('calendar', {
   remove: (id, baseUpdatedAt) => ipcRenderer.invoke('events:remove', id, baseUpdatedAt),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
-  pickFolder: () => ipcRenderer.invoke('settings:pick-folder'),
+  syncStatus: () => ipcRenderer.invoke('sync:status'),
+  syncNow: () => ipcRenderer.invoke('sync:now'),
+  generateKey: () => ipcRenderer.invoke('sync:generate-key'),
+  onChanged: (callback) => ipcRenderer.on('events:changed', () => callback()),
   minimize: () => ipcRenderer.invoke('window:minimize'),
 });

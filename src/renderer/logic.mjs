@@ -145,6 +145,10 @@ export function uniqueValues(values) {
   return [...map.values()].sort((a, b) => a.localeCompare(b, 'ru'));
 }
 
+/** Мероприятие без выбранных устройств показывается везде. */
+export const visibleOn = (event, deviceId, showAll) =>
+  showAll || !event.devices?.length || event.devices.includes(deviceId);
+
 /** Состояние мероприятия относительно текущего момента. */
 export function eventState(event, nowISO, nowTime) {
   if (event.date < nowISO || (event.date === nowISO && event.end <= nowTime)) return 'past';

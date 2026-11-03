@@ -59,6 +59,54 @@ test('изменение мероприятия, удалённого на др�
   await store.remove(saved.id, saved.updatedAt);
   await assert.rejects(store.save({ ...saved, title: 'x' }, saved.updatedAt), { code: 'conflict' });
   assert.equal((await store.list()).length, 0);
+  assert.equal((await store.records())[0].deleted, true);
+});
+
+test('новая версия позже предыдущей, даже если часы отстают', async (t) => {
+  const store = new EventStore(tempDir(t), 'dev-a');
+  const future = new Date(Date.now() + 86400000).toISOString();
+  const saved = await store.save(sample);
+  await store.merge([{ ...saved, updatedAt: future, updatedBy: 'dev-b' }]);
+  const edited = await store.save({ ...saved, title: 'Правка' }, future);
+  assert.ok(edited.updatedAt > future);
+  assert.equal(edited.updatedBy, 'dev-a');
+});
+
+test('слияние оставляет более новую версию', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const saved = await store.save(sample);
+  const older = { ...saved, title: 'Старое', updatedAt: '2020-01-01T00:00:00.000Z' };
+  const newer = { ...saved, title: 'Новое', updatedAt: '2099-01-01T00:00:00.000Z' };
+  assert.equal(await store.merge([older]), 0);
+  assert.equal(await store.merge([newer]), 1);
+  assert.equal(await store.merge([newer]), 0);
+  assert.equal((await store.list())[0].title, 'Новое');
+});
+
+test('отметка об удалении побеждает старую версию и уступает новой', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const saved = await store.save(sample);
+  const gone = { id: saved.id, deleted: true, updatedAt: '2090-01-01T00:00:00.000Z', updatedBy: 'x' };
+  await store.merge([gone]);
+  assert.equal((await store.list()).length, 0);
+  await store.merge([saved]);
+  assert.equal((await store.list()).length, 0);
+  await store.merge([{ ...saved, updatedAt: '2095-01-01T00:00:00.000Z' }]);
+  assert.equal((await store.list()).length, 1);
+});
+
+test('слияние отбрасывает неверные записи', async (t) => {
+  const dir = tempDir(t);
+  const store = new EventStore(dir);
+  const saved = await store.save(sample);
+  const changed = await store.merge([
+    { ...saved, id: '../../evil', updatedAt: '2099-01-01T00:00:00.000Z' },
+    { ...saved, updatedAt: 'когда-нибудь' },
+    { id: saved.id, deleted: true, updatedAt: 'x' },
+    null,
+  ]);
+  assert.equal(changed, 0);
+  assert.equal((await store.list()).length, 1);
 });
 
 test('повреждённые и посторонние файлы не мешают чтению', async (t) => {
@@ -101,8 +149,18 @@ test('недоступная папка даёт ошибку, а не паде�
 
 test('настройки: значения по умолчанию, запись и файл от NSIS', (t) => {
   const home = tempDir(t);
-  assert.deepEqual(loadConfig(home), { dataDir: path.join(home, 'data'), fullscreen: true });
-  saveConfig(home, { dataDir: '\\\\server\\calendar', fullscreen: false });
-  assert.deepEqual(loadConfig(home), { dataDir: '\\\\server\\calendar', fullscreen: false });
+  const first = loadConfig(home);
+  assert.equal(first.dataDir, path.join(home, 'data'));
+  assert.equal(first.fullscreen, true);
+  assert.equal(first.deviceName, os.hostname());
+  assert.match(first.deviceId, /^[0-9a-f-]{36}$/);
+  assert.equal(loadConfig(home).deviceId, first.deviceId, 'номер устройства не меняется между запусками');
+  saveConfig(home, { ...first, fullscreen: false, syncKey: 'ABCD-EFGH-IJKL', peers: ['10.0.2.5', '10.0.3.7:47800'], showAll: true, deviceName: 'Ауд. 204' });
+  const again = loadConfig(home);
+  assert.deepEqual(again.peers, ['10.0.2.5', '10.0.3.7:47800']);
+  assert.equal(again.syncKey, 'ABCD-EFGH-IJKL');
+  assert.equal(again.deviceName, 'Ауд. 204');
+  assert.equal(again.showAll, true);
+  assert.equal(again.fullscreen, false);
   assert.deepEqual(parseIni('\uFEFF[calendar]\r\ndataDir=\\\\srv\\a=b\r\n; комментарий\r\n'), { dataDir: '\\\\srv\\a=b' });
 });

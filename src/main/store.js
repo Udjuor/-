@@ -1,7 +1,8 @@
 'use strict';
 // Каждое мероприятие — отдельный JSON-файл в <папка данных>/events.
-// Так несколько панелей могут работать с одной сетевой папкой: запись одного
-// мероприятия не затрагивает остальные, а файл заменяется атомарно.
+// Запись одного мероприятия не затрагивает остальные, а файл заменяется атомарно.
+// Удалённое мероприятие остаётся отметкой { deleted: true }: иначе устройство,
+// которое было выключено, вернуло бы его при следующем обмене.
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -9,6 +10,7 @@ const crypto = require('node:crypto');
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const STAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 class StoreError extends Error {
   constructor(code, message) {
@@ -46,7 +48,9 @@ function normalizeEvent(raw) {
     participants: cleanList(raw.participants),
     equipment: cleanList(raw.equipment),
     notes: String(raw.notes ?? '').trim(),
+    devices: cleanList(raw.devices),
     updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
   };
   const valid =
     ID_RE.test(event.id) &&
@@ -58,10 +62,32 @@ function normalizeEvent(raw) {
   return valid ? event : null;
 }
 
+/** Запись для хранения и обмена: мероприятие или отметка об удалении. */
+function normalizeRecord(raw) {
+  if (raw && raw.deleted === true) {
+    const id = String(raw.id ?? '');
+    return ID_RE.test(id)
+      ? { id, deleted: true, updatedAt: String(raw.updatedAt ?? ''), updatedBy: String(raw.updatedBy ?? '') }
+      : null;
+  }
+  return normalizeEvent(raw);
+}
+
+/** Какая запись новее. Равные метки времени разводит номер устройства. */
+const revision = (record) => `${record.updatedAt}|${record.updatedBy ?? ''}`;
+
+/** Метка новой версии всегда позже предыдущей, даже если часы устройства отстают. */
+function nextStamp(previous) {
+  const now = Date.now();
+  const before = previous ? Date.parse(previous) : 0;
+  return new Date(Math.max(now, (before || 0) + 1)).toISOString();
+}
+
 class EventStore {
-  constructor(dataDir) {
+  constructor(dataDir, deviceId = '') {
     this.dir = path.join(dataDir, 'events');
-    this.cache = new Map(); // имя файла → { stamp, event }
+    this.deviceId = deviceId;
+    this.cache = new Map(); // имя файла → { stamp, record }
   }
 
   fileFor(id) {
@@ -69,7 +95,7 @@ class EventStore {
   }
 
   /** Читает папку. Неизменившиеся файлы берёт из памяти: по сети это важно. */
-  async list() {
+  async records() {
     await fsp.mkdir(this.dir, { recursive: true });
     const names = (await fsp.readdir(this.dir)).filter((name) => name.endsWith('.json'));
     const fresh = new Map();
@@ -84,8 +110,8 @@ class EventStore {
             fresh.set(name, known);
             return;
           }
-          const event = normalizeEvent(JSON.parse(await fsp.readFile(full, 'utf8')));
-          if (event) fresh.set(name, { stamp, event });
+          const record = normalizeRecord(JSON.parse(await fsp.readFile(full, 'utf8')));
+          if (record) fresh.set(name, { stamp, record });
           else console.error('Пропущен неверный файл мероприятия:', name);
         } catch (err) {
           // Файл могли удалить на другой панели, пока мы читали папку.
@@ -94,7 +120,12 @@ class EventStore {
       }),
     );
     this.cache = fresh;
-    return [...fresh.values()].map((entry) => entry.event).sort((a, b) => a.id.localeCompare(b.id));
+    return [...fresh.values()].map((entry) => entry.record).sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /** Действующие мероприятия, без отметок об удалении. */
+  async list() {
+    return (await this.records()).filter((record) => !record.deleted);
   }
 
   async readCurrent(id) {
@@ -106,37 +137,59 @@ class EventStore {
     }
   }
 
-  /** Отказывает, если запись успели изменить или удалить на другой панели. */
+  /** Отказывает, если запись успели изменить или удалить на другом устройстве. */
   async assertUnchanged(id, baseUpdatedAt) {
     const current = await this.readCurrent(id);
-    if (!current || current.updatedAt !== baseUpdatedAt) {
-      throw new StoreError('conflict', 'Мероприятие изменили на другой панели');
+    if (!current || current.deleted || current.updatedAt !== baseUpdatedAt) {
+      throw new StoreError('conflict', 'Мероприятие изменили на другом устройстве');
     }
+    return current;
+  }
+
+  async write(record) {
+    await fsp.mkdir(this.dir, { recursive: true });
+    const target = this.fileFor(record.id);
+    const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    await fsp.writeFile(temp, JSON.stringify(record, null, 2), 'utf8');
+    await fsp.rename(temp, target);
   }
 
   async save(input, baseUpdatedAt = null) {
     const isNew = !input.id;
-    const event = normalizeEvent({
+    const draft = normalizeEvent({
       ...input,
       id: input.id || crypto.randomUUID(),
-      updatedAt: new Date().toISOString(),
+      updatedAt: '',
+      updatedBy: this.deviceId,
     });
-    if (!event) throw new StoreError('invalid', 'Проверьте название, дату и время');
-    if (!isNew) await this.assertUnchanged(event.id, baseUpdatedAt);
-
-    await fsp.mkdir(this.dir, { recursive: true });
-    const target = this.fileFor(event.id);
-    const temp = `${target}.${process.pid}.tmp`;
-    await fsp.writeFile(temp, JSON.stringify(event, null, 2), 'utf8');
-    await fsp.rename(temp, target);
+    if (!draft) throw new StoreError('invalid', 'Проверьте название, дату и время');
+    const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
+    const event = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
+    await this.write(event);
     return event;
   }
 
   async remove(id, baseUpdatedAt) {
     if (!ID_RE.test(String(id))) throw new StoreError('invalid', 'Неверный номер мероприятия');
-    await this.assertUnchanged(id, baseUpdatedAt);
-    await fsp.rm(this.fileFor(id), { force: true });
+    const current = await this.assertUnchanged(id, baseUpdatedAt);
+    await this.write({ id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+  }
+
+  /** Принимает записи с другого устройства, оставляя более новую версию. */
+  async merge(incoming) {
+    const known = new Map((await this.records()).map((record) => [record.id, record]));
+    let changed = 0;
+    for (const raw of incoming) {
+      const record = normalizeRecord(raw);
+      if (!record || !STAMP_RE.test(record.updatedAt)) continue;
+      const mine = known.get(record.id);
+      if (mine && revision(mine) >= revision(record)) continue;
+      await this.write(record);
+      known.set(record.id, record);
+      changed += 1;
+    }
+    return changed;
   }
 }
 
-module.exports = { EventStore, StoreError, normalizeEvent };
+module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision };

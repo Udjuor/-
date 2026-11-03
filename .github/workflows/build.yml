@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         run: |
           $setup = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
-          $p = Start-Process $setup -ArgumentList '/S', '/DATADIR=C:\CalendarData' -Wait -PassThru
+          $p = Start-Process $setup -ArgumentList '/S', '/SYNCKEY=CI000-CI000-CI000-CI000', '/PEERS=10.0.2.15,10.0.3.7' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Код выхода установщика: $($p.ExitCode)" }
 
       - name: Проверить автозапуск, настройки и права
@@ -47,7 +47,11 @@ jobs:
           "CAL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $ini = Get-Content "$env:ProgramData\StudentCalendar\config.ini" -Raw
           Write-Host $ini
-          if ($ini -notmatch 'dataDir=C:\\CalendarData') { throw 'Папка данных не записана' }
+          if ($ini -notmatch 'syncKey=CI000-CI000-CI000-CI000') { throw 'Ключ сети не записан' }
+          if ($ini -notmatch 'peers=10\.0\.2\.15,10\.0\.3\.7') { throw 'Адреса устройств не записаны' }
+          $rule = netsh advfirewall firewall show rule name=StudentCalendar verbose | Out-String
+          Write-Host $rule
+          if ($LASTEXITCODE -ne 0 -or $rule -notmatch 'StudentCalendar\.exe') { throw 'Нет правила брандмауэра' }
           $sid = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-545'
           $group = $sid.Translate([Security.Principal.NTAccount]).Value
           $acl = Get-Acl "$env:ProgramData\StudentCalendar"
@@ -72,6 +76,9 @@ jobs:
           Start-Sleep -Seconds 10
           $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
           if ($run) { throw 'Запись автозапуска осталась' }
+          netsh advfirewall firewall show rule name=StudentCalendar | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw 'Правило брандмауэра осталось' }
+          $global:LASTEXITCODE = 0
           if (-not (Test-Path "$env:ProgramData\StudentCalendar\config.ini")) { throw 'Настройки удалены' }
 
       - name: Сохранить снимки экрана

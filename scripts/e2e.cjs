@@ -7,12 +7,41 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventStore } = require('../src/main/store');
+const { SyncNode } = require('../src/main/sync');
 
 const shots = path.resolve(process.env.SHOTS || 'shots');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-'));
 const eventsDir = path.join(home, 'data', 'events');
 fs.mkdirSync(eventsDir, { recursive: true });
 fs.mkdirSync(shots, { recursive: true });
+
+// Настройки «аудиторного» устройства и второе устройство сети, «компьютер преподавателя».
+const NETWORK_KEY = 'E2E00-E2E00-E2E00-E2E00';
+const deviceId = crypto.randomUUID();
+fs.writeFileSync(path.join(home, 'config.ini'), [
+  '[calendar]', `deviceId=${deviceId}`, 'deviceName=Ауд. 204', `syncKey=${NETWORK_KEY}`, 'peers=127.0.0.1:47811', '',
+].join('\r\n'));
+const teacherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-teacher-'));
+const teacherId = crypto.randomUUID();
+const teacherStore = new EventStore(teacherDir, teacherId);
+const teacher = new SyncNode({
+  store: teacherStore,
+  device: { id: teacherId, name: 'Кабинет преподавателя' },
+  networkKey: NETWORK_KEY,
+  peers: ['127.0.0.1:47800'],
+  port: 47811,
+  discoveryPort: 47812,
+  discoveryTargets: [],
+  timers: false,
+});
+const until = async (check, what) => {
+  for (let i = 0; i < 300; i += 1) {
+    if (await check()) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Не дождались: ${what}`);
+};
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -39,6 +68,7 @@ seed(3, '09:30', '11:00', 'Экскурсия в музей');
 for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, `Секция ${i + 1}`);
 
 (async () => {
+  await teacher.start();
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
@@ -122,14 +152,55 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.click('#details .danger');
   await page.waitForSelector('dialog#details', { state: 'hidden' });
   assert.equal(await page.locator('.block:has-text("Субботник")').count(), 0);
-  assert.equal(fs.readdirSync(eventsDir).length, 13, 'файл мероприятия удалён');
+  assert.equal(fs.readdirSync(eventsDir).length, 14, 'удаление записано отметкой для других устройств');
+
+  // Обмен: компьютер преподавателя получил всё и появился в списке устройств.
+  await until(async () => (await teacherStore.list()).length === 13, 'обмен с компьютером преподавателя');
+  assert.equal((await teacherStore.list()).some((e) => e.title.includes('Субботник')), false, 'удаление дошло');
+
+  // С компьютера преподавателя мероприятие адресовано этой аудитории.
+  const forRoom = await teacherStore.save({ title: 'Для аудитории 204', date: day(0), start: '16:00', end: '17:00', devices: [deviceId] });
+  await teacherStore.save({ title: 'Для другой аудитории', date: day(0), start: '17:00', end: '18:00', devices: ['00000000-0000-4000-8000-000000000000'] });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('.block:has-text("Для аудитории 204")', { timeout: 15000 });
+  assert.equal(await page.locator('.block:has-text("Для другой аудитории")').count(), 0, 'чужое мероприятие не показывается');
+
+  // Правка и удаление с другого устройства.
+  const renamed = await teacherStore.save({ ...forRoom, title: 'Перенесено в 204' }, forRoom.updatedAt);
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('.block:has-text("Перенесено в 204")', { timeout: 15000 });
+  await teacherStore.remove(renamed.id, renamed.updatedAt);
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('.block:has-text("Перенесено в 204")', { state: 'detached', timeout: 15000 });
+
+  // Отсюда мероприятие адресовано компьютеру преподавателя.
+  await page.click('#add');
+  await page.fill('#f-title', 'На компьютер преподавателя');
+  await page.fill('#f-date', day(0));
+  await page.fill('#f-start', '18:00');
+  await page.fill('#f-end', '19:00');
+  await page.click('.targets button:has-text("Кабинет преподавателя")');
+  assert.equal(await page.getAttribute('.targets button:has-text("Все устройства")', 'aria-pressed'), 'false');
+  await shot('form-targets');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /отправлено: Кабинет преподавателя/);
+  assert.equal(await page.locator('.block:has-text("На компьютер преподавателя")').count(), 0, 'здесь не показывается');
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'На компьютер преподавателя'), 'отправка на другое устройство');
+
+  // Преподаватель видит всё.
+  await page.click('#settings');
+  await page.click('label:has-text("Показывать мероприятия всех устройств")');
+  await page.click('#preferences button[type=submit]');
+  await page.waitForSelector('dialog#preferences', { state: 'hidden' });
+  await page.waitForSelector('.block:has-text("На компьютер преподавателя")');
 
   // Нажатие на пустое время открывает форму с этим временем.
   await page.click('[data-view=day]');
   const box = await page.locator('.day').boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.96);
+  await page.waitForFunction(() => document.getElementById('form').open && /^19:/.test(document.getElementById('f-start').value));
   assert.equal(await page.inputValue('#f-date'), day(0));
-  assert.match(await page.inputValue('#f-start'), /^19:/);
   await page.click('#form [aria-label=Закрыть]');
 
   // Запись, сделанная другой панелью, появляется сама.
@@ -148,13 +219,17 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForSelector('#banner', { state: 'hidden', timeout: 15000 });
 
   await page.click('#settings');
-  assert.equal(await page.inputValue('#s-folder'), path.join(home, 'data'));
+  assert.equal(await page.inputValue('#s-name'), 'Ауд. 204');
+  await page.click('text=Обменяться сейчас');
+  await page.waitForSelector('#s-devices li:has-text("Кабинет преподавателя"):has-text("На связи")');
   await shot('settings');
   await page.click('#preferences [aria-label=Закрыть]');
 
   assert.deepEqual(errors, [], 'ошибок на странице нет');
   await app.close();
+  await teacher.stop();
   fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(teacherDir, { recursive: true, force: true });
   console.log('Все сценарии пройдены');
 })().catch((err) => {
   console.error(err);

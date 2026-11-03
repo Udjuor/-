@@ -104,6 +104,14 @@ test('состояние мероприятия', () => {
   assert.equal(L.eventState(e, '2026-11-02', '23:00'), 'future');
 });
 
+test('мероприятие показывается только на выбранных устройствах', () => {
+  assert.equal(L.visibleOn({ devices: [] }, 'room', false), true);
+  assert.equal(L.visibleOn({}, 'room', false), true);
+  assert.equal(L.visibleOn({ devices: ['room'] }, 'room', false), true);
+  assert.equal(L.visibleOn({ devices: ['other'] }, 'room', false), false);
+  assert.equal(L.visibleOn({ devices: ['other'] }, 'room', true), true);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

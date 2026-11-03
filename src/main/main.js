@@ -1,9 +1,9 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
-const fs = require('node:fs');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('node:path');
-const { loadConfig, saveConfig } = require('./config');
+const { loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
+const { SyncNode, generateKey } = require('./sync');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
 function homeDir() {
@@ -20,6 +20,33 @@ app.commandLine.appendSwitch('lang', 'ru');
 let win = null;
 let config = null;
 let store = null;
+let sync = null;
+let syncProblem = null;
+
+async function restartSync() {
+  const previous = sync;
+  sync = null;
+  syncProblem = null;
+  await previous?.stop();
+  if (!config.syncKey) return;
+  const node = new SyncNode({
+    store,
+    device: { id: config.deviceId, name: config.deviceName },
+    networkKey: config.syncKey,
+    peers: config.peers,
+    peersFile: path.join(homeDir(), 'peers.json'),
+    onChange: () => win?.webContents.send('events:changed'),
+  });
+  try {
+    await node.start();
+    sync = node;
+  } catch (err) {
+    // Порт занят, например второй учётной записью на этом же компьютере.
+    console.error('Обмен не запущен:', err.message);
+    syncProblem = err.code === 'EADDRINUSE' ? 'port-busy' : 'failed';
+    await node.stop();
+  }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -27,7 +54,7 @@ function createWindow() {
     height: 900,
     show: false,
     fullscreen: config.fullscreen,
-    backgroundColor: '#1d3f36',
+    backgroundColor: '#0d1117',
     title: 'Календарь мероприятий',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     webPreferences: {
@@ -71,35 +98,54 @@ async function respond(work) {
 
 function registerHandlers() {
   ipcMain.handle('events:list', () => respond(() => store.list()));
-  ipcMain.handle('events:save', (_e, event, base) => respond(() => store.save(event, base)));
-  ipcMain.handle('events:remove', (_e, id, base) => respond(() => store.remove(id, base)));
+  ipcMain.handle('events:save', (_e, event, base) => respond(async () => {
+    const saved = await store.save(event, base);
+    sync?.nudge();
+    return saved;
+  }));
+  ipcMain.handle('events:remove', (_e, id, base) => respond(async () => {
+    await store.remove(id, base);
+    sync?.nudge();
+  }));
 
   ipcMain.handle('settings:get', () => ({
-    dataDir: config.dataDir,
+    deviceId: config.deviceId,
+    deviceName: config.deviceName,
+    syncKey: config.syncKey,
+    peers: config.peers,
+    showAll: config.showAll,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
   }));
 
   ipcMain.handle('settings:save', (_e, settings) =>
     respond(async () => {
-      const dataDir = String(settings.dataDir || '').trim();
-      if (!dataDir) throw new Error('Укажите папку с мероприятиями');
-      await fs.promises.mkdir(path.join(dataDir, 'events'), { recursive: true });
-      config = { dataDir, fullscreen: Boolean(settings.fullscreen) };
+      const syncKey = String(settings.syncKey ?? '').trim();
+      if (syncKey && syncKey.length < 12) {
+        throw Object.assign(new Error('Ключ сети должен быть не короче 12 символов'), { code: 'invalid' });
+      }
+      const syncChanged = syncKey !== config.syncKey
+        || settings.deviceName !== config.deviceName
+        || splitPeers(settings.peers).join() !== config.peers.join();
+      config = {
+        ...config,
+        deviceName: String(settings.deviceName ?? '').trim() || config.deviceName,
+        syncKey,
+        peers: splitPeers(settings.peers),
+        showAll: Boolean(settings.showAll),
+        fullscreen: Boolean(settings.fullscreen),
+      };
       saveConfig(homeDir(), config);
-      store = new EventStore(config.dataDir);
       if (win) win.setFullScreen(config.fullscreen);
+      if (syncChanged) await restartSync();
     }),
   );
 
-  ipcMain.handle('settings:pick-folder', async () => {
-    const result = await dialog.showOpenDialog(win, {
-      title: 'Папка с мероприятиями',
-      defaultPath: config.dataDir,
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    return result.canceled ? null : result.filePaths[0];
+  ipcMain.handle('sync:status', () => (sync ? sync.status() : { enabled: false, problem: syncProblem, peers: [], unreachable: [] }));
+  ipcMain.handle('sync:now', async () => {
+    await sync?.round({ all: true });
   });
+  ipcMain.handle('sync:generate-key', () => generateKey());
 
   ipcMain.handle('window:minimize', () => {
     if (win) win.minimize();
@@ -119,9 +165,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     config = loadConfig(homeDir());
-    store = new EventStore(config.dataDir);
+    store = new EventStore(config.dataDir, config.deviceId);
     registerHandlers();
     createWindow();
+    restartSync();
+  });
+
+  app.on('before-quit', () => {
+    sync?.stop();
   });
 
   app.on('window-all-closed', () => app.quit());

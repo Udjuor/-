@@ -1,6 +1,6 @@
 import {
   addDays, addMonths, eventState, eventsOn, findConflicts, fromISO, fromMinutes, hourRange, layoutDay,
-  monthWeeks, plural, splitList, suggestedStart, toISO, toMinutes, uniqueValues, weekDays,
+  monthWeeks, plural, splitList, suggestedStart, toISO, toMinutes, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 const POLL_MS = 10_000;
@@ -13,7 +13,10 @@ const api = window.calendar;
 const state = {
   view: 'week',
   date: toISO(new Date()),
-  events: [],
+  allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
+  events: [], // те, что показывает это устройство
+  settings: null,
+  deviceNames: new Map(),
   storageError: null,
   lastActivity: Date.now(),
   renderedMinute: '',
@@ -56,21 +59,9 @@ function periodTitle() {
     : `${fmt(days[0], { day: 'numeric', month: 'long' })} – ${lastText} ${year}`;
 }
 
-/** Меловой контур вокруг числа: рисуется от руки и с небольшим нахлёстом. */
-function chalkCircle() {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 100 100');
-  svg.setAttribute('preserveAspectRatio', 'none');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', 'M62 7C34 1 8 17 6 48c-2 32 27 48 53 44 26-4 39-27 34-49C88 19 64 5 38 10');
-  svg.append(path);
-  return svg;
-}
-
 function dayNumber(iso, isToday) {
   const text = String(fromISO(iso).getDate());
-  return isToday ? h('span', { class: 'circled' }, text, chalkCircle()) : h('span', {}, text);
+  return h('span', { class: isToday ? 'todaynum' : '' }, text);
 }
 
 function openDay(iso) {
@@ -248,26 +239,48 @@ async function refresh() {
   const result = await api.list();
   loading = false;
   const error = result.ok ? null : result.message;
-  const changed = result.ok && JSON.stringify(result.value) !== JSON.stringify(state.events);
-  if (changed) state.events = result.value;
+  const changed = result.ok && JSON.stringify(result.value) !== JSON.stringify(state.allEvents);
+  if (changed) setEvents(result.value);
   const bannerChanged = error !== state.storageError;
   if (bannerChanged) {
     state.storageError = error;
     const banner = $('banner');
     banner.hidden = !error;
-    if (error) {
-      const { dataDir } = await api.getSettings();
-      banner.textContent = `Нет доступа к папке с мероприятиями (${dataDir}). На экране последние загруженные данные, сохранить изменения пока нельзя. Программа подключится сама, как только папка станет доступна.`;
-    }
+    banner.textContent = error
+      ? 'Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\StudentCalendar.'
+      : '';
   }
   if (changed || bannerChanged) render();
+  await loadDevices();
+}
+
+function setEvents(all) {
+  state.allEvents = all;
+  state.events = all.filter((e) => visibleOn(e, state.settings.deviceId, state.settings.showAll));
+}
+
+async function loadDevices() {
+  const status = await api.syncStatus();
+  state.deviceNames = new Map(status.peers.map((peer) => [peer.id, peer.name]));
+  state.deviceNames.set(state.settings.deviceId, state.settings.deviceName);
+  return status;
+}
+
+const deviceName = (id) => state.deviceNames.get(id) ?? 'Неизвестное устройство';
+
+function toast(text) {
+  const box = $('toast');
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { box.hidden = true; }, 5000);
 }
 
 const storeMessage = (result) => (result.code === 'conflict'
-  ? 'Это мероприятие уже изменили или удалили на другой панели. Закройте окно и откройте его заново.'
+  ? 'Это мероприятие уже изменили или удалили на другом устройстве. Закройте окно и откройте его заново.'
   : result.code === 'invalid'
     ? result.message
-    : 'Не удалось сохранить: нет доступа к папке с мероприятиями. Попробуйте ещё раз.');
+    : 'Не удалось сохранить на этом компьютере. Попробуйте ещё раз.');
 
 /* Карточка мероприятия */
 
@@ -295,7 +308,7 @@ function listGroup(title, items, ordered) {
 }
 
 function showDetails(id) {
-  const event = state.events.find((e) => e.id === id);
+  const event = state.allEvents.find((e) => e.id === id);
   if (!event) return;
   const dialog = $('details');
   const footer = h('div', { class: 'sheetfoot' });
@@ -314,7 +327,7 @@ function showDetails(id) {
       onclick: async () => {
         const result = await api.remove(event.id, event.updatedAt);
         if (result.ok) {
-          state.events = state.events.filter((e) => e.id !== event.id);
+          setEvents(state.allEvents.filter((e) => e.id !== event.id));
           dialog.close();
           render();
         } else {
@@ -333,7 +346,8 @@ function showDetails(id) {
         fact('Дата', fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '')),
         fact('Время', timeRange(event)),
         fact('Место', event.place),
-        fact('Ответственный', event.responsible || 'Не указан')),
+        fact('Ответственный', event.responsible || 'Не указан'),
+        fact('Показывать на', event.devices.map(deviceName).join(', '))),
       listGroup(`Участники: ${event.participants.length}`, event.participants, true),
       listGroup('Техника', event.equipment, false),
       event.notes && h('section', { class: 'group' }, h('h3', {}, 'Примечание'), h('p', { class: 'notes' }, event.notes))),
@@ -401,18 +415,55 @@ function listInput(label, listId, inputId, placeholder, values, onChange) {
   };
 }
 
+/** Выбор устройств. Пустой список означает «на всех». */
+function devicePicker(selected, network) {
+  const self = { id: state.settings.deviceId, name: `${state.settings.deviceName} (это устройство)` };
+  const known = [self, ...network.peers];
+  for (const id of selected) if (!known.some((d) => d.id === id)) known.push({ id, name: deviceName(id) });
+  if (known.length < 2) return null;
+
+  const row = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-targets' });
+  const draw = () => {
+    const toggle = (device) => h('button', {
+      type: 'button',
+      'aria-pressed': String(selected.includes(device.id)),
+      onclick: () => {
+        const index = selected.indexOf(device.id);
+        if (index === -1) selected.push(device.id);
+        else selected.splice(index, 1);
+        draw();
+      },
+    }, device.name);
+    row.replaceChildren(
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(!selected.length),
+        onclick: () => { selected.length = 0; draw(); },
+      }, 'Все устройства'),
+      ...known.map(toggle),
+    );
+  };
+  draw();
+  return h('div', { class: 'field' },
+    h('span', { class: 'label', id: 'l-targets' }, 'Где показывать'),
+    row,
+    h('p', { class: 'help' }, 'Выключенное устройство получит мероприятие при следующей связи с любым устройством сети.'));
+}
+
 function suggestions(id, values) {
   return h('datalist', { id }, uniqueValues(values).map((value) => h('option', { value })));
 }
 
-function openForm(source = {}) {
+async function openForm(source = {}) {
   const dialog = $('form');
+  const network = await loadDevices();
   const clock = now();
   const start = source.start ?? suggestedStart(clock.time);
   const draft = {
     id: source.id ?? null,
     participants: [...(source.participants ?? [])],
     equipment: [...(source.equipment ?? [])],
+    devices: [...(source.devices ?? [])],
   };
 
   const field = (label, id, attrs, size = '') => {
@@ -446,12 +497,13 @@ function openForm(source = {}) {
     responsible: $('f-responsible').value.trim(),
     participants: draft.participants,
     equipment: draft.equipment,
+    devices: draft.devices,
     notes: $('f-notes').value.trim(),
   });
 
   const updateConflicts = () => {
     if (!dialog.open) return;
-    const found = findConflicts(read(), state.events);
+    const found = findConflicts(read(), state.allEvents);
     conflictBox.hidden = !found.length;
     conflictBox.replaceChildren(
       h('h3', {}, 'Уже заняты в это время'),
@@ -463,6 +515,8 @@ function openForm(source = {}) {
     'Фамилия и имя, можно вставить список из таблицы', draft.participants, updateConflicts);
   const equipment = listInput('Техника', 'd-equipment', 'f-equipment',
     'Например, проектор', draft.equipment, updateConflicts);
+
+  const targets = devicePicker(draft.devices, network);
 
   const setInvalid = (wrapper, text) => {
     wrapper.classList.toggle('invalid', Boolean(text));
@@ -503,22 +557,23 @@ function openForm(source = {}) {
         message.textContent = storeMessage(result);
         return;
       }
-      state.events = [...state.events.filter((x) => x.id !== result.value.id), result.value];
+      setEvents([...state.allEvents.filter((x) => x.id !== result.value.id), result.value]);
       state.date = result.value.date;
       dialog.close();
       render();
+      if (event.devices.length) toast(`Мероприятие отправлено: ${event.devices.map(deviceName).join(', ')}`);
     },
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        title, date, from, to, place, responsible,
+        title, date, from, to, place, responsible, targets,
         participants.element, equipment.element, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, 'Примечание'),
           h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? ''))),
-      suggestions('d-people', state.events.flatMap((e) => [e.responsible, ...e.participants])),
-      suggestions('d-equipment', state.events.flatMap((e) => e.equipment)),
-      suggestions('d-places', state.events.map((e) => e.place))),
+      suggestions('d-people', state.allEvents.flatMap((e) => [e.responsible, ...e.participants])),
+      suggestions('d-equipment', state.allEvents.flatMap((e) => e.equipment)),
+      suggestions('d-places', state.allEvents.map((e) => e.place))),
     h('div', { class: 'sheetfoot' }, save, message));
 
   dialog.replaceChildren(
@@ -532,41 +587,110 @@ function openForm(source = {}) {
 
 /* Настройки */
 
+const PROBLEMS = {
+  'port-busy': 'Обмен работает в другой учётной записи на этом компьютере.',
+  failed: 'Обмен не запустился. Перезапустите программу.',
+};
+
+const STATUS = {
+  'wrong-key': 'Другой ключ сети',
+  offline: 'Нет связи',
+  unknown: 'Связи ещё не было',
+};
+
+function peerStatus(peer) {
+  const last = peer.lastSync
+    ? new Date(peer.lastSync).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+    : null;
+  if (peer.status === 'ok') return `На связи, обмен ${last}`;
+  return last && peer.status !== 'wrong-key' ? `${STATUS[peer.status]}, последний обмен ${last}` : STATUS[peer.status];
+}
+
+function deviceList(status) {
+  if (!status.enabled) {
+    return [h('p', { class: 'help' }, PROBLEMS[status.problem] ?? 'Введите ключ сети, чтобы включить обмен.')];
+  }
+  const rows = [
+    ...status.peers.map((peer) => h('li', {}, h('strong', {}, peer.name), h('span', {}, peerStatus(peer)))),
+    ...status.unreachable.map((peer) => h('li', {}, h('strong', {}, peer.address), h('span', {}, STATUS[peer.status] ?? 'Нет связи'))),
+  ];
+  return [
+    h('p', { class: 'help' }, `Адрес этого устройства: ${status.addresses.join(', ') || 'нет подключения к сети'}`),
+    rows.length ? h('ul', { class: 'devices' }, rows) : h('p', { class: 'help' }, 'Других устройств пока не найдено.'),
+  ];
+}
+
 async function openSettings() {
   const dialog = $('preferences');
   const current = await api.getSettings();
-  const folder = h('input', { id: 's-folder', value: current.dataDir, spellcheck: 'false' });
+  const name = h('input', { id: 's-name', value: current.deviceName, autocomplete: 'off', maxlength: 60 });
+  const key = h('input', { id: 's-key', value: current.syncKey, spellcheck: 'false', autocomplete: 'off' });
+  const peers = h('input', { id: 's-peers', value: current.peers.join(', '), spellcheck: 'false', autocomplete: 'off' });
+  const showAll = h('input', { id: 's-all', type: 'checkbox', checked: current.showAll });
   const fullscreen = h('input', { id: 's-fullscreen', type: 'checkbox', checked: current.fullscreen });
   const message = h('p', { class: 'message error' });
+  const devices = h('div', { id: 's-devices' });
+  const drawDevices = async () => devices.replaceChildren(...deviceList(await api.syncStatus()));
+  await drawDevices();
 
   const form = h('form', {
     class: 'sheetform',
     onsubmit: async (e) => {
       e.preventDefault();
-      const result = await api.saveSettings({ dataDir: folder.value, fullscreen: fullscreen.checked });
+      const result = await api.saveSettings({
+        deviceName: name.value,
+        syncKey: key.value,
+        peers: peers.value,
+        showAll: showAll.checked,
+        fullscreen: fullscreen.checked,
+      });
       if (!result.ok) {
-        message.textContent = `Папка недоступна: ${folder.value.trim() || 'не указана'}. Проверьте путь и права на запись.`;
+        message.textContent = result.code === 'invalid' ? result.message : 'Настройки не сохранены: нет доступа к файлу настроек.';
         return;
       }
+      state.settings = await api.getSettings();
+      setEvents(state.allEvents);
       dialog.close();
-      state.events = [];
       render();
       refresh();
     },
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'setting field' },
-        h('label', { for: 's-folder' }, 'Папка с мероприятиями'),
-        h('div', { class: 'adder' }, folder, h('button', {
+        h('label', { for: 's-name' }, 'Название устройства'),
+        name,
+        h('p', { class: 'help' }, 'Например, «Ауд. 204» или «Кабинет Лебедевой». Его увидят на других устройствах.')),
+      h('div', { class: 'setting field' },
+        h('label', { for: 's-key' }, 'Ключ сети'),
+        h('div', { class: 'adder' }, key, h('button', {
           type: 'button',
-          onclick: async () => {
-            const picked = await api.pickFolder();
-            if (picked) folder.value = picked;
-          },
-        }, 'Выбрать')),
-        h('p', { class: 'help' }, 'Чтобы все панели показывали одно и то же, укажите на каждой одну сетевую папку, например \\\\server\\calendar.')),
+          onclick: async () => { key.value = await api.generateKey(); },
+        }, 'Создать')),
+        h('p', { class: 'help' }, 'Создайте ключ на одном устройстве и введите такой же на остальных. Устройства с разными ключами не видят друг друга.')),
+      h('div', { class: 'setting field' },
+        h('label', { for: 's-peers' }, 'Адреса устройств в других сетях'),
+        peers,
+        h('p', { class: 'help' }, 'Нужны, только если устройства не находят друг друга сами, например 10.0.2.15, 10.0.3.7. Достаточно одного адреса: остальные передадутся автоматически.')),
       h('div', { class: 'setting' },
+        h('label', { class: 'check' }, showAll, 'Показывать мероприятия всех устройств'),
+        h('p', { class: 'help' }, 'Включите на компьютерах преподавателей.'),
         h('label', { class: 'check' }, fullscreen, 'Открывать на весь экран')),
+      h('section', { class: 'setting' },
+        h('div', { class: 'grouphead' },
+          h('h3', {}, 'Устройства в сети'),
+          h('button', {
+            type: 'button',
+            class: 'plain',
+            onclick: async (e) => {
+              const button = e.currentTarget;
+              button.disabled = true;
+              await api.syncNow();
+              await drawDevices();
+              await refresh();
+              button.disabled = false;
+            },
+          }, 'Обменяться сейчас')),
+        devices),
       h('p', { class: 'help' }, `Версия ${current.version}`)),
     h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'submit' }, 'Сохранить настройки'), message));
 
@@ -619,9 +743,15 @@ function wire() {
   }
 }
 
-wire();
-render();
-tick();
-refresh();
+async function start() {
+  wire();
+  state.settings = await api.getSettings();
+  api.onChanged(refresh);
+  render();
+  tick();
+  await refresh();
+}
+
+start();
 setInterval(tick, 1000);
 setInterval(refresh, POLL_MS);
