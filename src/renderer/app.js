@@ -3,6 +3,8 @@ import {
   monthWeeks, nameKey, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
+import { petPixels, petStatus } from './pet.mjs';
+
 const POLL_MS = 10_000;
 const IDLE_MS = 5 * 60_000;
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -267,6 +269,7 @@ async function refresh() {
   await loadDirectory();
   await loadAttendance();
   await loadDevices();
+  refreshPet();
 }
 
 let redrawRoll = null;
@@ -1514,6 +1517,190 @@ function openReports() {
   dialog.showModal();
 }
 
+/* Тамагочи */
+
+const PET_KEY = 'pet-group';
+
+const MOODS = {
+  play: 'отлично себя чувствует и играет',
+  fine: 'здоров и доволен',
+  sad: 'грустит: студенты стали опаздывать и пропускать',
+  sick: 'болеет. Без посещений ему станет хуже',
+};
+
+function savedPetGroup() {
+  try {
+    return localStorage.getItem(PET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberPetGroup(id) {
+  try {
+    localStorage.setItem(PET_KEY, id);
+  } catch { /* выбор просто не запомнится */ }
+}
+
+/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
+function petSprite(mood) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('petsprite', `mood-${mood}`);
+  for (const frame of [0, 1]) {
+    const layer = document.createElementNS(ns, 'g');
+    layer.classList.add(`frame${frame}`);
+    for (const { x, y, fill } of petPixels(mood, frame)) {
+      const pixel = document.createElementNS(ns, 'rect');
+      pixel.setAttribute('x', x);
+      pixel.setAttribute('y', y);
+      pixel.setAttribute('width', 1);
+      pixel.setAttribute('height', 1);
+      pixel.setAttribute('fill', fill);
+      layer.append(pixel);
+    }
+    svg.append(layer);
+  }
+  return svg;
+}
+
+function currentPetGroup() {
+  const groups = refsOf('group');
+  return groups.find((group) => group.id === savedPetGroup()) ?? groups[0] ?? null;
+}
+
+function petOf(group) {
+  const clock = now();
+  return petStatus({
+    group,
+    students: refsOf('student'),
+    events: state.allEvents,
+    attendance: state.attendance,
+    nowISO: clock.iso,
+    nowTime: clock.time,
+  });
+}
+
+const petTitle = (group) => group.petName || 'Безымянный питомец';
+
+let petButtonKey = '';
+
+/** Кнопка внизу экрана. Перерисовывается только при смене настроения, чтобы не сбивать анимацию. */
+function refreshPet() {
+  const button = $('pet-open');
+  const group = currentPetGroup();
+  button.hidden = !group;
+  if (!group) return;
+  const pet = petOf(group);
+  const key = `${group.id}:${group.petName}:${pet.mood}:${pet.health}`;
+  if (key !== petButtonKey) {
+    petButtonKey = key;
+    button.setAttribute('aria-label', `Тамагочи группы ${group.name}`);
+    button.replaceChildren(petSprite(pet.mood), h('span', {}, group.petName || group.name));
+    if ($('pet').open) drawPet();
+  }
+}
+
+function petStats(pet) {
+  if (pet.mood === 'dead') {
+    return [`Посещаемость группы довела питомца до смерти. Последняя пара: ${fmt(pet.diedOn, { day: 'numeric', month: 'long' })}.`];
+  }
+  if (!pet.last) return ['Пока нет отмеченных пар. Здоровье зависит от посещаемости группы.'];
+  const { last } = pet;
+  return [
+    `Учтено пар: ${pet.counted}`,
+    `Последняя: ${last.title}, ${fmt(last.date, { day: 'numeric', month: 'long' })}. Пришли ${last.present} из ${last.total}, опоздали ${last.late}, пропустили ${last.absent}.`,
+  ];
+}
+
+function drawPet() {
+  const dialog = $('pet');
+  const groups = refsOf('group');
+  const group = currentPetGroup();
+  if (!group) {
+    dialog.close();
+    return;
+  }
+  const pet = petOf(group);
+  const failure = h('p', { class: 'error' });
+
+  const saveGroup = async (changes) => {
+    const result = await api.saveRefs([{ ref: { ...group, ...changes }, base: group.updatedAt }]);
+    if (!result.ok) {
+      failure.textContent = 'Не удалось сохранить. Попробуйте ещё раз.';
+      return;
+    }
+    await loadDirectory();
+    petButtonKey = '';
+    refreshPet();
+    drawPet();
+  };
+
+  const name = h('input', { id: 'pet-name', value: group.petName ?? '', maxlength: 24, placeholder: 'Придумайте имя', autocomplete: 'off', 'aria-label': 'Имя питомца' });
+  const saveName = () => saveGroup({ petName: name.value });
+  name.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveName();
+    }
+  });
+
+  const stage = h('button', {
+    type: 'button',
+    class: 'petstage',
+    'aria-label': pet.mood === 'dead' ? 'Надгробие' : 'Погладить питомца',
+    onclick: () => {
+      if (pet.mood === 'dead') return;
+      const heart = h('span', { class: 'petheart', 'aria-hidden': 'true' }, '♥');
+      stage.append(heart);
+      setTimeout(() => heart.remove(), 900);
+    },
+  }, petSprite(pet.mood));
+
+  const meter = h('div', { class: 'petmeter' }, h('i'));
+  meter.firstChild.style.width = `${pet.health}%`;
+  meter.firstChild.className = `level-${pet.mood}`;
+
+  const titleLine = pet.mood === 'dead'
+    ? `${petTitle(group)}: питомец умер`
+    : `${petTitle(group)} ${MOODS[pet.mood]}`;
+
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, 'Тамагочи'), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      groups.length > 1 && h('div', { class: 'targets petgroups', role: 'group', 'aria-label': 'Группа' }, groups.map((item) => h('button', {
+        type: 'button',
+        'aria-pressed': String(item.id === group.id),
+        onclick: () => {
+          rememberPetGroup(item.id);
+          petButtonKey = '';
+          refreshPet();
+          drawPet();
+        },
+      }, item.name))),
+      stage,
+      h('p', { class: 'petmood' }, titleLine),
+      pet.mood !== 'dead' && h('div', { class: 'petlevel' }, meter, h('span', {}, `Здоровье ${pet.health} из 100`)),
+      petStats(pet).map((line) => h('p', { class: 'help' }, line)),
+      pet.mood === 'dead'
+        ? h('button', {
+          type: 'button',
+          class: 'primary petnew',
+          onclick: () => {
+            const clock = now();
+            saveGroup({ petName: '', petSince: `${clock.iso}T${clock.time}` });
+          },
+        }, 'Завести нового питомца')
+        : h('div', { class: 'field petname' },
+          h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, 'Назвать'))),
+      failure,
+      h('p', { class: 'help' }, 'Питомец живёт посещаемостью группы: пропуски без причины и опоздания вредят ему, хорошая посещаемость лечит. Уважительные причины не вредят.')),
+  );
+}
+
 /* Настройки */
 
 const PROBLEMS = {
@@ -1709,7 +1896,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -1724,6 +1911,10 @@ function wire() {
   $('settings').addEventListener('click', openSettings);
   $('theme').addEventListener('click', () => {
     api.setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
+  });
+  $('pet-open').addEventListener('click', () => {
+    drawPet();
+    $('pet').showModal();
   });
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {

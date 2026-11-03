@@ -208,6 +208,16 @@ test('неверная отметка не принимается', async (t) =>
   await assert.rejects(store.saveMark('../x', 'Иванов', 'present'), { code: 'invalid' });
 });
 
+test('имя питомца хранится в группе и проверяется', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petName: ' Пиксель ', petSince: '2026-11-03T12:00' });
+  assert.equal(group.petName, 'Пиксель');
+  assert.equal(group.petSince, '2026-11-03T12:00');
+  const bad = await store.saveRef({ kind: 'group', name: 'ПИ-22', petName: 'x'.repeat(50), petSince: 'вчера' });
+  assert.equal(bad.petName.length, 24);
+  assert.equal(bad.petSince, '');
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });

@@ -94,6 +94,10 @@ function normalizeRef(raw) {
     ref.groupId = String(raw.groupId ?? '');
     ref.ownCamera = raw.ownCamera === true;
   }
+  if (raw.kind === 'group') {
+    ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
+    ref.petSince = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw.petSince ?? '') ? raw.petSince : '';
+  }
   if (raw.kind === 'equipment') {
     // Пустое количество означает «без лимита».
     ref.quantity = Number.isInteger(raw.quantity) && raw.quantity >= 0 ? raw.quantity : null;

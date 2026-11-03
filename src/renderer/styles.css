@@ -548,3 +548,51 @@ dialog::backdrop { background: var(--backdrop); }
 .checkupdate { margin-top: .5rem; }
 
 .qtyrow[hidden] { display: none; }
+
+/* Тамагочи */
+.petbutton { display: flex; gap: .4rem; align-items: center; min-height: 2.2rem; margin-left: auto; padding: 0 .5rem; color: var(--fg); font-size: .95rem; }
+.petbutton .petsprite { width: 1.9rem; }
+.legend { align-items: center; padding-block: .1rem; }
+.petsprite { display: block; aspect-ratio: 1; overflow: visible; }
+.petsprite .frame1 { visibility: hidden; animation: pet-frame 1.2s steps(1) infinite; }
+.petsprite .frame0 { animation: pet-frame 1.2s steps(1) infinite reverse; }
+.mood-play { animation: pet-hop .6s ease-in-out infinite alternate; }
+.mood-sick { animation: pet-shiver 2.4s steps(4) infinite; }
+.mood-dead .frame0 { animation: none; }
+.mood-dead .frame1 { animation: none; }
+
+@keyframes pet-frame {
+  0% { visibility: visible; }
+  50% { visibility: hidden; }
+}
+
+@keyframes pet-hop { to { transform: translateY(-9%); } }
+
+@keyframes pet-shiver {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2%); }
+  75% { transform: translateX(2%); }
+}
+
+.petstage { position: relative; display: block; width: 11rem; margin: 0 auto .6rem; padding: .5rem; }
+.petstage .petsprite { width: 100%; }
+.petheart { position: absolute; top: 10%; left: 50%; color: #ff7b93; font-size: 2rem; pointer-events: none; animation: pet-heart .9s ease-out forwards; }
+
+@keyframes pet-heart {
+  to { opacity: 0; transform: translateY(-3rem) scale(1.4); }
+}
+
+.petgroups { justify-content: center; margin-bottom: .8rem; }
+.petmood { margin-bottom: .6rem; font-size: 1.15rem; font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+.petlevel { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .6rem; color: var(--fg-muted); font-size: .95rem; }
+.petmeter { height: .8rem; overflow: hidden; border: .05rem solid var(--border); border-radius: .2rem; background: var(--canvas); }
+.petmeter i { display: block; height: 100%; }
+.petmeter .level-play, .petmeter .level-fine { background: var(--success-emphasis); }
+.petmeter .level-sad { background: var(--attention-fg); }
+.petmeter .level-sick { background: var(--danger-emphasis); }
+.petname { margin: .8rem 0; }
+.petnew { display: block; margin: .8rem auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .petsprite, .petsprite .frame0, .petsprite .frame1 { animation: none; }
+}

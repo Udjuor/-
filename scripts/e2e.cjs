@@ -540,6 +540,37 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await shot('report-buttons');
   await page.click('#reports [aria-label=Закрыть]');
 
+  // Тамагочи: имя, настроение, смерть от прогулов и новый питомец.
+  await page.waitForSelector('#pet-open:not([hidden])');
+  await page.click('#pet-open');
+  await page.waitForSelector('#pet[open]');
+  await page.click('#pet .petgroups button:has-text("ИС-21")').catch(() => {});
+  await page.fill('#pet-name', 'Пиксель');
+  await page.click('#pet >> text=Назвать');
+  await page.waitForSelector('#pet-open:has-text("Пиксель")');
+  await until(async () => (await teacherStore.directory()).some((r) => r.petName === 'Пиксель'), 'имя питомца на другом устройстве');
+  assert.equal(await page.locator('#pet .mood-sick, #pet .mood-sad, #pet .mood-fine, #pet .mood-play').count(), 1, 'питомец жив');
+  await page.click('#pet .petstage');
+  await page.waitForSelector('#pet .petheart');
+  await shot('pet-alive');
+  await page.click('#pet [aria-label=Закрыть]');
+
+  const tiny = ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья', 'Тестов Ученик1'];
+  for (let i = 0; i < 9; i += 1) {
+    const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-20 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
+    await teacherStore.saveMark(lost.id, tiny[0], 'present');
+  }
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('#pet-open .mood-dead', { timeout: 20000 });
+  await page.click('#pet-open');
+  await page.waitForSelector('#pet .mood-dead');
+  assert.match(await page.textContent('#pet .petmood'), /Пиксель: питомец умер/);
+  await shot('pet-dead');
+  await page.click('#pet >> text=Завести нового питомца');
+  await page.waitForSelector('#pet .mood-fine');
+  assert.match(await page.textContent('#pet .petlevel'), /Здоровье 70 из 100/);
+  await page.click('#pet [aria-label=Закрыть]');
+
   // Преподаватель видит всё.
   await page.click('#settings');
   await page.click('label:has-text("Показывать мероприятия всех устройств")');
