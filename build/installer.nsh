@@ -1,15 +1,16 @@
 ; Дополнительные шаги установщика. Подключается из electron-builder (nsis.include).
 !include "FileFunc.nsh"
 
-Var calHome
-Var calOutput
-Var calArgs
-Var calDataDir
-
 !define CAL_RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define CAL_RUN_NAME "StudentCalendar"
 
 !macro customInstall
+  ; Переменные объявлены здесь: сборка программы удаления этот макрос не использует.
+  Var /GLOBAL calHome
+  Var /GLOBAL calOutput
+  Var /GLOBAL calArgs
+  Var /GLOBAL calDataDir
+
   ; Автозапуск для всех учётных записей компьютера. Запись видна
   ; в «Параметры → Приложения → Автозагрузка» и в диспетчере задач.
   WriteRegStr HKLM "${CAL_RUN_KEY}" "${CAL_RUN_NAME}" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
