@@ -108,6 +108,18 @@ function registerHandlers() {
     sync?.nudge();
   }));
 
+  ipcMain.handle('directory:list', () => respond(() => store.directory()));
+  ipcMain.handle('directory:save', (_e, refs) => respond(async () => {
+    const saved = [];
+    for (const { ref, base } of refs) saved.push(await store.saveRef(ref, base));
+    sync?.nudge();
+    return saved;
+  }));
+  ipcMain.handle('directory:remove', (_e, refs) => respond(async () => {
+    for (const { id, base } of refs) await store.remove(id, base);
+    sync?.nudge();
+  }));
+
   ipcMain.handle('settings:get', () => ({
     deviceId: config.deviceId,
     deviceName: config.deviceName,

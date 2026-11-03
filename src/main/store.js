@@ -62,7 +62,24 @@ function normalizeEvent(raw) {
   return valid ? event : null;
 }
 
-/** Запись для хранения и обмена: мероприятие или отметка об удалении. */
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher']);
+
+/** Запись справочника: группа, студент, техника или преподаватель. */
+function normalizeRef(raw) {
+  if (!raw || !REF_KINDS.has(raw.kind)) return null;
+  const ref = {
+    id: String(raw.id ?? ''),
+    kind: raw.kind,
+    name: String(raw.name ?? '').trim(),
+    updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
+  };
+  if (raw.kind === 'student') ref.groupId = String(raw.groupId ?? '');
+  const valid = ID_RE.test(ref.id) && ref.name && (raw.kind !== 'student' || ID_RE.test(ref.groupId));
+  return valid ? ref : null;
+}
+
+/** Запись для хранения и обмена: мероприятие, справочник или отметка об удалении. */
 function normalizeRecord(raw) {
   if (raw && raw.deleted === true) {
     const id = String(raw.id ?? '');
@@ -70,7 +87,7 @@ function normalizeRecord(raw) {
       ? { id, deleted: true, updatedAt: String(raw.updatedAt ?? ''), updatedBy: String(raw.updatedBy ?? '') }
       : null;
   }
-  return normalizeEvent(raw);
+  return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
 }
 
 /** Какая запись новее. Равные метки времени разводит номер устройства. */
@@ -125,7 +142,12 @@ class EventStore {
 
   /** Действующие мероприятия, без отметок об удалении. */
   async list() {
-    return (await this.records()).filter((record) => !record.deleted);
+    return (await this.records()).filter((record) => !record.deleted && !record.kind);
+  }
+
+  /** Записи справочников. */
+  async directory() {
+    return (await this.records()).filter((record) => !record.deleted && record.kind);
   }
 
   async readCurrent(id) {
@@ -167,6 +189,16 @@ class EventStore {
     const event = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
     await this.write(event);
     return event;
+  }
+
+  async saveRef(input, baseUpdatedAt = null) {
+    const isNew = !input.id;
+    const draft = normalizeRef({ ...input, id: input.id || crypto.randomUUID(), updatedAt: '', updatedBy: this.deviceId });
+    if (!draft) throw new StoreError('invalid', 'Проверьте название');
+    const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
+    const ref = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
+    await this.write(ref);
+    return ref;
   }
 
   async remove(id, baseUpdatedAt) {

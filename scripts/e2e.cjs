@@ -188,6 +188,95 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   assert.equal(await page.locator('.block:has-text("На компьютер преподавателя")').count(), 0, 'здесь не показывается');
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'На компьютер преподавателя'), 'отправка на другое устройство');
 
+  // Справочники: заполнение, вставка столбца, выбор в мероприятии, обмен.
+  const paste = (selector, text) => page.evaluate(([sel, value]) => {
+    const data = new DataTransfer();
+    data.setData('text', value);
+    document.querySelector(sel).dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [selector, text]);
+  await page.click('#open-catalog');
+  await page.fill('#c-add-group', 'ИС-21');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#catalog .refname:has-text("ИС-21")');
+  await page.fill('#c-add-group', 'ПИ-22');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#catalog .refname:has-text("ПИ-22")');
+  await page.click('#catalog .refname:has-text("ИС-21")');
+  await paste('#c-add-student', 'Алексеева\tМария\r\nБорисов Илья\nВасильева Дарья\n');
+  await page.waitForSelector('#catalog li:has-text("Васильева Дарья")');
+  assert.equal(await page.locator('#catalog .catalogcols section:nth-child(2) .refrow').count(), 3, 'столбец из таблицы разобран');
+  await page.fill('#c-add-student', 'Борисов Илья');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#catalog .notice:has-text("Уже есть в списке: Борисов Илья")');
+  assert.equal(await page.locator('#catalog .catalogcols section:nth-child(2) .refrow').count(), 3, 'повтор не добавлен');
+  await shot('catalog');
+
+  await page.click('#catalog .tabs >> text=Техника');
+  await paste('#c-add-equipment', 'Проектор\nМикрофон\n');
+  await page.waitForSelector('#catalog li:has-text("Микрофон")');
+  await page.click('#catalog .tabs >> text=Преподаватели');
+  await page.fill('#c-add-teacher', 'Лебедева О. В.');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#catalog li:has-text("Лебедева О. В.")');
+  await page.click('#catalog li:has-text("Лебедева О. В.") >> text=Изменить');
+  await page.fill('#c-edit', 'Лебедева Ольга Викторовна');
+  await page.click('#catalog .refrow.editing >> text=Сохранить');
+  await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна")');
+  await page.click('#catalog [aria-label=Закрыть]');
+
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-title', 'Из справочников');
+  await page.fill('#f-date', day(0));
+  await page.fill('#f-start', '09:30');
+  await page.fill('#f-end', '10:00');
+  await page.click('#form .field:has(#f-responsible) >> text=Из списка');
+  await page.click('#picker .pickrow:has-text("Лебедева Ольга Викторовна")');
+  await page.waitForSelector('#picker', { state: 'hidden' });
+  assert.equal(await page.inputValue('#f-responsible'), 'Лебедева Ольга Викторовна');
+
+  await page.fill('#f-participants', 'Гость Вручную');
+  await page.keyboard.press('Enter');
+  await page.click('#form .field:has(#f-participants) >> text=Из списка');
+  await page.click('#picker .pickgroup:has-text("ИС-21") >> text=Всю группу');
+  assert.match(await page.textContent('#picker .sheetfoot .primary'), /выбрано 3/);
+  await page.click('#picker .grouptoggle:has-text("ИС-21")');
+  assert.match(await page.textContent('#picker .pickrow:has-text("Алексеева Мария")'), /Занято: Подготовка к олимпиаде/, 'занятые отмечены');
+  await page.fill('#p-search', 'борис');
+  assert.equal(await page.locator('#picker .pickrow').count(), 1, 'поиск');
+  await page.click('#picker .pickrow:has-text("Борисов Илья")');
+  await shot('picker');
+  await page.click('#picker .sheetfoot .primary');
+  await page.waitForSelector('#picker', { state: 'hidden' });
+  const tags = await page.locator('.field:has(#f-participants) .tag').allTextContents();
+  assert.equal(tags.length, 3, 'группа без снятого студента и участник, введённый вручную');
+  assert.ok(tags.some((t) => t.includes('Гость Вручную')), 'ручной участник сохранён');
+  assert.ok(!tags.some((t) => t.includes('Борисов Илья')), 'снятый студент убран');
+
+  await page.click('#form .field:has(#f-equipment) >> text=Из списка');
+  await page.click('#picker .pickrow:has-text("Проектор")');
+  await page.click('#picker .sheetfoot .primary');
+  await page.waitForSelector('#picker', { state: 'hidden' });
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Из справочников' && e.equipment[0] === 'Проектор'), 'мероприятие из справочников на другом устройстве');
+  await until(async () => (await teacherStore.directory()).length === 8, 'справочники на другом устройстве');
+
+  // Студент, добавленный на другом устройстве, и удаление группы.
+  const group = (await teacherStore.directory()).find((r) => r.name === 'ПИ-22');
+  await teacherStore.saveRef({ kind: 'student', name: 'Новиков Роман', groupId: group.id });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.click('#open-catalog');
+  await page.click('#catalog .tabs >> text=Группы и студенты');
+  await page.click('#catalog .refname:has-text("ПИ-22")');
+  await page.waitForSelector('#catalog li:has-text("Новиков Роман")', { timeout: 15000 });
+  await page.click('#catalog .catalogcols section:first-child li:has-text("ПИ-22") >> text=Удалить');
+  await page.waitForSelector('#catalog .refrow:has-text("Удалить группу и студентов: 1?")');
+  await page.click('#catalog .refrow .danger');
+  await page.waitForSelector('#catalog .refname:has-text("ПИ-22")', { state: 'detached' });
+  await page.click('#catalog [aria-label=Закрыть]');
+  await until(async () => !(await teacherStore.directory()).some((r) => r.name === 'ПИ-22' || r.name === 'Новиков Роман'), 'удаление группы на другом устройстве');
+
   // Преподаватель видит всё.
   await page.click('#settings');
   await page.click('label:has-text("Показывать мероприятия всех устройств")');

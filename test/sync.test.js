@@ -87,6 +87,18 @@ test('при одновременной правке все устройства
   assert.equal((await b.store.list())[0].title, 'Со второго');
 });
 
+test('справочники и их удаление расходятся как мероприятия', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const group = await a.store.saveRef({ kind: 'group', name: 'ИС-21' });
+  const student = await a.store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id });
+  await a.node.syncWith(b.node.at);
+  assert.equal((await b.store.directory()).length, 2);
+  await b.store.remove(student.id, student.updatedAt);
+  await a.node.syncWith(b.node.at);
+  assert.deepEqual((await a.store.directory()).map((r) => r.name), ['ИС-21']);
+});
+
 test('устройство с другим ключом не получает данные и не может их записать', async (t) => {
   const a = await device(t, 'a');
   const stranger = await device(t, 'stranger', { networkKey: 'XXXXX-XXXXX-XXXXX-XXXXX' });

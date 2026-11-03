@@ -1,6 +1,6 @@
 import {
   addDays, addMonths, eventState, eventsOn, findConflicts, fromISO, fromMinutes, hourRange, layoutDay,
-  monthWeeks, plural, splitList, suggestedStart, toISO, toMinutes, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, plural, splitList, splitNames, suggestedStart, toISO, toMinutes, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 const POLL_MS = 10_000;
@@ -15,6 +15,7 @@ const state = {
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
   events: [], // те, что показывает это устройство
+  directory: [],
   settings: null,
   deviceNames: new Map(),
   storageError: null,
@@ -251,8 +252,22 @@ async function refresh() {
       : '';
   }
   if (changed || bannerChanged) render();
+  await loadDirectory();
   await loadDevices();
 }
+
+async function loadDirectory() {
+  const result = await api.directory();
+  if (!result.ok || JSON.stringify(result.value) === JSON.stringify(state.directory)) return;
+  state.directory = result.value;
+  const dialog = $('catalog');
+  const typing = dialog.contains(document.activeElement) && document.activeElement.value;
+  if (dialog.open && !typing) drawCatalog();
+}
+
+const refsOf = (kind) => state.directory
+  .filter((ref) => ref.kind === kind)
+  .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 
 function setEvents(all) {
   state.allEvents = all;
@@ -358,7 +373,7 @@ function showDetails(id) {
 
 /* Форма мероприятия */
 
-function listInput(label, listId, inputId, placeholder, values, onChange) {
+function listInput(label, listId, inputId, placeholder, values, onChange, pick) {
   const tags = h('div', { class: 'tags' });
   const heading = h('label', { for: inputId });
   const input = h('input', { id: inputId, list: listId, placeholder, autocomplete: 'off' });
@@ -410,7 +425,9 @@ function listInput(label, listId, inputId, placeholder, values, onChange) {
   return {
     commit,
     element: h('div', { class: 'field' }, heading,
-      h('div', { class: 'adder' }, input, h('button', { type: 'button', onclick: () => { commit(); input.focus(); } }, 'Добавить')),
+      h('div', { class: 'adder' }, input,
+        h('button', { type: 'button', onclick: () => { commit(); input.focus(); } }, 'Добавить'),
+        h('button', { type: 'button', onclick: () => pick(() => { draw(); onChange(); }) }, 'Из списка')),
       tags),
   };
 }
@@ -484,6 +501,25 @@ async function openForm(source = {}) {
   }, 'third');
   const place = field('Место', 'f-place', { value: source.place ?? '', list: 'd-places', autocomplete: 'off' }, 'half');
   const responsible = field('Ответственный', 'f-responsible', { value: source.responsible ?? '', list: 'd-people', autocomplete: 'off' }, 'half');
+  const responsibleInput = responsible.querySelector('input');
+  responsible.append(h('div', { class: 'adder' }, responsibleInput, h('button', {
+    type: 'button',
+    onclick: () => {
+      const selected = responsibleInput.value.trim() ? [responsibleInput.value.trim()] : [];
+      openPicker({
+        title: 'Ответственный',
+        sections: [{ items: refsOf('teacher').map((ref) => ref.name) }],
+        selected,
+        single: true,
+        busy: busyNames('person'),
+        empty: 'Список преподавателей пуст. Добавьте их в разделе «Справочники».',
+        done: (names) => {
+          responsibleInput.value = names[0] ?? '';
+          updateConflicts();
+        },
+      });
+    },
+  }, 'Из списка')));
   const conflictBox = h('section', { class: 'conflicts', 'aria-live': 'polite', hidden: true });
   const message = h('p', { class: 'message error' });
 
@@ -511,10 +547,43 @@ async function openForm(source = {}) {
     );
   };
 
+  /** Кто или что уже занято в выбранное время: имя → мероприятие. */
+  const busyNames = (kind) => {
+    const names = state.directory.map((ref) => ref.name);
+    const probe = { ...read(), responsible: '', participants: kind === 'person' ? names : [], equipment: kind === 'equipment' ? names : [] };
+    return new Map(findConflicts(probe, state.allEvents).map((c) => [nameKey(c.name), eventLabel(c.event)]));
+  };
+
+  const pickInto = (values, config) => (changed) => openPicker({
+    ...config,
+    selected: values,
+    done: (names) => {
+      values.splice(0, values.length, ...names);
+      changed();
+    },
+  });
+
   const participants = listInput('Участники', 'd-people', 'f-participants',
-    'Фамилия и имя, можно вставить список из таблицы', draft.participants, updateConflicts);
+    'Фамилия и имя, можно вставить список из таблицы', draft.participants, updateConflicts,
+    (changed) => pickInto(draft.participants, {
+      title: 'Студенты',
+      sections: [
+        ...refsOf('group').map((group) => ({
+          name: group.name,
+          items: refsOf('student').filter((s) => s.groupId === group.id).map((s) => s.name),
+        })),
+      ],
+      busy: busyNames('person'),
+      empty: 'Список студентов пуст. Добавьте группы и студентов в разделе «Справочники».',
+    })(changed));
   const equipment = listInput('Техника', 'd-equipment', 'f-equipment',
-    'Например, проектор', draft.equipment, updateConflicts);
+    'Например, проектор', draft.equipment, updateConflicts,
+    (changed) => pickInto(draft.equipment, {
+      title: 'Техника',
+      sections: [{ items: refsOf('equipment').map((ref) => ref.name) }],
+      busy: busyNames('equipment'),
+      empty: 'Список техники пуст. Добавьте её в разделе «Справочники».',
+    })(changed));
 
   const targets = devicePicker(draft.devices, network);
 
@@ -571,8 +640,10 @@ async function openForm(source = {}) {
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, 'Примечание'),
           h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? ''))),
-      suggestions('d-people', state.allEvents.flatMap((e) => [e.responsible, ...e.participants])),
-      suggestions('d-equipment', state.allEvents.flatMap((e) => e.equipment)),
+      suggestions('d-people', [...refsOf('teacher'), ...refsOf('student')].map((ref) => ref.name)
+        .concat(state.allEvents.flatMap((e) => [e.responsible, ...e.participants]))),
+      suggestions('d-equipment', refsOf('equipment').map((ref) => ref.name)
+        .concat(state.allEvents.flatMap((e) => e.equipment))),
       suggestions('d-places', state.allEvents.map((e) => e.place))),
     h('div', { class: 'sheetfoot' }, save, message));
 
@@ -583,6 +654,273 @@ async function openForm(source = {}) {
   dialog.showModal();
   updateConflicts();
   if (!source.id) $('f-title').focus();
+}
+
+/* Выбор из списка */
+
+/**
+ * Окно выбора. Значения, введённые в форме вручную, остаются нетронутыми:
+ * окно меняет только то, что есть в его списке.
+ */
+function openPicker({ title, sections, selected, single = false, busy = new Map(), empty, done }) {
+  const dialog = $('picker');
+  const chosen = new Set(selected.map(nameKey));
+  const listed = new Map(sections.flatMap((section) => section.items).map((name) => [nameKey(name), name]));
+  const opened = new Set();
+  const search = h('input', { id: 'p-search', type: 'search', placeholder: 'Поиск', autocomplete: 'off', 'aria-label': 'Поиск' });
+  const list = h('div', { class: 'picklist' });
+  const confirm = h('button', { class: 'primary', type: 'button', onclick: finish });
+
+  function finish() {
+    const manual = selected.filter((name) => !listed.has(nameKey(name)));
+    const picked = [...listed].filter(([key]) => chosen.has(key)).map(([, name]) => name);
+    const kept = selected.filter((name) => listed.has(nameKey(name)) && chosen.has(nameKey(name)));
+    const added = picked.filter((name) => !kept.some((k) => nameKey(k) === nameKey(name)));
+    dialog.close();
+    done([...manual, ...kept, ...added]);
+  }
+
+  const row = (name) => {
+    const key = nameKey(name);
+    const note = busy.get(key);
+    return h('button', {
+      type: 'button',
+      class: 'pickrow',
+      'aria-pressed': String(chosen.has(key)),
+      onclick: () => {
+        if (single) {
+          chosen.clear();
+          chosen.add(key);
+          finish();
+          return;
+        }
+        if (chosen.has(key)) chosen.delete(key);
+        else chosen.add(key);
+        draw();
+      },
+    }, h('strong', {}, name), note && h('span', {}, `Занято: ${note}`));
+  };
+
+  function draw() {
+    const query = nameKey(search.value);
+    const rows = [];
+    for (const section of sections) {
+      const items = section.items.filter((name) => !query || nameKey(name).includes(query));
+      if (!items.length && (query || !section.name)) continue;
+      if (section.name) {
+        const count = section.items.filter((name) => chosen.has(nameKey(name))).length;
+        const all = section.items.length > 0 && count === section.items.length;
+        const open = query || opened.has(section.name);
+        rows.push(h('div', { class: 'pickgroup' },
+          h('button', {
+            type: 'button',
+            class: 'grouptoggle',
+            'aria-expanded': String(Boolean(open)),
+            onclick: () => {
+              if (opened.has(section.name)) opened.delete(section.name);
+              else opened.add(section.name);
+              draw();
+            },
+          }, h('strong', {}, section.name), h('span', {}, `выбрано ${count} из ${section.items.length}`)),
+          section.items.length > 0 && h('button', {
+            type: 'button',
+            class: 'plain',
+            onclick: () => {
+              for (const name of section.items) {
+                if (all) chosen.delete(nameKey(name));
+                else chosen.add(nameKey(name));
+              }
+              draw();
+            },
+          }, all ? 'Снять всех' : 'Всю группу')));
+        if (open) rows.push(...items.map(row));
+      } else {
+        rows.push(...items.map(row));
+      }
+    }
+    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'help' }, listed.size || sections.length ? 'Ничего не найдено.' : empty)]));
+    confirm.textContent = `Готово: выбрано ${[...chosen].filter((key) => listed.has(key)).length}`;
+  }
+
+  search.addEventListener('input', draw);
+  draw();
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, title), closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, h('div', { class: 'field' }, search), list),
+    !single && h('div', { class: 'sheetfoot' }, confirm),
+  );
+  dialog.showModal();
+}
+
+/* Справочники */
+
+const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '' };
+
+const CATALOG_TABS = [
+  ['groups', 'Группы и студенты'],
+  ['equipment', 'Техника'],
+  ['teacher', 'Преподаватели'],
+];
+
+async function commitCatalog(result) {
+  catalog.message = result.ok ? catalog.message : storeMessage(result);
+  catalog.editing = null;
+  catalog.confirming = null;
+  const fresh = await api.directory();
+  if (fresh.ok) state.directory = fresh.value;
+  drawCatalog();
+}
+
+/** Добавляет имена, пропуская те, что уже есть, и сообщает о пропущенных. */
+async function addRefs(text, kind, existing, extra = {}) {
+  const known = new Set(existing.map((ref) => nameKey(ref.name)));
+  const fresh = [];
+  const repeated = [];
+  for (const name of splitNames(text)) {
+    if (known.has(nameKey(name))) {
+      repeated.push(name);
+    } else {
+      known.add(nameKey(name));
+      fresh.push({ ref: { kind, name, ...extra }, base: null });
+    }
+  }
+  catalog.message = repeated.length ? `Уже есть в списке: ${repeated.join(', ')}` : '';
+  if (fresh.length) await commitCatalog(await api.saveRefs(fresh));
+  else drawCatalog();
+}
+
+function addForm(id, placeholder, onAdd) {
+  const input = h('input', { id, placeholder, autocomplete: 'off', 'aria-label': placeholder });
+  const submit = async () => {
+    const text = input.value;
+    if (!text.trim()) return;
+    input.value = '';
+    await onAdd(text);
+    $(id)?.focus();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  });
+  input.addEventListener('paste', (e) => {
+    const text = e.clipboardData.getData('text');
+    if (/[\r\n]/.test(text.trim())) {
+      e.preventDefault();
+      input.value = '';
+      onAdd(text);
+    }
+  });
+  return h('div', { class: 'field' }, h('div', { class: 'adder' }, input, h('button', { type: 'button', onclick: submit }, 'Добавить')));
+}
+
+function refRow(ref, { confirmText = 'Удалить из списка?', removals = () => [ref], open = null, active = false, detail = null } = {}) {
+  if (catalog.editing === ref.id) {
+    const input = h('input', { id: 'c-edit', value: ref.name, autocomplete: 'off', 'aria-label': 'Название' });
+    const groups = refsOf('group');
+    const move = ref.kind === 'student'
+      ? h('select', { id: 'c-group', 'aria-label': 'Группа' }, groups.map((g) => h('option', { value: g.id, selected: g.id === ref.groupId }, g.name)))
+      : null;
+    return h('li', { class: 'refrow editing' }, input, move,
+      h('button', {
+        type: 'button',
+        class: 'primary',
+        onclick: async () => {
+          const name = input.value.trim();
+          if (!name) return;
+          catalog.message = '';
+          await commitCatalog(await api.saveRefs([{
+            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}) },
+            base: ref.updatedAt,
+          }]));
+        },
+      }, 'Сохранить'),
+      h('button', { type: 'button', class: 'plain', onclick: () => { catalog.editing = null; drawCatalog(); } }, 'Отмена'));
+  }
+  if (catalog.confirming === ref.id) {
+    return h('li', { class: 'refrow' }, h('p', { class: 'refname' }, confirmText),
+      h('button', {
+        type: 'button',
+        class: 'danger',
+        onclick: async () => {
+          catalog.message = '';
+          if (catalog.groupId === ref.id) catalog.groupId = null;
+          await commitCatalog(await api.removeRefs(removals().map((r) => ({ id: r.id, base: r.updatedAt }))));
+        },
+      }, 'Удалить'),
+      h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = null; drawCatalog(); } }, 'Оставить'));
+  }
+  const label = open
+    ? h('button', { type: 'button', class: 'refname link', 'aria-pressed': String(active), onclick: open }, h('strong', {}, ref.name), detail && h('span', {}, detail))
+    : h('p', { class: 'refname' }, ref.name);
+  return h('li', { class: 'refrow' }, label,
+    h('button', { type: 'button', class: 'plain', onclick: () => { catalog.editing = ref.id; catalog.confirming = null; drawCatalog(); } }, 'Изменить'),
+    h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = ref.id; catalog.editing = null; drawCatalog(); } }, 'Удалить'));
+}
+
+function refList(rows, emptyText) {
+  return rows.length ? h('ul', { class: 'reflist' }, rows) : h('p', { class: 'help' }, emptyText);
+}
+
+function groupsPane() {
+  const groups = refsOf('group');
+  const students = refsOf('student');
+  if (!groups.some((g) => g.id === catalog.groupId)) catalog.groupId = groups[0]?.id ?? null;
+  const current = groups.find((g) => g.id === catalog.groupId);
+  const members = students.filter((s) => s.groupId === catalog.groupId);
+  const count = (group) => students.filter((s) => s.groupId === group.id).length;
+
+  return h('div', { class: 'catalogcols' },
+    h('section', {},
+      h('h3', {}, 'Группы'),
+      addForm('c-add-group', 'Название группы', (text) => addRefs(text, 'group', groups)),
+      refList(groups.map((group) => refRow(group, {
+        confirmText: `Удалить группу и студентов: ${count(group)}?`,
+        removals: () => [group, ...students.filter((s) => s.groupId === group.id)],
+        open: () => { catalog.groupId = group.id; catalog.message = ''; drawCatalog(); },
+        active: group.id === catalog.groupId,
+        detail: `${count(group)} ${plural(count(group), 'студент', 'студента', 'студентов')}`,
+      })), 'Добавьте первую группу.')),
+    h('section', {},
+      h('h3', {}, current ? `Студенты группы ${current.name}` : 'Студенты'),
+      current
+        ? [
+          addForm('c-add-student', 'Фамилия и имя или столбец из таблицы',
+            (text) => addRefs(text, 'student', members, { groupId: current.id })),
+          refList(members.map((student) => refRow(student)), 'В группе пока нет студентов.'),
+        ]
+        : h('p', { class: 'help' }, 'Сначала добавьте группу.')));
+}
+
+function simplePane(kind, placeholder, emptyText) {
+  const items = refsOf(kind);
+  return h('section', {},
+    addForm(`c-add-${kind}`, placeholder, (text) => addRefs(text, kind, items)),
+    refList(items.map((item) => refRow(item)), emptyText));
+}
+
+function drawCatalog() {
+  const dialog = $('catalog');
+  const pane = catalog.tab === 'groups'
+    ? groupsPane()
+    : catalog.tab === 'equipment'
+      ? simplePane('equipment', 'Название или столбец из таблицы', 'Добавьте технику, чтобы выбирать её в мероприятиях.')
+      : simplePane('teacher', 'Фамилия и инициалы или столбец из таблицы', 'Добавьте преподавателей, чтобы выбирать ответственных.');
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, 'Справочники'), closeButton(dialog)),
+    h('div', { class: 'tabs', role: 'group', 'aria-label': 'Раздел справочников' }, CATALOG_TABS.map(([tab, label]) =>
+      h('button', {
+        type: 'button',
+        'aria-pressed': String(catalog.tab === tab),
+        onclick: () => {
+          Object.assign(catalog, { tab, editing: null, confirming: null, message: '' });
+          drawCatalog();
+        },
+      }, label))),
+    h('div', { class: 'sheetbody' }, catalog.message && h('p', { class: 'notice' }, catalog.message), pane),
+  );
+  $('c-edit')?.focus();
 }
 
 /* Настройки */
@@ -719,7 +1057,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if ($('form').open || $('preferences').open) return;
+  if ($('form').open || $('preferences').open || $('catalog').open) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -732,6 +1070,11 @@ function wire() {
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
   $('settings').addEventListener('click', openSettings);
+  $('open-catalog').addEventListener('click', () => {
+    catalog.message = '';
+    drawCatalog();
+    $('catalog').showModal();
+  });
   $('minimize').addEventListener('click', () => api.minimize());
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });

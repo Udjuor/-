@@ -103,7 +103,7 @@ export function layoutDay(dayEvents) {
 
 export const overlaps = (a, b) => a.date === b.date && a.start < b.end && b.start < a.end;
 
-const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ');
+export const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ');
 
 /**
  * Находит, кто из участников, какая техника и какой ответственный уже заняты
@@ -135,6 +135,9 @@ export function findConflicts(draft, events) {
 
 /** Разбирает вставленный список: столбец из Excel или строку через точку с запятой. */
 export const splitList = (text) => text.split(/[\r\n;\t]+/).map((s) => s.trim()).filter(Boolean);
+
+/** Разбирает список имён: столбцы одной строки таблицы (фамилия, имя) склеивает. */
+export const splitNames = (text) => text.split(/[\r\n;]+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
 /** Значения для подсказок: все, что уже встречалось, без учёта регистра. */
 export function uniqueValues(values) {

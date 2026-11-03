@@ -122,6 +122,37 @@ test('повреждённые и посторонние файлы не меш�
   assert.equal((await store.list()).length, 1);
 });
 
+test('справочники хранятся отдельно от мероприятий и переживают перезапуск', async (t) => {
+  const dir = tempDir(t);
+  const store = new EventStore(dir);
+  await store.save(sample);
+  const group = await store.saveRef({ kind: 'group', name: ' ИС-21 ' });
+  await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id });
+  await store.saveRef({ kind: 'equipment', name: 'Проектор' });
+  await store.saveRef({ kind: 'teacher', name: 'Лебедева О. В.' });
+  const again = new EventStore(dir);
+  assert.equal((await again.list()).length, 1);
+  const refs = await again.directory();
+  assert.deepEqual(refs.map((r) => r.kind).sort(), ['equipment', 'group', 'student', 'teacher']);
+  assert.equal(refs.find((r) => r.kind === 'group').name, 'ИС-21');
+});
+
+test('запись справочника меняется и удаляется с проверкой версии', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const item = await store.saveRef({ kind: 'teacher', name: 'Старое' });
+  const renamed = await store.saveRef({ ...item, name: 'Новое' }, item.updatedAt);
+  await assert.rejects(store.saveRef({ ...item, name: 'Другое' }, item.updatedAt), { code: 'conflict' });
+  await store.remove(renamed.id, renamed.updatedAt);
+  assert.equal((await store.directory()).length, 0);
+});
+
+test('неверные записи справочника не принимаются', async (t) => {
+  const store = new EventStore(tempDir(t));
+  await assert.rejects(store.saveRef({ kind: 'teacher', name: '  ' }), { code: 'invalid' });
+  await assert.rejects(store.saveRef({ kind: 'student', name: 'Без группы' }), { code: 'invalid' });
+  await assert.rejects(store.saveRef({ kind: 'admin', name: 'x' }), { code: 'invalid' });
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });
