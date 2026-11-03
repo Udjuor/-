@@ -93,5 +93,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName --generate-notes
         shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $file = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
+          # Релиз могли создать вручную на GitHub: тогда только добавляем установщик.
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $file --clobber
+          } else {
+            gh release create $tag $file --generate-notes
+          }
