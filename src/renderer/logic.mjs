@@ -109,7 +109,7 @@ export const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё
  * Находит, кто из участников, какая техника и какой ответственный уже заняты
  * в пересекающихся по времени мероприятиях.
  */
-export function findConflicts(draft, events) {
+export function findConflicts(draft, events, stock = []) {
   const result = [];
   if (!draft.date || !draft.start || !draft.end || draft.start >= draft.end) return result;
   const others = events.filter((e) => e.id !== draft.id && overlaps(draft, e)).sort(byTime);
@@ -129,8 +129,62 @@ export function findConflicts(draft, events) {
     }
   };
   check(people, 'person', (e) => (e.responsible ? [...e.participants, e.responsible] : e.participants));
-  check(draft.equipment, 'equipment', (e) => e.equipment);
+  // Техника из справочника считается по количеству, см. shortages.
+  const counted = new Set(stock.map((item) => nameKey(item.name)));
+  counted.add(nameKey(OWN_CAMERA));
+  check(draft.equipment.filter((name) => !counted.has(nameKey(name))), 'equipment', (e) => e.equipment);
   return result;
+}
+
+/** Своя камера студента: без лимита и не из наличия. */
+export const OWN_CAMERA = 'Своя камера';
+
+export const equipmentCount = (event, name) => event.equipmentQty?.[name] ?? 1;
+
+export function equipmentLabel(event, name) {
+  const count = equipmentCount(event, name);
+  return count > 1 ? `${name} × ${count}` : name;
+}
+
+/** Сколько единицы техники занято другими событиями в то же время. */
+function usedElsewhere(draft, events, name) {
+  if (!draft.date || !draft.start || !draft.end || draft.start >= draft.end) return 0;
+  const key = nameKey(name);
+  let used = 0;
+  for (const event of events) {
+    if (event.id === draft.id || !overlaps(draft, event)) continue;
+    const match = event.equipment.find((item) => nameKey(item) === key);
+    if (match) used += equipmentCount(event, match);
+  }
+  return used;
+}
+
+/** Сколько свободно на время события. null, если лимита нет. */
+export function freeStock(draft, events, item) {
+  if (item.quantity === null || item.quantity === undefined) return null;
+  return Math.max(0, item.quantity - usedElsewhere(draft, events, item.name));
+}
+
+/** Техника, которой не хватает: выбрано больше, чем свободно. */
+export function shortages(draft, events, stock) {
+  const result = [];
+  for (const name of draft.equipment) {
+    const item = stock.find((candidate) => nameKey(candidate.name) === nameKey(name));
+    const free = item ? freeStock(draft, events, item) : null;
+    const need = equipmentCount(draft, name);
+    if (free !== null && need > free) result.push({ name, need, free, total: item.quantity });
+  }
+  return result;
+}
+
+/** Разбирает вставленные строки техники: последний числовой столбец — количество. */
+export function parseEquipment(text) {
+  return text.split(/[\r\n;]+/).map((line) => {
+    const cells = line.split('\t').map((cell) => cell.trim()).filter(Boolean);
+    const last = cells.at(-1);
+    const quantity = cells.length > 1 && /^\d+$/.test(last) ? Number(cells.pop()) : null;
+    return { name: cells.join(' ').replace(/\s+/g, ' ').trim(), quantity };
+  }).filter((row) => row.name);
 }
 
 /** Разбирает вставленный список: столбец из Excel или строку через точку с запятой. */

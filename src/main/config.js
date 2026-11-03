@@ -30,6 +30,7 @@ function saveConfig(homeDir, config) {
     `syncKey=${config.syncKey}`,
     `peers=${config.peers.join(',')}`,
     `showAll=${config.showAll ? 1 : 0}`,
+    `theme=${config.theme}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -50,6 +51,7 @@ function loadConfig(homeDir) {
     syncKey: values.syncKey || '',
     peers: splitPeers(values.peers),
     showAll: values.showAll === '1',
+    theme: ['dark', 'light', 'system'].includes(values.theme) ? values.theme : 'dark',
   };
   if (!values.deviceId) {
     try {

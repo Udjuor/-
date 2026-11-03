@@ -153,6 +153,20 @@ test('неверные записи справочника не принимаю
   await assert.rejects(store.saveRef({ kind: 'admin', name: 'x' }), { code: 'invalid' });
 });
 
+test('количество техники и своя камера сохраняются и проверяются', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const limited = await store.saveRef({ kind: 'equipment', name: 'Камера', quantity: 5 });
+  assert.equal(limited.quantity, 5);
+  assert.equal((await store.saveRef({ kind: 'equipment', name: 'Штатив', quantity: '' })).quantity, null);
+  assert.equal((await store.saveRef({ kind: 'equipment', name: 'Свет', quantity: -1 })).quantity, null);
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
+  assert.equal((await store.saveRef({ kind: 'student', name: 'А', groupId: group.id, ownCamera: true })).ownCamera, true);
+  assert.equal((await store.saveRef({ kind: 'student', name: 'Б', groupId: group.id })).ownCamera, false);
+  const event = await store.save({ ...sample, equipment: ['Камера'], equipmentQty: { Камера: 3, Плохое: -2 }, ownCameras: ['А'] });
+  assert.deepEqual(event.equipmentQty, { Камера: 3 });
+  assert.deepEqual(event.ownCameras, ['А']);
+});
+
 test('тип события сохраняется, у старых записей это мероприятие', async (t) => {
   const store = new EventStore(tempDir(t));
   assert.equal((await store.save({ ...sample, type: 'practice' })).type, 'practice');

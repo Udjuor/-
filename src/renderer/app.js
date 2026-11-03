@@ -1,6 +1,6 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, addDays, addMonths, buildReport, eventState, eventsOn, findConflicts, fromISO, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, plural, rollCall, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, fromMinutes, hourRange, layoutDay,
+  monthWeeks, nameKey, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 const POLL_MS = 10_000;
@@ -89,7 +89,7 @@ function eventBlock(item, range, dayView) {
     details.push(h('span', {}, typeName(event.type)));
     if (event.responsible) details.push(h('span', {}, `Ответственный: ${event.responsible}`));
     if (event.participants.length) details.push(h('span', {}, peopleCount(event.participants.length)));
-    if (event.equipment.length) details.push(h('span', {}, `Техника: ${event.equipment.join(', ')}`));
+    if (event.equipment.length) details.push(h('span', {}, `Техника: ${event.equipment.map((name) => equipmentLabel(event, name)).join(', ')}`));
   } else if (event.participants.length) {
     details.push(h('span', {}, peopleCount(event.participants.length)));
   }
@@ -390,7 +390,8 @@ function showDetails(id) {
         fact('Ответственный', event.responsible || 'Не указан'),
         fact('Показывать на', event.devices.map(deviceName).join(', '))),
       listGroup(`Участники: ${event.participants.length}`, event.participants, true),
-      listGroup('Техника', event.equipment, false),
+      listGroup('Техника', event.equipment.map((name) => equipmentLabel(event, name)), false),
+      event.ownCameras.length > 0 && listGroup('Со своей камерой', event.ownCameras, false),
       event.notes && h('section', { class: 'group' }, h('h3', {}, 'Примечание'), h('p', { class: 'notes' }, event.notes))),
     footer,
   );
@@ -399,15 +400,15 @@ function showDetails(id) {
 
 /* Форма мероприятия */
 
-function listInput(label, listId, inputId, placeholder, values, onChange, pick) {
+function listInput(label, inputId, placeholder, values, onChange, pick, { tagLabel = (value) => value, suggest = () => [] } = {}) {
   const tags = h('div', { class: 'tags' });
   const heading = h('label', { for: inputId });
-  const input = h('input', { id: inputId, list: listId, placeholder, autocomplete: 'off' });
+  const input = h('input', { id: inputId, placeholder, autocomplete: 'off' });
 
   const draw = () => {
     heading.textContent = values.length ? `${label}: ${values.length}` : label;
     tags.replaceChildren(...values.map((value, index) =>
-      h('span', { class: 'tag' }, value, h('button', {
+      h('span', { class: 'tag' }, tagLabel(value), h('button', {
         type: 'button',
         'aria-label': `Убрать: ${value}`,
         onclick: () => { values.splice(index, 1); draw(); onChange(); },
@@ -447,6 +448,11 @@ function listInput(label, listId, inputId, placeholder, values, onChange, pick) 
     }
   });
 
+  const hints = attachSuggest(input, suggest, (value) => {
+    input.value = '';
+    addFrom(value);
+  });
+
   draw();
   return {
     commit,
@@ -454,6 +460,7 @@ function listInput(label, listId, inputId, placeholder, values, onChange, pick) 
       h('div', { class: 'adder' }, input,
         h('button', { type: 'button', onclick: () => { commit(); input.focus(); } }, 'Добавить'),
         h('button', { type: 'button', onclick: () => pick(() => { draw(); onChange(); }) }, 'Из списка')),
+      hints,
       tags),
   };
 }
@@ -493,8 +500,29 @@ function devicePicker(selected, network) {
     h('p', { class: 'help' }, 'Выключенное устройство получит мероприятие при следующей связи с любым устройством сети.'));
 }
 
-function suggestions(id, values) {
-  return h('datalist', { id }, uniqueValues(values).map((value) => h('option', { value })));
+/**
+ * Подсказки при вводе. Системный список браузера на сенсорном экране нельзя
+ * прокрутить, поэтому список свой: он встроен в форму и листается пальцем.
+ */
+function attachSuggest(input, getValues, pick) {
+  const box = h('div', { class: 'suggest', hidden: true });
+  const hide = () => { box.hidden = true; };
+  const draw = () => {
+    const query = nameKey(input.value);
+    const items = query
+      ? uniqueValues(getValues()).filter((value) => nameKey(value).includes(query) && nameKey(value) !== query)
+      : [];
+    box.hidden = !items.length;
+    box.replaceChildren(...items.map((value) => h('button', {
+      type: 'button',
+      onclick: () => { hide(); pick(value); },
+    }, value)));
+  };
+  input.addEventListener('input', draw);
+  input.addEventListener('blur', () => setTimeout(hide, 150));
+  // Нажатие на полосу прокрутки не должно снимать фокус с поля и закрывать список.
+  box.addEventListener('mousedown', (e) => e.preventDefault());
+  return box;
 }
 
 async function openForm(source = {}) {
@@ -505,7 +533,8 @@ async function openForm(source = {}) {
   const draft = {
     id: source.id ?? null,
     participants: [...(source.participants ?? [])],
-    equipment: [...(source.equipment ?? [])],
+    equipment: (source.equipment ?? []).filter((name) => name !== OWN_CAMERA),
+    qty: { ...(source.equipmentQty ?? {}) },
     devices: [...(source.devices ?? [])],
     type: source.type ?? 'lesson',
   };
@@ -536,8 +565,11 @@ async function openForm(source = {}) {
     type: 'time',
     value: source.end ?? fromMinutes(Math.min(toMinutes(start) + 60, 23 * 60 + 55)),
   }, 'third');
-  const place = field('Место', 'f-place', { value: source.place ?? '', list: 'd-places', autocomplete: 'off' }, 'half');
-  const responsible = field('Ответственный', 'f-responsible', { value: source.responsible ?? '', list: 'd-people', autocomplete: 'off' }, 'half');
+  const place = field('Место', 'f-place', { value: source.place ?? '', autocomplete: 'off' }, 'half');
+  place.append(attachSuggest(place.querySelector('input'), () => state.allEvents.map((e) => e.place), (value) => {
+    $('f-place').value = value;
+  }));
+  const responsible = field('Ответственный', 'f-responsible', { value: source.responsible ?? '', autocomplete: 'off' }, 'half');
   const responsibleInput = responsible.querySelector('input');
   responsible.append(h('div', { class: 'adder' }, responsibleInput, h('button', {
     type: 'button',
@@ -556,9 +588,33 @@ async function openForm(source = {}) {
         },
       });
     },
-  }, 'Из списка')));
+  }, 'Из списка')), attachSuggest(responsibleInput, () => [
+    ...refsOf('teacher').map((ref) => ref.name),
+    ...state.allEvents.map((e) => e.responsible),
+  ], (value) => {
+    responsibleInput.value = value;
+    updateConflicts();
+  }));
   const conflictBox = h('section', { class: 'conflicts', 'aria-live': 'polite', hidden: true });
+  const ownBox = h('p', { class: 'help ownbox', hidden: true });
   const message = h('p', { class: 'message error' });
+
+  const ownCameraHolders = () => {
+    const owners = new Set(refsOf('student').filter((student) => student.ownCamera).map((student) => nameKey(student.name)));
+    return draft.participants.filter((name) => owners.has(nameKey(name)));
+  };
+
+  /** Камеры студентов попадают в список техники сами и лимит не расходуют. */
+  const withOwnCameras = () => {
+    const holders = ownCameraHolders();
+    const qty = Object.fromEntries(draft.equipment.filter((name) => draft.qty[name] > 1).map((name) => [name, draft.qty[name]]));
+    if (holders.length > 1) qty[OWN_CAMERA] = holders.length;
+    return {
+      equipment: holders.length ? [...draft.equipment, OWN_CAMERA] : [...draft.equipment],
+      equipmentQty: qty,
+      ownCameras: holders,
+    };
+  };
 
   const read = () => ({
     id: draft.id,
@@ -570,19 +626,26 @@ async function openForm(source = {}) {
     place: $('f-place').value.trim(),
     responsible: $('f-responsible').value.trim(),
     participants: draft.participants,
-    equipment: draft.equipment,
+    ...withOwnCameras(),
     devices: draft.devices,
     notes: $('f-notes').value.trim(),
   });
 
   const updateConflicts = () => {
     if (!dialog.open) return;
-    const found = findConflicts(read(), state.allEvents);
-    conflictBox.hidden = !found.length;
+    const event = read();
+    const found = findConflicts(event, state.allEvents, refsOf('equipment'));
+    const lacking = shortages(event, state.allEvents, refsOf('equipment'));
+    conflictBox.hidden = !found.length && !lacking.length;
     conflictBox.replaceChildren(
-      h('h3', {}, 'Уже заняты в это время'),
-      h('ul', {}, found.map((c) => h('li', {}, `${c.name}: ${eventLabel(c.event)}`))),
+      found.length > 0 && h('h3', {}, 'Уже заняты в это время'),
+      found.length > 0 && h('ul', {}, found.map((c) => h('li', {}, `${c.name}: ${eventLabel(c.event)}`))),
+      lacking.length > 0 && h('h3', {}, 'Не хватает техники'),
+      lacking.length > 0 && h('ul', {}, lacking.map((item) => h('li', {}, `${item.name}: нужно ${item.need}, свободно ${item.free} из ${item.total}`))),
     );
+    const holders = ownCameraHolders();
+    ownBox.hidden = !holders.length;
+    ownBox.textContent = `Со своей камерой: ${holders.join(', ')}. Эти камеры не расходуют лимит.`;
   };
 
   /** Кто или что уже занято в выбранное время: имя → мероприятие. */
@@ -591,6 +654,9 @@ async function openForm(source = {}) {
     const probe = { ...read(), responsible: '', participants: kind === 'person' ? names : [], equipment: kind === 'equipment' ? names : [] };
     return new Map(findConflicts(probe, state.allEvents).map((c) => [nameKey(c.name), eventLabel(c.event)]));
   };
+
+  const people = () => [...refsOf('teacher'), ...refsOf('student')].map((ref) => ref.name)
+    .concat(state.allEvents.flatMap((e) => [e.responsible, ...e.participants]));
 
   const pickInto = (values, config) => (changed) => openPicker({
     ...config,
@@ -601,7 +667,7 @@ async function openForm(source = {}) {
     },
   });
 
-  const participants = listInput('Участники', 'd-people', 'f-participants',
+  const participants = listInput('Участники', 'f-participants',
     'Фамилия и имя, можно вставить список из таблицы', draft.participants, updateConflicts,
     (changed) => pickInto(draft.participants, {
       title: 'Студенты',
@@ -613,15 +679,22 @@ async function openForm(source = {}) {
       ],
       busy: busyNames('person'),
       empty: 'Список студентов пуст. Добавьте группы и студентов в разделе «Справочники».',
-    })(changed));
-  const equipment = listInput('Техника', 'd-equipment', 'f-equipment',
+      selectAll: 'Всех студентов',
+    })(changed), { suggest: people });
+  const equipment = listInput('Техника', 'f-equipment',
     'Например, проектор', draft.equipment, updateConflicts,
-    (changed) => pickInto(draft.equipment, {
-      title: 'Техника',
-      sections: [{ items: refsOf('equipment').map((ref) => ref.name) }],
-      busy: busyNames('equipment'),
-      empty: 'Список техники пуст. Добавьте её в разделе «Справочники».',
-    })(changed));
+    (changed) => openStockPicker({
+      event: read(),
+      values: draft.equipment,
+      qty: draft.qty,
+      holders: ownCameraHolders(),
+      done: changed,
+    }),
+    {
+      tagLabel: (name) => equipmentLabel({ equipmentQty: draft.qty }, name),
+      suggest: () => [...refsOf('equipment').map((ref) => ref.name), ...state.allEvents.flatMap((e) => e.equipment)]
+        .filter((name) => name !== OWN_CAMERA),
+    });
 
   const targets = devicePicker(draft.devices, network);
 
@@ -638,7 +711,9 @@ async function openForm(source = {}) {
     setInvalid(title, titleError);
     setInvalid(to, timeError);
     setInvalid(date, dateError);
-    return !(titleError || timeError || dateError);
+    const lacking = shortages(event, state.allEvents, refsOf('equipment'));
+    message.textContent = lacking.length ? `Не хватает: ${lacking.map((item) => item.name).join(', ')}. Уменьшите количество или выберите другое время.` : '';
+    return !(titleError || timeError || dateError || lacking.length);
   };
 
   const save = h('button', { class: 'primary', type: 'submit' }, source.id ? 'Сохранить' : 'Добавить событие');
@@ -674,15 +749,10 @@ async function openForm(source = {}) {
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
         typeField, title, date, from, to, place, responsible, targets,
-        participants.element, equipment.element, conflictBox,
+        participants.element, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, 'Примечание'),
-          h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? ''))),
-      suggestions('d-people', [...refsOf('teacher'), ...refsOf('student')].map((ref) => ref.name)
-        .concat(state.allEvents.flatMap((e) => [e.responsible, ...e.participants]))),
-      suggestions('d-equipment', refsOf('equipment').map((ref) => ref.name)
-        .concat(state.allEvents.flatMap((e) => e.equipment))),
-      suggestions('d-places', state.allEvents.map((e) => e.place))),
+          h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? '')))),
     h('div', { class: 'sheetfoot' }, save, message));
 
   dialog.replaceChildren(
@@ -700,7 +770,7 @@ async function openForm(source = {}) {
  * Окно выбора. Значения, введённые в форме вручную, остаются нетронутыми:
  * окно меняет только то, что есть в его списке.
  */
-function openPicker({ title, sections, selected, single = false, busy = new Map(), empty, done }) {
+function openPicker({ title, sections, selected, single = false, busy = new Map(), empty, selectAll = null, done }) {
   const dialog = $('picker');
   const chosen = new Set(selected.map(nameKey));
   const listed = new Map(sections.flatMap((section) => section.items).map((name) => [nameKey(name), name]));
@@ -742,6 +812,20 @@ function openPicker({ title, sections, selected, single = false, busy = new Map(
   function draw() {
     const query = nameKey(search.value);
     const rows = [];
+    if (selectAll && listed.size) {
+      const everyone = [...listed.keys()].every((key) => chosen.has(key));
+      rows.push(h('button', {
+        type: 'button',
+        class: 'plain pickall',
+        onclick: () => {
+          for (const key of listed.keys()) {
+            if (everyone) chosen.delete(key);
+            else chosen.add(key);
+          }
+          draw();
+        },
+      }, everyone ? 'Снять всех' : `${selectAll}: ${listed.size}`));
+    }
     for (const section of sections) {
       const items = section.items.filter((name) => !query || nameKey(name).includes(query));
       if (!items.length && (query || !section.name)) continue;
@@ -790,6 +874,54 @@ function openPicker({ title, sections, selected, single = false, busy = new Map(
   dialog.showModal();
 }
 
+/** Выбор техники с количеством: больше свободного выбрать нельзя. */
+function openStockPicker({ event, values, qty, holders, done }) {
+  const dialog = $('picker');
+  const stock = refsOf('equipment').filter((item) => item.name !== OWN_CAMERA);
+  const counts = new Map(stock.map((item) => {
+    const chosen = values.find((name) => nameKey(name) === nameKey(item.name));
+    return [item.name, chosen ? equipmentCount({ equipmentQty: qty }, chosen) : 0];
+  }));
+  const list = h('div', { class: 'picklist' });
+
+  function draw() {
+    list.replaceChildren(...stock.map((item) => {
+      const count = counts.get(item.name);
+      const free = freeStock(event, state.allEvents, item);
+      const change = (delta) => { counts.set(item.name, count + delta); draw(); };
+      return h('div', { class: 'qtyrow' },
+        h('div', { class: 'qtyname' },
+          h('strong', {}, item.name),
+          h('span', {}, free === null ? 'Без лимита' : `Свободно ${free} из ${item.quantity}`)),
+        h('button', { type: 'button', 'aria-label': `Меньше: ${item.name}`, disabled: count === 0, onclick: () => change(-1) }, '−'),
+        h('output', { 'aria-label': `Выбрано: ${item.name}` }, String(count)),
+        h('button', { type: 'button', 'aria-label': `Больше: ${item.name}`, disabled: free !== null && count >= free, onclick: () => change(1) }, '+'));
+    }));
+    if (!stock.length) list.replaceChildren(h('p', { class: 'help' }, 'Список техники пуст. Добавьте её в разделе «Справочники».'));
+  }
+
+  const finish = () => {
+    const listed = new Set(stock.map((item) => nameKey(item.name)));
+    const manual = values.filter((name) => !listed.has(nameKey(name)));
+    const picked = stock.filter((item) => counts.get(item.name) > 0).map((item) => item.name);
+    for (const name of Object.keys(qty)) if (!manual.includes(name)) delete qty[name];
+    for (const name of picked) qty[name] = counts.get(name);
+    values.splice(0, values.length, ...manual, ...picked);
+    dialog.close();
+    done();
+  };
+
+  draw();
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, 'Техника'), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      holders.length > 0 && h('p', { class: 'notice' }, `Со своей камерой: ${holders.join(', ')}.`),
+      list),
+    h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'button', onclick: finish }, 'Готово')),
+  );
+  dialog.showModal();
+}
+
 /* Справочники */
 
 const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '' };
@@ -827,13 +959,33 @@ async function addRefs(text, kind, existing, extra = {}) {
   else drawCatalog();
 }
 
-function addForm(id, placeholder, onAdd) {
+/** Количество из поля: пусто означает «без лимита». */
+const parseQuantity = (text) => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : null);
+
+async function addEquipment(rows, existing) {
+  const known = new Set(existing.map((ref) => nameKey(ref.name)));
+  const fresh = [];
+  const repeated = [];
+  for (const { name, quantity } of rows) {
+    if (known.has(nameKey(name))) {
+      repeated.push(name);
+    } else {
+      known.add(nameKey(name));
+      fresh.push({ ref: { kind: 'equipment', name, quantity }, base: null });
+    }
+  }
+  catalog.message = repeated.length ? `Уже есть в списке: ${repeated.join(', ')}` : '';
+  if (fresh.length) await commitCatalog(await api.saveRefs(fresh));
+  else drawCatalog();
+}
+
+function addForm(id, placeholder, onAdd, extra = null) {
   const input = h('input', { id, placeholder, autocomplete: 'off', 'aria-label': placeholder });
   const submit = async () => {
     const text = input.value;
     if (!text.trim()) return;
     input.value = '';
-    await onAdd(text);
+    await onAdd(text, extra?.value ?? '');
     $(id)?.focus();
   };
   input.addEventListener('keydown', (e) => {
@@ -850,17 +1002,20 @@ function addForm(id, placeholder, onAdd) {
       onAdd(text);
     }
   });
-  return h('div', { class: 'field' }, h('div', { class: 'adder' }, input, h('button', { type: 'button', onclick: submit }, 'Добавить')));
+  return h('div', { class: 'field' }, h('div', { class: 'adder' }, input, extra, h('button', { type: 'button', onclick: submit }, 'Добавить')));
 }
 
-function refRow(ref, { confirmText = 'Удалить из списка?', removals = () => [ref], open = null, active = false, detail = null } = {}) {
+function refRow(ref, { confirmText = 'Удалить из списка?', removals = () => [ref], open = null, active = false, detail = null, extra = null } = {}) {
   if (catalog.editing === ref.id) {
     const input = h('input', { id: 'c-edit', value: ref.name, autocomplete: 'off', 'aria-label': 'Название' });
     const groups = refsOf('group');
     const move = ref.kind === 'student'
       ? h('select', { id: 'c-group', 'aria-label': 'Группа' }, groups.map((g) => h('option', { value: g.id, selected: g.id === ref.groupId }, g.name)))
       : null;
-    return h('li', { class: 'refrow editing' }, input, move,
+    const limit = ref.kind === 'equipment'
+      ? h('input', { id: 'c-qty', class: 'qtyinput', type: 'number', min: 0, value: ref.quantity ?? '', placeholder: 'Без лимита', 'aria-label': 'Количество' })
+      : null;
+    return h('li', { class: 'refrow editing' }, input, move, limit,
       h('button', {
         type: 'button',
         class: 'primary',
@@ -869,7 +1024,7 @@ function refRow(ref, { confirmText = 'Удалить из списка?', remova
           if (!name) return;
           catalog.message = '';
           await commitCatalog(await api.saveRefs([{
-            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}) },
+            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}) },
             base: ref.updatedAt,
           }]));
         },
@@ -891,8 +1046,8 @@ function refRow(ref, { confirmText = 'Удалить из списка?', remova
   }
   const label = open
     ? h('button', { type: 'button', class: 'refname link', 'aria-pressed': String(active), onclick: open }, h('strong', {}, ref.name), detail && h('span', {}, detail))
-    : h('p', { class: 'refname' }, ref.name);
-  return h('li', { class: 'refrow' }, label,
+    : h('div', { class: 'refname' }, h('p', {}, ref.name), detail && h('span', {}, detail));
+  return h('li', { class: 'refrow' }, label, extra,
     h('button', { type: 'button', class: 'plain', onclick: () => { catalog.editing = ref.id; catalog.confirming = null; drawCatalog(); } }, 'Изменить'),
     h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = ref.id; catalog.editing = null; drawCatalog(); } }, 'Удалить'));
 }
@@ -926,7 +1081,17 @@ function groupsPane() {
         ? [
           addForm('c-add-student', 'Фамилия и имя или столбец из таблицы',
             (text) => addRefs(text, 'student', members, { groupId: current.id })),
-          refList(members.map((student) => refRow(student)), 'В группе пока нет студентов.'),
+          refList(members.map((student) => refRow(student, {
+            extra: h('button', {
+              type: 'button',
+              class: 'plain owntoggle',
+              'aria-pressed': String(student.ownCamera === true),
+              onclick: async () => {
+                catalog.message = '';
+                await commitCatalog(await api.saveRefs([{ ref: { ...student, ownCamera: !student.ownCamera }, base: student.updatedAt }]));
+              },
+            }, 'Своя камера'),
+          })), 'В группе пока нет студентов.'),
         ]
         : h('p', { class: 'help' }, 'Сначала добавьте группу.')));
 }
@@ -938,12 +1103,27 @@ function simplePane(kind, placeholder, emptyText) {
     refList(items.map((item) => refRow(item)), emptyText));
 }
 
+function equipmentPane() {
+  const items = refsOf('equipment');
+  const quantity = h('input', { id: 'c-add-qty', class: 'qtyinput', type: 'number', min: 0, placeholder: 'Без лимита', 'aria-label': 'Количество, пусто означает без лимита' });
+  return h('section', {},
+    addForm('c-add-equipment', 'Название или таблица из двух столбцов', (text, count) => {
+      const rows = parseEquipment(text);
+      if (rows.length === 1 && rows[0].quantity === null) rows[0].quantity = parseQuantity(count);
+      return addEquipment(rows, items);
+    }, quantity),
+    h('p', { class: 'help' }, 'Количество ограничивает выбор в событиях с учётом пересечений по времени. Пустое поле означает «без лимита». Камеры студентов добавлять не нужно: отметьте «Своя камера» у студента.'),
+    refList(items.map((item) => refRow(item, {
+      detail: item.quantity === null ? 'Без лимита' : `${item.quantity} шт.`,
+    })), 'Добавьте технику, чтобы выбирать её в событиях.'));
+}
+
 function drawCatalog() {
   const dialog = $('catalog');
   const pane = catalog.tab === 'groups'
     ? groupsPane()
     : catalog.tab === 'equipment'
-      ? simplePane('equipment', 'Название или столбец из таблицы', 'Добавьте технику, чтобы выбирать её в мероприятиях.')
+      ? equipmentPane()
       : simplePane('teacher', 'Фамилия и инициалы или столбец из таблицы', 'Добавьте преподавателей, чтобы выбирать ответственных.');
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, 'Справочники'), closeButton(dialog)),
@@ -1226,6 +1406,19 @@ async function openSettings() {
   const peers = h('input', { id: 's-peers', value: current.peers.join(', '), spellcheck: 'false', autocomplete: 'off' });
   const showAll = h('input', { id: 's-all', type: 'checkbox', checked: current.showAll });
   const fullscreen = h('input', { id: 's-fullscreen', type: 'checkbox', checked: current.fullscreen });
+  let theme = current.theme;
+  const themeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-theme' });
+  const drawThemes = () => themeRow.replaceChildren(...[['dark', 'Тёмная'], ['light', 'Светлая'], ['system', 'Как в Windows']].map(([id, label]) =>
+    h('button', {
+      type: 'button',
+      'aria-pressed': String(theme === id),
+      onclick: async () => {
+        theme = id;
+        await api.setTheme(id);
+        drawThemes();
+      },
+    }, label)));
+  drawThemes();
   const message = h('p', { class: 'message error' });
   const devices = h('div', { id: 's-devices' });
   const drawDevices = async () => devices.replaceChildren(...deviceList(await api.syncStatus()));
@@ -1241,6 +1434,7 @@ async function openSettings() {
         peers: peers.value,
         showAll: showAll.checked,
         fullscreen: fullscreen.checked,
+        theme,
       });
       if (!result.ok) {
         message.textContent = result.code === 'invalid' ? result.message : 'Настройки не сохранены: нет доступа к файлу настроек.';
@@ -1254,6 +1448,9 @@ async function openSettings() {
     },
   },
     h('div', { class: 'sheetbody' },
+      h('div', { class: 'setting field' },
+        h('span', { class: 'label', id: 'l-theme' }, 'Оформление'),
+        themeRow),
       h('div', { class: 'setting field' },
         h('label', { for: 's-name' }, 'Название устройства'),
         name,
@@ -1331,6 +1528,9 @@ function wire() {
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
   $('settings').addEventListener('click', openSettings);
+  $('theme').addEventListener('click', () => {
+    api.setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
+  });
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';

@@ -78,6 +78,8 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   const page = await app.firstWindow();
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // Playwright по умолчанию подменяет тему страницы, а нужна настоящая тема программы.
+  await page.emulateMedia({ colorScheme: null });
   await page.clock.setFixedTime(new Date(2026, 10, 3, 11, 42));
   await page.reload();
   await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => {});
@@ -254,7 +256,7 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   assert.ok(!tags.some((t) => t.includes('Борисов Илья')), 'снятый студент убран');
 
   await page.click('#form .field:has(#f-equipment) >> text=Из списка');
-  await page.click('#picker .pickrow:has-text("Проектор")');
+  await page.click('#picker [aria-label="Больше: Проектор"]');
   await page.click('#picker .sheetfoot .primary');
   await page.waitForSelector('#picker', { state: 'hidden' });
   await page.click('dialog#form button[type=submit]');
@@ -276,6 +278,108 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForSelector('#catalog .refname:has-text("ПИ-22")', { state: 'detached' });
   await page.click('#catalog [aria-label=Закрыть]');
   await until(async () => !(await teacherStore.directory()).some((r) => r.name === 'ПИ-22' || r.name === 'Новиков Роман'), 'удаление группы на другом устройстве');
+
+  // Свои подсказки при вводе: длинный список прокручивается.
+  await page.click('#open-catalog');
+  await page.click('#catalog .tabs >> text=Группы и студенты');
+  await page.click('#catalog .refname:has-text("ИС-21")');
+  await paste('#c-add-student', Array.from({ length: 40 }, (_, i) => `Тестов Ученик${i}`).join('\n') + '\n');
+  await page.waitForSelector('#catalog li:has-text("Тестов Ученик39")');
+
+  // Своя камера студента и лимит техники.
+  await page.click('#catalog li:has-text("Алексеева Мария") .owntoggle');
+  await page.waitForSelector('#catalog li:has-text("Алексеева Мария") .owntoggle[aria-pressed=true]');
+  await page.click('#catalog .tabs >> text=Техника');
+  await page.fill('#c-add-equipment', 'Камера');
+  await page.fill('#c-add-qty', '2');
+  await page.keyboard.press('Tab');
+  await page.click('#catalog .adder button:has-text("Добавить")');
+  await page.waitForSelector('#catalog li:has-text("Камера"):has-text("2 шт.")');
+  await shot('catalog-equipment');
+  await page.click('#catalog [aria-label=Закрыть]');
+
+  const fillEvent = async (title) => {
+    await page.click('#add');
+    await page.waitForSelector('#form[open]');
+    await page.fill('#f-title', title);
+    await page.fill('#f-date', day(7));
+    await page.fill('#f-start', '10:00');
+    await page.fill('#f-end', '11:00');
+  };
+  await fillEvent('Съёмка');
+  await page.fill('#f-participants', 'Тестов');
+  await page.waitForSelector('#form .suggest button:has-text("Тестов Ученик9")');
+  const hints = await page.locator('#form .suggest:not([hidden])').evaluate((box) => {
+    const before = box.scrollTop;
+    box.scrollTop = 500;
+    return { client: box.clientHeight, scroll: box.scrollHeight, moved: box.scrollTop - before };
+  });
+  assert.ok(hints.scroll > hints.client && hints.moved > 0, 'подсказки прокручиваются');
+  await page.click('#form .suggest button:has-text("Тестов Ученик9")');
+  assert.equal(await page.inputValue('#f-participants'), '');
+  await page.click('#form .field:has(#f-participants) >> text=Из списка');
+  assert.match(await page.textContent('#picker .pickall'), /Всех студентов: 43/);
+  await page.click('#picker .pickall');
+  assert.match(await page.textContent('#picker .sheetfoot .primary'), /выбрано 43/);
+  await page.click('#picker .pickall');
+  assert.match(await page.textContent('#picker .sheetfoot .primary'), /выбрано 0/);
+  await page.click('#picker .pickgroup:has-text("ИС-21") >> text=Всю группу');
+  await page.click('#picker .sheetfoot .primary');
+  await page.waitForSelector('#form .ownbox:has-text("Алексеева Мария")');
+  await page.click('#form .field:has(#f-equipment) >> text=Из списка');
+  assert.match(await page.textContent('#picker .qtyrow:has-text("Камера")'), /Свободно 2 из 2/);
+  await page.click('#picker [aria-label="Больше: Камера"]');
+  await page.click('#picker [aria-label="Больше: Камера"]');
+  assert.equal(await page.isDisabled('#picker [aria-label="Больше: Камера"]'), true, 'больше лимита не выбрать');
+  await shot('stock-picker');
+  await page.click('#picker .sheetfoot .primary');
+  await page.waitForSelector('#form .tag:has-text("Камера × 2")');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  const filmed = async () => (await teacherStore.list()).find((e) => e.title === 'Съёмка');
+  await until(async () => (await filmed())?.equipmentQty?.['Камера'] === 2, 'количество техники на другом устройстве');
+  assert.ok((await filmed()).equipment.includes('Своя камера'), 'своя камера в списке техники');
+  assert.deepEqual((await filmed()).ownCameras, ['Алексеева Мария']);
+
+  await fillEvent('Вторая съёмка');
+  await page.click('#form .field:has(#f-equipment) >> text=Из списка');
+  assert.match(await page.textContent('#picker .qtyrow:has-text("Камера")'), /Свободно 0 из 2/);
+  assert.equal(await page.isDisabled('#picker [aria-label="Больше: Камера"]'), true, 'все камеры заняты');
+  await page.click('#picker .sheetfoot .primary');
+  await page.fill('#f-equipment', 'Камера');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#form .conflicts:has-text("нужно 1, свободно 0 из 2")');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('#form .message:has-text("Не хватает: Камера")');
+  await page.fill('#f-start', '12:00');
+  await page.fill('#f-end', '13:00');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+
+  // Темы: переключение сразу, настройка не теряется.
+  const canvas = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  assert.equal(await canvas(), 'rgb(13, 17, 23)');
+  await page.click('#theme');
+  await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)');
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /theme=light/);
+  await page.click('#today');
+  await page.click('[data-view=week]');
+  await shot('light-week');
+  await page.click('.block:has-text("Подготовка к олимпиаде")');
+  await shot('light-details');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await shot('light-form');
+  await page.click('#form [aria-label=Закрыть]');
+  await page.click('[data-view=month]');
+  await shot('light-month');
+  await page.click('[data-view=day]');
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  await page.click('#preferences .targets button:has-text("Тёмная")');
+  await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(13, 17, 23)');
+  await page.click('#preferences [aria-label=Закрыть]');
 
   // Типы событий различаются цветом, новое занятие выбирается в форме.
   await page.click('[data-view=week]');

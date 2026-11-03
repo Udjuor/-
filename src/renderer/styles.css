@@ -18,7 +18,10 @@
   --danger-fg: #f85149;
   --danger-subtle: rgb(248 81 73 / .15);
   --tab-active: #f78166;
-  color-scheme: dark;
+  color-scheme: light dark;
+  --btn: #21262d;
+  --now-ring: #fff;
+  --backdrop: rgb(1 4 9 / .7);
   /* Экраны бывают от Full HD до 4K: размеры привязаны к ширине. */
   font-size: clamp(14px, 1.04vw, 44px);
 }
@@ -87,7 +90,7 @@ h1 {
 
 .icon { flex: none; width: 3rem; padding: .6rem; color: var(--fg-muted); }
 .icon svg { display: block; width: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.text { padding: 0 1rem; border: .05rem solid var(--border); background: #21262d; font-size: 1.05rem; font-weight: 500; }
+.text { padding: 0 1rem; border: .05rem solid var(--border); background: var(--btn); font-size: 1.05rem; font-weight: 500; }
 
 /* Вкладки как на страницах GitHub */
 .views { display: flex; align-self: stretch; gap: .25rem; }
@@ -186,7 +189,7 @@ main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .block.narrow { padding: .2rem .35rem; font-size: .92rem; }
 .block.narrow strong { font-size: .95rem; }
 .block.past { border-color: var(--border); border-left-color: var(--type); background: var(--canvas-subtle); color: var(--fg-muted); }
-.block.now { border-color: #fff; border-left-color: #fff; background: var(--type); color: #fff; }
+.block.now { border-color: var(--now-ring); border-left-color: var(--now-ring); background: var(--type); color: #fff; }
 
 .dayview .block { flex-flow: row wrap; align-content: flex-start; align-items: baseline; gap: 0 1.8rem; padding: .3rem .9rem; font-size: 1.2rem; }
 .dayview .block strong { max-width: 100%; font-size: 1.5rem; }
@@ -244,7 +247,7 @@ main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 }
 
 .chip.past { border-color: var(--border); border-left: .2rem solid var(--type); background: none; color: var(--fg-muted); }
-.chip.now { border-color: #fff; background: var(--type); color: #fff; }
+.chip.now { border-color: var(--now-ring); background: var(--type); color: #fff; }
 .more { flex: none; height: 1.4rem; padding-left: .4rem; color: var(--fg-muted); font-size: .98rem; }
 
 /* Окна */
@@ -266,7 +269,7 @@ dialog.sheet {
 dialog.sheet.wide { width: min(58rem, 96vw); }
 dialog.sheet.full { width: 100vw; }
 dialog.sheet[open] { display: flex; flex-direction: column; }
-dialog::backdrop { background: rgb(1 4 9 / .7); }
+dialog::backdrop { background: var(--backdrop); }
 
 .sheethead { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.5rem .8rem; border-bottom: .05rem solid var(--border-muted); }
 .sheethead h2 { padding-top: .35rem; font-size: 1.7rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; user-select: text; }
@@ -275,7 +278,7 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 .sheetfoot .spacer { flex: 1; }
 .sheetfoot .message { flex: 1; font-size: 1.02rem; }
 
-.plain { padding: 0 1.1rem; border: .05rem solid var(--border); background: #21262d; font-size: 1.05rem; font-weight: 500; }
+.plain { padding: 0 1.1rem; border: .05rem solid var(--border); background: var(--btn); font-size: 1.05rem; font-weight: 500; }
 .danger { padding: 0 1.1rem; background: var(--danger-emphasis); color: #fff; font-size: 1.05rem; font-weight: 600; }
 
 /* Карточка мероприятия */
@@ -317,7 +320,7 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 
 .adder { display: flex; gap: .5rem; }
 .adder input { flex: 1; min-width: 0; }
-.adder button { flex: none; padding: 0 1.1rem; border: .05rem solid var(--border); background: #21262d; font-weight: 500; }
+.adder button { flex: none; padding: 0 1.1rem; border: .05rem solid var(--border); background: var(--btn); font-weight: 500; }
 
 .tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
 .tags:empty { display: none; }
@@ -338,7 +341,7 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 .tag button { min-width: 2.6rem; min-height: 2.6rem; color: var(--accent); font-size: 1.3rem; line-height: 1; }
 
 .targets { display: flex; flex-wrap: wrap; gap: .4rem; }
-.targets button { padding: 0 1rem; border: .05rem solid var(--border); background: #21262d; }
+.targets button { padding: 0 1rem; border: .05rem solid var(--border); background: var(--btn); }
 .targets button[aria-pressed="true"] { border-color: var(--accent-emphasis); background: var(--accent-emphasis); color: #fff; font-weight: 600; }
 
 .conflicts { grid-column: span 6; padding: .7rem .9rem; border: .05rem solid var(--attention-border); border-radius: .3rem; background: var(--attention-subtle); }
@@ -388,7 +391,7 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 .grouptoggle { display: flex; flex: 1; flex-direction: column; justify-content: center; min-width: 0; padding: .3rem .7rem; border: .05rem solid var(--border); background: var(--canvas); text-align: left; }
 .grouptoggle strong { font-weight: 600; overflow-wrap: anywhere; }
 .grouptoggle span { color: var(--fg-muted); font-size: .95rem; }
-.pickrow { display: flex; flex-direction: column; justify-content: center; padding: .3rem .8rem; border: .05rem solid var(--border); background: #21262d; text-align: left; }
+.pickrow { display: flex; flex-direction: column; justify-content: center; padding: .3rem .8rem; border: .05rem solid var(--border); background: var(--btn); text-align: left; }
 .pickrow strong { font-weight: 500; overflow-wrap: anywhere; }
 .pickrow span { color: var(--attention-fg); font-size: .95rem; overflow-wrap: anywhere; }
 .pickrow[aria-pressed="true"] { border-color: var(--accent-emphasis); background: var(--accent-emphasis); color: #fff; }
@@ -410,7 +413,7 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 .rollsummary { margin-bottom: .7rem; font-size: 1.1rem; font-weight: 600; }
 .rolllist { display: flex; flex-direction: column; gap: .3rem; margin-top: .7rem; }
 .rollrow { display: flex; gap: .35rem; align-items: stretch; }
-.rollname { display: flex; flex: 1; flex-direction: column; justify-content: center; min-width: 0; min-height: 3.4rem; padding: .25rem .8rem; border: .05rem solid var(--border); background: #21262d; text-align: left; }
+.rollname { display: flex; flex: 1; flex-direction: column; justify-content: center; min-width: 0; min-height: 3.4rem; padding: .25rem .8rem; border: .05rem solid var(--border); background: var(--btn); text-align: left; }
 .rollname strong { font-weight: 600; overflow-wrap: anywhere; }
 .rollname span { color: var(--fg-muted); font-size: .95rem; }
 .rollname span.late { color: var(--attention-fg); }
@@ -428,3 +431,64 @@ dialog::backdrop { background: rgb(1 4 9 / .7); }
 .tablewrap td { padding: .45rem .7rem; border-top: .05rem solid var(--border-muted); user-select: text; }
 
 .reportfilters .field { grid-column: auto; }
+
+/* Полосы прокрутки: на сенсорной панели их должно быть видно и за них можно взяться */
+::-webkit-scrollbar { width: .95rem; height: .95rem; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border: .2rem solid transparent; border-radius: 1rem; background: var(--border) padding-box; }
+
+.icon .filled { fill: currentColor; stroke: none; }
+
+/* Свой список подсказок */
+.suggest { display: flex; flex-direction: column; max-height: 15rem; margin-top: .3rem; overflow-y: auto; overscroll-behavior: contain; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); }
+.suggest[hidden] { display: none; }
+.suggest button { flex: none; padding: 0 .8rem; border-radius: 0; border-top: .05rem solid var(--border-muted); text-align: left; overflow-wrap: anywhere; }
+
+.pickall { flex: none; font-weight: 600; }
+
+/* Количество техники */
+.qtyrow { display: flex; gap: .4rem; align-items: center; padding: .3rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; }
+.qtyname { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.qtyname strong { font-weight: 600; overflow-wrap: anywhere; }
+.qtyname span { color: var(--fg-muted); font-size: .95rem; }
+.qtyrow button { flex: none; width: 3rem; border: .05rem solid var(--border); background: var(--btn); font-size: 1.4rem; line-height: 1; }
+.qtyrow output { width: 2.4rem; font-size: 1.2rem; font-weight: 600; text-align: center; }
+.qtyinput { flex: 0 0 9rem !important; min-width: 0; min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.ownbox { grid-column: span 6; }
+.ownbox[hidden] { display: none; }
+.refname span { display: block; color: var(--fg-muted); font-size: .95rem; }
+.refrow .owntoggle[aria-pressed="true"] { border-color: var(--accent-emphasis); background: var(--accent-emphasis); color: #fff; font-weight: 600; }
+
+/* Светлая тема: цвета GitHub Light */
+@media (prefers-color-scheme: light) {
+  :root {
+    --canvas: #fff;
+    --canvas-subtle: #f6f8fa;
+    --canvas-inset: #eff2f5;
+    --border: #d0d7de;
+    --border-muted: #d8dee4;
+    --fg: #1f2328;
+    --fg-muted: #59636e;
+    --accent: #0969da;
+    --accent-emphasis: #0969da;
+    --accent-subtle: #ddf4ff;
+    --success-emphasis: #1f883d;
+    --attention-subtle: #fff8c5;
+    --attention-border: #d4a72c;
+    --attention-fg: #7d4e00;
+    --danger-emphasis: #cf222e;
+    --danger-fg: #cf222e;
+    --danger-subtle: #ffebe9;
+    --tab-active: #fd8c73;
+    --btn: #f6f8fa;
+    --now-ring: #1f2328;
+    --backdrop: rgb(31 35 40 / .5);
+  }
+
+  .t-lesson { --type: #0969da; --type-bg: #ddf4ff; }
+  .t-practice { --type: #8250df; --type-bg: #fbefff; }
+  .t-task { --type: #9a6700; --type-bg: #fff8c5; }
+  .t-event { --type: #1f883d; --type-bg: #dafbe1; }
+
+  .rollname[aria-pressed="true"] { border-color: var(--success-emphasis); }
+}

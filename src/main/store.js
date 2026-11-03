@@ -34,6 +34,15 @@ function cleanList(value) {
   return result;
 }
 
+/** Количество техники в мероприятии: { название: целое число от 1 }. */
+function cleanCounts(value) {
+  const counts = {};
+  for (const [name, count] of Object.entries(value && typeof value === 'object' ? value : {})) {
+    if (Number.isInteger(count) && count > 0) counts[name] = count;
+  }
+  return counts;
+}
+
 /** Приводит запись к единому виду. Возвращает null, если она непригодна. */
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -49,6 +58,8 @@ function normalizeEvent(raw) {
     responsible: String(raw.responsible ?? '').trim(),
     participants: cleanList(raw.participants),
     equipment: cleanList(raw.equipment),
+    equipmentQty: cleanCounts(raw.equipmentQty),
+    ownCameras: cleanList(raw.ownCameras),
     notes: String(raw.notes ?? '').trim(),
     devices: cleanList(raw.devices),
     updatedAt: String(raw.updatedAt ?? ''),
@@ -79,7 +90,14 @@ function normalizeRef(raw) {
     updatedAt: String(raw.updatedAt ?? ''),
     updatedBy: String(raw.updatedBy ?? ''),
   };
-  if (raw.kind === 'student') ref.groupId = String(raw.groupId ?? '');
+  if (raw.kind === 'student') {
+    ref.groupId = String(raw.groupId ?? '');
+    ref.ownCamera = raw.ownCamera === true;
+  }
+  if (raw.kind === 'equipment') {
+    // Пустое количество означает «без лимита».
+    ref.quantity = Number.isInteger(raw.quantity) && raw.quantity >= 0 ? raw.quantity : null;
+  }
   const valid = ID_RE.test(ref.id) && ref.name && (raw.kind !== 'student' || ID_RE.test(ref.groupId));
   return valid ? ref : null;
 }

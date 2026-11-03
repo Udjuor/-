@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { loadConfig, saveConfig, splitPeers } = require('./config');
@@ -155,6 +155,7 @@ function registerHandlers() {
     syncKey: config.syncKey,
     peers: config.peers,
     showAll: config.showAll,
+    theme: config.theme,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
   }));
@@ -175,12 +176,21 @@ function registerHandlers() {
         peers: splitPeers(settings.peers),
         showAll: Boolean(settings.showAll),
         fullscreen: Boolean(settings.fullscreen),
+        theme: settings.theme ?? config.theme,
       };
       saveConfig(homeDir(), config);
+      nativeTheme.themeSource = config.theme;
       if (win) win.setFullScreen(config.fullscreen);
       if (syncChanged) await restartSync();
     }),
   );
+
+  ipcMain.handle('theme:set', (_e, theme) => respond(() => {
+    if (!['dark', 'light', 'system'].includes(theme)) return;
+    config = { ...config, theme };
+    nativeTheme.themeSource = theme;
+    saveConfig(homeDir(), config);
+  }));
 
   ipcMain.handle('sync:status', () => (sync ? sync.status() : { enabled: false, problem: syncProblem, peers: [], unreachable: [] }));
   ipcMain.handle('sync:now', async () => {
@@ -206,6 +216,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     config = loadConfig(homeDir());
+    nativeTheme.themeSource = config.theme;
     store = new EventStore(config.dataDir, config.deviceId);
     registerHandlers();
     createWindow();

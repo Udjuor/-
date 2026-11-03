@@ -193,6 +193,44 @@ test('CSV открывается в Excel и экранирует значени
   assert.equal(csv, '\uFEFFИмя;Группа\r\n"Иванов; Иван";"ИС ""21"' + '""\r\nПетров;5\r\n');
 });
 
+const gear = (id, start, end, equipment, equipmentQty = {}) => ({ ...ev(id, start, end), equipment, equipmentQty });
+
+test('лимит техники учитывает пересекающиеся события и их количество', () => {
+  const stock = [{ name: 'Камера', quantity: 5 }];
+  const events = [gear('a', '10:00', '11:00', ['Камера'], { Камера: 3 }), gear('b', '10:30', '11:30', ['камера']), gear('c', '11:00', '12:00', ['Камера'], { Камера: 5 })];
+  assert.equal(L.freeStock(ev('n', '10:30', '10:45'), events, stock[0]), 1);
+  assert.equal(L.freeStock(ev('n', '12:00', '13:00'), events, stock[0]), 5);
+  assert.equal(L.freeStock(gear('a', '10:00', '11:00', []), events, stock[0]), 4, 'своё событие не считается');
+  assert.equal(L.freeStock(ev('n', '08:00', '09:00'), events, { name: 'Камера', quantity: null }), null);
+});
+
+test('нехватка техники определяется, в пределах лимита всё хорошо', () => {
+  const stock = [{ name: 'Камера', quantity: 2 }, { name: 'Штатив', quantity: null }];
+  const busy = [gear('a', '10:00', '11:00', ['Камера'])];
+  assert.deepEqual(L.shortages(gear('n', '10:00', '11:00', ['Камера'], { Камера: 2 }), busy, stock), [{ name: 'Камера', need: 2, free: 1, total: 2 }]);
+  assert.deepEqual(L.shortages(gear('n', '10:00', '11:00', ['Камера']), busy, stock), []);
+  assert.deepEqual(L.shortages(gear('n', '10:00', '11:00', ['Штатив'], { Штатив: 99 }), busy, stock), []);
+  assert.deepEqual(L.shortages(gear('n', '10:00', '11:00', ['Вне списка']), busy, stock), []);
+});
+
+test('техника со счётом и своя камера не дают ложной занятости', () => {
+  const stock = [{ name: 'Камера', quantity: 5 }];
+  const busy = [gear('a', '10:00', '11:00', ['Камера', L.OWN_CAMERA, 'Проектор'])];
+  const found = L.findConflicts(gear('n', '10:00', '11:00', ['Камера', L.OWN_CAMERA, 'Проектор']), busy, stock);
+  assert.deepEqual(found.map((c) => c.name), ['Проектор']);
+});
+
+test('подпись количества', () => {
+  assert.equal(L.equipmentLabel({ equipmentQty: { Камера: 3 } }, 'Камера'), 'Камера × 3');
+  assert.equal(L.equipmentLabel({}, 'Камера'), 'Камера');
+});
+
+test('столбцы техники из таблицы', () => {
+  assert.deepEqual(L.parseEquipment('Камера\t5\r\nШтатив большой\nСвет\tLED\t3\n'), [
+    { name: 'Камера', quantity: 5 }, { name: 'Штатив большой', quantity: null }, { name: 'Свет LED', quantity: 3 },
+  ]);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [
