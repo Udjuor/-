@@ -429,6 +429,14 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForSelector('#toast:has-text("PDF сохранён")');
   assert.equal(fs.readFileSync(pdf).subarray(0, 4).toString(), '%PDF');
   if (process.env.PDF_COPY) fs.copyFileSync(pdf, process.env.PDF_COPY);
+  // Кнопка «Печать» передаёт в Windows именно этот лист.
+  await app.evaluate(({ BrowserWindow }) => {
+    const [window] = BrowserWindow.getAllWindows();
+    window.webContents.print = (options, done) => { globalThis.printCalls = (globalThis.printCalls ?? 0) + 1; done(true, ''); };
+  });
+  await page.click('#paper .sheetfoot >> text=Печать');
+  await until(async () => (await app.evaluate(() => globalThis.printCalls ?? 0)) === 1, 'печать технического задания');
+  assert.match(await page.textContent('#printarea'), /Волонтёры дня открытых дверей/);
   await page.click('#paper [aria-label=Закрыть]');
 
   // Типы событий различаются цветом, новое занятие выбирается в форме.
@@ -513,6 +521,16 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   const csv = fs.readFileSync(saved, 'utf8');
   assert.ok(csv.startsWith('\uFEFFДата;Время;Тип;Название'), 'заголовок отчёта');
   assert.ok(csv.includes('Подготовка к олимпиаде'), 'строки отчёта');
+  await page.click('#reports .sheetfoot >> text=Печать');
+  await until(async () => (await app.evaluate(() => globalThis.printCalls ?? 0)) === 2, 'печать отчёта');
+  assert.match(await page.textContent('#printarea'), /Проведённые пары[\s\S]*Подготовка к олимпиаде/);
+  const reportPdf = path.join(home, 'report.pdf');
+  await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, reportPdf);
+  await page.click('#reports .sheetfoot >> text=Сохранить PDF');
+  await until(() => fs.existsSync(reportPdf) && fs.statSync(reportPdf).size > 1000, 'PDF отчёта');
+  await page.waitForFunction(() => document.getElementById('toast').textContent === 'PDF сохранён.');
+  if (process.env.REPORT_COPY) fs.copyFileSync(reportPdf, process.env.REPORT_COPY);
+  await shot('report-buttons');
   await page.click('#reports [aria-label=Закрыть]');
 
   // Преподаватель видит всё.

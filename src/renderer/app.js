@@ -1287,34 +1287,45 @@ function paperSheet(event) {
       h('p', {}, h('span', {}, 'Технику принял'), h('i'), h('span', {}, 'подпись'))));
 }
 
+/** Кнопки печати и PDF. На бумагу идёт лист, который sheet() кладёт в область печати. */
+function printButtons(sheet, fileName) {
+  const failure = h('p', { class: 'message error' });
+  const prepare = () => {
+    failure.textContent = '';
+    $('printarea').replaceChildren(sheet());
+  };
+  return [
+    h('button', {
+      class: 'primary',
+      type: 'button',
+      onclick: async () => {
+        prepare();
+        const result = await api.printPaper();
+        if (!result.ok) failure.textContent = 'Не удалось напечатать. Проверьте принтер или сохраните PDF.';
+      },
+    }, 'Печать'),
+    h('button', {
+      class: 'plain',
+      type: 'button',
+      onclick: async () => {
+        prepare();
+        const result = await api.savePaperPdf(fileName());
+        if (!result.ok) failure.textContent = 'PDF не сохранён: нет доступа к выбранной папке.';
+        else if (result.value) toast('PDF сохранён.');
+      },
+    }, 'Сохранить PDF'),
+    failure,
+  ];
+}
+
 function openPaper(id) {
   const event = state.allEvents.find((e) => e.id === id);
   if (!event) return;
   const dialog = $('paper');
-  const failure = h('p', { class: 'message error' });
-  $('printarea').replaceChildren(paperSheet(event));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, 'Техническое задание'), closeButton(dialog)),
     h('div', { class: 'sheetbody paperview' }, paperSheet(event)),
-    h('div', { class: 'sheetfoot' },
-      h('button', {
-        class: 'primary',
-        type: 'button',
-        onclick: async () => {
-          const result = await api.printPaper();
-          failure.textContent = result.ok ? '' : 'Не удалось напечатать. Проверьте принтер или сохраните PDF.';
-        },
-      }, 'Печать'),
-      h('button', {
-        class: 'plain',
-        type: 'button',
-        onclick: async () => {
-          const result = await api.savePaperPdf(`ТЗ ${event.title} ${event.date}.pdf`);
-          if (!result.ok) failure.textContent = 'PDF не сохранён: нет доступа к выбранной папке.';
-          else if (result.value) toast('PDF сохранён.');
-        },
-      }, 'Сохранить PDF'),
-      failure),
+    h('div', { class: 'sheetfoot' }, printButtons(() => paperSheet(event), () => `ТЗ ${event.title} ${event.date}.pdf`)),
   );
   dialog.showModal();
 }
@@ -1408,6 +1419,29 @@ function drawReportResult(box) {
   );
 }
 
+/** Лист отчёта для печати и PDF. */
+function reportSheet() {
+  const report = currentReport();
+  const [tab, title, , columns] = REPORT_TABS.find(([id]) => id === reports.tab);
+  const conditions = [
+    TYPE_FILTERS.find(([id]) => id === reports.type)[1],
+    reports.group && `группа ${reports.group}`,
+    reports.teacher && `преподаватель ${reports.teacher}`,
+  ].filter(Boolean).join(', ');
+  const rows = report[tab];
+  return h('article', { class: 'paper reportpaper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, `Отчёт за ${shortDate(reports.from)}–${shortDate(reports.to)}: ${conditions}`),
+      h('h2', {}, title)),
+    h('p', { class: 'own' }, reportSummary(report)),
+    rows.length > 0
+      ? h('table', {},
+        h('thead', {}, h('tr', {}, columns.map(([name]) => h('th', {}, name)))),
+        h('tbody', {}, rows.map((row) => h('tr', {}, columns.map(([, value]) => h('td', {}, String(value(row) ?? '')))))))
+      : h('p', { class: 'own' }, 'За этот период проведённых пар нет.'),
+    h('p', { class: 'stamp' }, `Сформировано ${fmt(now().iso, { day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '')}`));
+}
+
 async function exportReport() {
   const report = currentReport();
   const [tab, , fileName, columns] = REPORT_TABS.find(([id]) => id === reports.tab);
@@ -1447,6 +1481,7 @@ function openReports() {
   }, label)));
   drawTabs();
   refresh();
+  const printBar = printButtons(reportSheet, () => `Отчёт ${REPORT_TABS.find(([id]) => id === reports.tab)[2]} ${reports.from} ${reports.to}.pdf`);
 
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, 'Отчёты'), closeButton(dialog)),
@@ -1458,7 +1493,11 @@ function openReports() {
       selectField('rp-group', 'Группа', 'group', [['', 'Все группы'], ...refsOf('group').map((g) => [g.name, g.name])]),
       selectField('rp-teacher', 'Преподаватель', 'teacher', [['', 'Все преподаватели'], ...teachers.map((t) => [t, t])])),
     h('div', { class: 'sheetbody' }, result),
-    h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'button', onclick: exportReport }, 'Сохранить для Excel')),
+    h('div', { class: 'sheetfoot' },
+      printBar[0],
+      printBar[1],
+      h('button', { class: 'plain', type: 'button', onclick: exportReport }, 'Сохранить для Excel'),
+      printBar[2]),
   );
   dialog.showModal();
 }

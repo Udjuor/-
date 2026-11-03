@@ -222,13 +222,13 @@ function registerHandlers() {
   // Печатается текущая страница: стили @media print оставляют на ней только лист.
   ipcMain.handle('paper:print', () => new Promise((resolve) => {
     win.webContents.print({ printBackground: false }, (success, reason) => {
-      resolve({ ok: success || reason === 'Print job canceled', printed: success, reason });
+      resolve({ ok: success || /cancel/i.test(String(reason)), printed: success, reason });
     });
   }));
 
   ipcMain.handle('paper:pdf', (_e, fileName) => respond(async () => {
     const result = await dialog.showSaveDialog(win, {
-      title: 'Сохранить техническое задание',
+      title: 'Сохранить PDF',
       defaultPath: path.join(app.getPath('documents'), fileName.replace(/[\\/:*?"<>|]/g, ' ')),
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     });
