@@ -1,0 +1,30 @@
+# Registers the update and launch tasks. Called by the installer.
+# Keep this file ASCII: Windows PowerShell 5.1 misreads UTF-8 without a BOM.
+$ErrorActionPreference = 'Stop'
+
+$root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+$run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
+$exe = $run.Trim('"')
+
+# Starts the program for the signed-in user after an update. No time limit:
+# the default would stop the program after three days.
+$launchSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName 'StudentCalendarLaunch' -Force `
+  -Action (New-ScheduledTaskAction -Execute $exe) `
+  -Principal (New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited) `
+  -Settings $launchSettings | Out-Null
+
+# Left alone when present: an update runs inside this task.
+if (-not (Get-ScheduledTask -TaskName 'StudentCalendarUpdate' -ErrorAction SilentlyContinue)) {
+  $script = Join-Path $root 'update.ps1'
+  $boot = New-ScheduledTaskTrigger -AtStartup
+  $boot.Delay = 'PT2M'
+  $night = New-ScheduledTaskTrigger -Daily -At 3:00am -RandomDelay (New-TimeSpan -Hours 1)
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 15)
+  Register-ScheduledTask -TaskName 'StudentCalendarUpdate' `
+    -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"") `
+    -Trigger @($boot, $night) `
+    -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
+    -Settings $settings | Out-Null
+}

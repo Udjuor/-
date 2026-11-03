@@ -32,6 +32,17 @@
   nsExec::Exec 'netsh advfirewall firewall add rule name="${CAL_RUN_NAME}" dir=in action=allow program="$INSTDIR\${APP_EXECUTABLE_FILENAME}" enable=yes profile=any'
   Pop $calOutput
 
+  ; Автообновление. Программа стоит на весь компьютер, поэтому обновить её
+  ; может только администратор: это делает системная задача, а не пользователь.
+  ; Каталог лежит в Program Files, где обычные пользователи не могут менять файлы.
+  CreateDirectory "$PROGRAMFILES64\StudentCalendarUpdate"
+  SetOutPath "$PROGRAMFILES64\StudentCalendarUpdate"
+  File "${BUILD_RESOURCES_DIR}\update.ps1"
+  File "${BUILD_RESOURCES_DIR}\register-tasks.ps1"
+  SetOutPath "$INSTDIR"
+  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PROGRAMFILES64\StudentCalendarUpdate\register-tasks.ps1"'
+  Pop $calOutput
+
   ; Установка на все устройства: Setup.exe /S /SYNCKEY=ключ /PEERS=10.0.2.15,10.0.3.7
   ${GetParameters} $calArgs
   ClearErrors
@@ -51,4 +62,12 @@
   DeleteRegValue HKLM "${CAL_RUN_KEY}" "${CAL_RUN_NAME}"
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${CAL_RUN_NAME}"'
   Pop $R9
+  ; При обновлении задачи и каталог нужны, в них выполняется сам процесс обновления.
+  ${ifNot} ${isUpdated}
+    nsExec::Exec 'schtasks.exe /Delete /F /TN StudentCalendarUpdate'
+    Pop $R9
+    nsExec::Exec 'schtasks.exe /Delete /F /TN StudentCalendarLaunch'
+    Pop $R9
+    RMDir /r "$PROGRAMFILES64\StudentCalendarUpdate"
+  ${endIf}
 !macroend

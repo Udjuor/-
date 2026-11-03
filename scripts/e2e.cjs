@@ -58,11 +58,11 @@ function seed(offset, start, end, title, extra = {}) {
 }
 
 const group = ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья', 'Григорьев Павел', 'Данилова София', 'Егоров Тимур'];
-seed(0, '09:00', '10:30', 'Подготовка к олимпиаде', { place: 'Ауд. 204', responsible: 'Лебедева О. В.', participants: group, equipment: ['Проектор'] });
+seed(0, '09:00', '10:30', 'Подготовка к олимпиаде', { type: 'lesson', place: 'Ауд. 204', responsible: 'Лебедева О. В.', participants: group, equipment: ['Проектор'] });
 seed(0, '11:00', '12:30', 'Волонтёры дня открытых дверей', { place: 'Актовый зал', responsible: 'Павлов С. Н.', participants: group.slice(0, 4), equipment: ['Микрофон', 'Ноутбук', 'Колонки'] });
-seed(0, '11:30', '13:00', 'Репетиция хора', { place: 'Ауд. 101', responsible: 'Иванова Е. А.', participants: group.slice(4) });
+seed(0, '11:30', '13:00', 'Репетиция хора', { type: 'practice', place: 'Ауд. 101', responsible: 'Иванова Е. А.', participants: group.slice(4) });
 seed(1, '14:00', '16:00', 'Студенческий совет', { place: 'Ауд. 305', responsible: 'Павлов С. Н.', participants: group.slice(1, 3) });
-seed(2, '10:00', '12:00', 'Шахматный турнир', { place: 'Холл', participants: group });
+seed(2, '10:00', '12:00', 'Шахматный турнир', { type: 'task', place: 'Холл', participants: group });
 seed(-1, '13:00', '14:30', 'Встреча с работодателем', { place: 'Ауд. 210' });
 seed(3, '09:30', '11:00', 'Экскурсия в музей');
 for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, `Секция ${i + 1}`);
@@ -276,6 +276,90 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForSelector('#catalog .refname:has-text("ПИ-22")', { state: 'detached' });
   await page.click('#catalog [aria-label=Закрыть]');
   await until(async () => !(await teacherStore.directory()).some((r) => r.name === 'ПИ-22' || r.name === 'Новиков Роман'), 'удаление группы на другом устройстве');
+
+  // Типы событий различаются цветом, новое занятие выбирается в форме.
+  await page.click('[data-view=week]');
+  assert.equal(await page.locator('.block.t-lesson').count(), 2, 'занятия');
+  assert.equal(await page.locator('.block.t-practice').count(), 1, 'практика');
+  assert.equal(await page.locator('.block.t-task').count(), 1, 'задание');
+  await shot('week');
+  await page.click('[data-view=month]');
+  await shot('month');
+  await page.click('[data-view=day]');
+  await shot('day');
+  const lessonColor = await page.locator('.block.t-lesson').first().evaluate((el) => getComputedStyle(el).borderLeftColor);
+  const practiceColor = await page.locator('.block.t-practice').first().evaluate((el) => getComputedStyle(el).borderLeftColor);
+  assert.notEqual(lessonColor, practiceColor, 'цвета типов различаются');
+
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-title', 'Практика по сетям');
+  await page.fill('#f-date', day(0));
+  await page.fill('#f-start', '13:00');
+  await page.fill('#f-end', '13:30');
+  await page.click('#form .targets button:has-text("Практика")');
+  await shot('form-type');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await page.waitForSelector('.block.t-practice:has-text("Практика по сетям")');
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Практика по сетям' && e.type === 'practice'), 'тип события на другом устройстве');
+
+  // Отметка: студент отмечается, преподаватель указывает причины.
+  await page.click('.block:has-text("Подготовка к олимпиаде")');
+  await page.click('#details >> text=Отметка: 0 из 6');
+  await page.waitForSelector('#roll[open]');
+  await page.click('.rollrow:has-text("Алексеева Мария") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Алексеева Мария") .rollname[aria-pressed=true]');
+  assert.match(await page.textContent('.rollrow:has-text("Алексеева Мария")'), /Отмечен в \d\d:\d\d/);
+  await page.click('.rollrow:has-text("Борисов Илья") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья") .rollname[aria-pressed=true]');
+  await page.click('.rollrow:has-text("Васильева Дарья") .reason:has-text("Болезнь")');
+  await page.waitForSelector('.rollrow:has-text("Васильева Дарья") .reason[aria-pressed=true]');
+  await page.click('.rollrow:has-text("Григорьев Павел") .reason:has-text("По приказу")');
+  await page.waitForSelector('.rollrow:has-text("Григорьев Павел") .reason[aria-pressed=true]');
+  await page.click('.rollrow:has-text("Данилова София") .reason:has-text("Уважительная")');
+  await page.waitForSelector('.rollrow:has-text("Данилова София") .reason[aria-pressed=true]');
+  await page.click('.rollrow:has-text("Борисов Илья") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья") .rollname[aria-pressed=false]');
+  await page.waitForSelector('.rollsummary:has-text("Отмечены: 1 из 6")');
+  await shot('roll');
+  await until(async () => {
+    const [doc] = await teacherStore.attendance();
+    return doc?.marks['Данилова София']?.status === 'excused' && doc.marks['Алексеева Мария'].status === 'present';
+  }, 'отметки на другом устройстве');
+
+  // Отметка с другого устройства появляется на открытом экране.
+  const seeded = (await teacherStore.list()).find((e) => e.title === 'Подготовка к олимпиаде');
+  await teacherStore.saveMark(seeded.id, 'Егоров Тимур', 'present');
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('.rollrow:has-text("Егоров Тимур") .rollname[aria-pressed=true]', { timeout: 15000 });
+  await page.click('#roll [aria-label=Закрыть]');
+
+  // Отчёт за период.
+  await page.click('#open-reports');
+  await page.waitForSelector('#reports[open]');
+  const row = page.locator('#reports tbody tr:has-text("Подготовка к олимпиаде")');
+  assert.deepEqual((await row.locator('td').allTextContents()).slice(7), ['6', '2', await row.locator('td').nth(9).textContent(), '1', '1', '1', '1', '33%']);
+  assert.equal(await page.locator('#reports tbody tr:has-text("Волонтёры")').count(), 0, 'мероприятия не считаются парами');
+  await shot('report-pairs');
+  await page.click('#reports .tabs >> text=Посещаемость студентов');
+  await page.waitForSelector('#reports tbody tr:has-text("Алексеева Мария")');
+  await shot('report-students');
+  await page.selectOption('#rp-group', 'ИС-21');
+  await page.waitForFunction(() => document.querySelectorAll('#reports tbody tr').length === 3);
+  await page.click('#reports .tabs >> text=По группам');
+  await page.waitForSelector('#reports tbody tr:has-text("ИС-21")');
+
+  const saved = path.join(home, 'report.csv');
+  await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, saved);
+  await page.selectOption('#rp-group', '');
+  await page.click('#reports .tabs >> text=Проведённые пары');
+  await page.click('#reports >> text=Сохранить для Excel');
+  await until(() => fs.existsSync(saved), 'файл отчёта');
+  const csv = fs.readFileSync(saved, 'utf8');
+  assert.ok(csv.startsWith('\uFEFFДата;Время;Тип;Название'), 'заголовок отчёта');
+  assert.ok(csv.includes('Подготовка к олимпиаде'), 'строки отчёта');
+  await page.click('#reports [aria-label=Закрыть]');
 
   // Преподаватель видит всё.
   await page.click('#settings');

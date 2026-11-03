@@ -25,6 +25,10 @@ const REQUEST_MS = 8000;
 const MAX_BODY = 32 * 1024 * 1024;
 const FANOUT = 8; // за один круг: остальных запись догонит по цепочке
 
+// Версия обмена. С 2 в записях есть типы событий: устройство старой версии
+// потеряло бы их, сохраняя копию, поэтому такие устройства ждут обновления.
+const PROTOCOL = 2;
+
 const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Случайный ключ сети: 100 бит, записывается группами, без похожих символов. */
@@ -90,7 +94,7 @@ class SyncNode {
    */
   constructor({
     store, device, networkKey, peers = [], peersFile = null, onChange = () => {},
-    port = DEFAULT_PORT, discoveryPort = DISCOVERY_PORT, discoveryTargets = null, timers = true,
+    port = DEFAULT_PORT, discoveryPort = DISCOVERY_PORT, discoveryTargets = null, timers = true, protocol = PROTOCOL,
   }) {
     this.store = store;
     this.device = device;
@@ -102,6 +106,7 @@ class SyncNode {
     this.discoveryPort = discoveryPort;
     this.discoveryTargets = discoveryTargets;
     this.useTimers = timers;
+    this.protocol = protocol;
     this.peers = new Map(); // id → { id, name, address, lastSync, status }
     this.manualStatus = new Map(); // адрес, с которым ещё не было связи → состояние
     this.timers = [];
@@ -174,7 +179,7 @@ class SyncNode {
   }
 
   identity() {
-    return { id: this.device.id, name: this.device.name, port: this.port };
+    return { id: this.device.id, name: this.device.name, port: this.port, protocol: this.protocol };
   }
 
   /** Сообщает о себе в подсетях. Посторонние не смогут прочитать пакет. */
@@ -242,6 +247,10 @@ class SyncNode {
       res.writeHead(401).end();
       return;
     }
+    if (!(message.from?.protocol >= PROTOCOL)) {
+      res.writeHead(426).end();
+      return;
+    }
     try {
       const address = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
       this.remember(message.from?.id, message.from?.name, address && `${address}:${message.from?.port}`);
@@ -289,6 +298,7 @@ class SyncNode {
       body: seal(this.key, 'request', { ...message, from: this.identity(), peers: this.publicPeers() }),
       signal: AbortSignal.timeout(REQUEST_MS),
     });
+    if (response.status === 426) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
     if (response.status === 401) throw Object.assign(new Error('другой ключ сети'), { status: 'wrong-key' });
     if (!response.ok) throw new Error(`код ответа ${response.status}`);
     let reply;
@@ -311,6 +321,7 @@ class SyncNode {
       const manifest = records.map((record) => ({ id: record.id, revision: revision(record) }));
       const reply = await this.request(address, { type: 'sync', manifest });
       if (reply.from?.id === this.device.id) return false; // в списке адресов оказался свой
+      if (!(reply.from?.protocol >= PROTOCOL)) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
       this.remember(reply.from?.id, reply.from?.name, address);
       this.learn(reply.peers);
       await this.accept(reply.send ?? []);

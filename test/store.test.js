@@ -153,6 +153,47 @@ test('неверные записи справочника не принимаю
   await assert.rejects(store.saveRef({ kind: 'admin', name: 'x' }), { code: 'invalid' });
 });
 
+test('тип события сохраняется, у старых записей это мероприятие', async (t) => {
+  const store = new EventStore(tempDir(t));
+  assert.equal((await store.save({ ...sample, type: 'practice' })).type, 'practice');
+  assert.equal((await store.save(sample)).type, 'event');
+  assert.equal((await store.save({ ...sample, type: 'мусор' })).type, 'event');
+});
+
+test('поля будущих версий не теряются', () => {
+  const raw = { ...sample, id: '00000000-0000-4000-8000-000000000001', futureField: 7 };
+  assert.equal(normalizeEvent(raw).futureField, 7);
+});
+
+test('отметка хранит время и статус, снимается и не смешивается с другими записями', async (t) => {
+  const store = new EventStore(tempDir(t), 'a');
+  const event = await store.save(sample);
+  await store.saveMark(event.id, 'Иванов', 'present');
+  await store.saveMark(event.id, 'Петров', 'sick');
+  await store.saveMark(event.id, 'Иванов', null);
+  const [doc] = await store.attendance();
+  assert.equal(doc.marks['Иванов'].status, null);
+  assert.equal(doc.marks['Петров'].status, 'sick');
+  assert.ok(Date.now() - Date.parse(doc.marks['Петров'].at) < 5000);
+  assert.equal((await store.list()).length, 1);
+  assert.equal((await store.directory()).length, 0);
+  assert.equal((await store.records()).length, 2, 'одна запись на пару');
+});
+
+test('быстрые отметки подряд не теряются', async (t) => {
+  const store = new EventStore(tempDir(t), 'a');
+  const event = await store.save(sample);
+  await Promise.all(Array.from({ length: 30 }, (_, i) => store.saveMark(event.id, `Студент ${i}`, 'present')));
+  assert.equal(Object.keys((await store.attendance())[0].marks).length, 30);
+});
+
+test('неверная отметка не принимается', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save(sample);
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'спит'), { code: 'invalid' });
+  await assert.rejects(store.saveMark('../x', 'Иванов', 'present'), { code: 'invalid' });
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });

@@ -1,6 +1,6 @@
 import {
-  addDays, addMonths, eventState, eventsOn, findConflicts, fromISO, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, plural, splitList, splitNames, suggestedStart, toISO, toMinutes, uniqueValues, visibleOn, weekDays,
+  ABSENCE_REASONS, EVENT_TYPES, addDays, addMonths, buildReport, eventState, eventsOn, findConflicts, fromISO, fromMinutes, hourRange, layoutDay,
+  monthWeeks, nameKey, plural, rollCall, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 const POLL_MS = 10_000;
@@ -16,6 +16,7 @@ const state = {
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
   events: [], // те, что показывает это устройство
   directory: [],
+  attendance: [],
   settings: null,
   deviceNames: new Map(),
   storageError: null,
@@ -85,6 +86,7 @@ function eventBlock(item, range, dayView) {
   const details = [h('strong', {}, event.title), h('span', {}, timeRange(event) + (dayView && status === 'now' ? ', идёт сейчас' : ''))];
   if (event.place) details.push(h('span', {}, event.place));
   if (dayView) {
+    details.push(h('span', {}, typeName(event.type)));
     if (event.responsible) details.push(h('span', {}, `Ответственный: ${event.responsible}`));
     if (event.participants.length) details.push(h('span', {}, peopleCount(event.participants.length)));
     if (event.equipment.length) details.push(h('span', {}, `Техника: ${event.equipment.join(', ')}`));
@@ -92,7 +94,7 @@ function eventBlock(item, range, dayView) {
     details.push(h('span', {}, peopleCount(event.participants.length)));
   }
   const block = h('button', {
-    class: `block ${status}${!dayView && columns > 1 ? ' narrow' : ''}`,
+    class: `block t-${event.type} ${status}${!dayView && columns > 1 ? ' narrow' : ''}`,
     'aria-label': eventLabel(event),
     onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
   }, details);
@@ -201,7 +203,7 @@ function renderMonth(board) {
     grid.append(h('div', { class: classes.join(' '), onclick: () => openDay(iso) },
       h('div', { class: 'date' }, dayNumber(iso, iso === clock.iso)),
       visible.map((e) => h('button', {
-        class: `chip ${eventState(e, clock.iso, clock.time)}`,
+        class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
         onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
       }, `${e.start} ${e.title}`)),
       events.length > visible.length && h('div', { class: 'more' }, `ещё ${events.length - visible.length}`)));
@@ -253,7 +255,17 @@ async function refresh() {
   }
   if (changed || bannerChanged) render();
   await loadDirectory();
+  await loadAttendance();
   await loadDevices();
+}
+
+let redrawRoll = null;
+
+async function loadAttendance() {
+  const result = await api.attendance();
+  if (!result.ok || JSON.stringify(result.value) === JSON.stringify(state.attendance)) return;
+  state.attendance = result.value;
+  if ($('roll').open) redrawRoll?.();
 }
 
 async function loadDirectory() {
@@ -322,6 +334,15 @@ function listGroup(title, items, ordered) {
   return h('section', { class: 'group' }, h('h3', {}, title), list);
 }
 
+const attendanceOf = (eventId) => state.attendance.find((doc) => doc.eventId === eventId);
+
+const roll = (event) => {
+  const clock = now();
+  return rollCall(event, attendanceOf(event.id), clock.iso, clock.time);
+};
+
+const countPresent = (event) => roll(event).filter((row) => row.status === 'present').length;
+
 function showDetails(id) {
   const event = state.allEvents.find((e) => e.id === id);
   if (!event) return;
@@ -329,7 +350,11 @@ function showDetails(id) {
   const footer = h('div', { class: 'sheetfoot' });
 
   const showActions = () => footer.replaceChildren(
-    h('button', { class: 'primary', onclick: () => { dialog.close(); openForm(event); } }, 'Изменить'),
+    h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, 'Изменить'),
+    event.participants.length > 0 && h('button', {
+      class: 'primary',
+      onclick: () => { dialog.close(); openRoll(event.id); },
+    }, `Отметка: ${countPresent(event)} из ${event.participants.length}`),
     h('div', { class: 'spacer' }),
     h('button', { class: 'plain', onclick: showConfirm }, 'Удалить'),
   );
@@ -358,6 +383,7 @@ function showDetails(id) {
     h('div', { class: 'sheethead' }, h('h2', {}, event.title), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('dl', { class: 'facts' },
+        fact('Тип', typeName(event.type)),
         fact('Дата', fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '')),
         fact('Время', timeRange(event)),
         fact('Место', event.place),
@@ -481,6 +507,7 @@ async function openForm(source = {}) {
     participants: [...(source.participants ?? [])],
     equipment: [...(source.equipment ?? [])],
     devices: [...(source.devices ?? [])],
+    type: source.type ?? 'lesson',
   };
 
   const field = (label, id, attrs, size = '') => {
@@ -491,6 +518,16 @@ async function openForm(source = {}) {
     }
     return h('div', { class: `field ${size}`, 'data-for': id }, h('label', { for: id }, label), input);
   };
+
+  const typeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-type' });
+  const drawTypes = () => typeRow.replaceChildren(...EVENT_TYPES.map(([id, label]) => h('button', {
+    type: 'button',
+    class: `t-${id}`,
+    'aria-pressed': String(draft.type === id),
+    onclick: () => { draft.type = id; drawTypes(); },
+  }, label)));
+  drawTypes();
+  const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, 'Тип'), typeRow);
 
   const title = field('Название', 'f-title', { value: source.title ?? '', autocomplete: 'off', maxlength: 200 });
   const date = field('Дата', 'f-date', { type: 'date', value: source.date ?? state.date }, 'third');
@@ -525,6 +562,7 @@ async function openForm(source = {}) {
 
   const read = () => ({
     id: draft.id,
+    type: draft.type,
     title: $('f-title').value.trim(),
     date: $('f-date').value,
     start: $('f-start').value,
@@ -603,7 +641,7 @@ async function openForm(source = {}) {
     return !(titleError || timeError || dateError);
   };
 
-  const save = h('button', { class: 'primary', type: 'submit' }, source.id ? 'Сохранить' : 'Добавить мероприятие');
+  const save = h('button', { class: 'primary', type: 'submit' }, source.id ? 'Сохранить' : 'Добавить событие');
 
   const form = h('form', {
     novalidate: true,
@@ -630,12 +668,12 @@ async function openForm(source = {}) {
       state.date = result.value.date;
       dialog.close();
       render();
-      if (event.devices.length) toast(`Мероприятие отправлено: ${event.devices.map(deviceName).join(', ')}`);
+      if (event.devices.length) toast(`Событие отправлено: ${event.devices.map(deviceName).join(', ')}`);
     },
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        title, date, from, to, place, responsible, targets,
+        typeField, title, date, from, to, place, responsible, targets,
         participants.element, equipment.element, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, 'Примечание'),
@@ -648,7 +686,7 @@ async function openForm(source = {}) {
     h('div', { class: 'sheetfoot' }, save, message));
 
   dialog.replaceChildren(
-    h('div', { class: 'sheethead' }, h('h2', {}, source.id ? 'Изменить мероприятие' : 'Новое мероприятие'), closeButton(dialog)),
+    h('div', { class: 'sheethead' }, h('h2', {}, source.id ? 'Изменить событие' : 'Новое событие'), closeButton(dialog)),
     form,
   );
   dialog.showModal();
@@ -923,6 +961,219 @@ function drawCatalog() {
   $('c-edit')?.focus();
 }
 
+/* Отметка на паре */
+
+const clockTime = (at) => new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+function rowNote(row) {
+  if (row.status === 'present') {
+    return `Отмечен в ${clockTime(row.at)}${row.late ? `, опоздание ${row.late} мин` : ''}`;
+  }
+  return row.status === 'pending' ? 'Нажмите на имя, чтобы отметиться' : statusName(row.status);
+}
+
+function openRoll(id) {
+  const dialog = $('roll');
+  const event = state.allEvents.find((e) => e.id === id);
+  if (!event) return;
+  const search = h('input', { id: 'r-search', type: 'search', placeholder: 'Поиск по фамилии', autocomplete: 'off', 'aria-label': 'Поиск по фамилии' });
+  const summary = h('p', { class: 'rollsummary', role: 'status' });
+  const list = h('ul', { class: 'rolllist' });
+  const failure = h('p', { class: 'error' });
+
+  const setMark = async (name, status) => {
+    const result = await api.mark(event.id, name, status);
+    failure.textContent = result.ok ? '' : 'Отметка не сохранена. Попробуйте ещё раз.';
+    if (result.ok) {
+      state.attendance = [...state.attendance.filter((doc) => doc.eventId !== event.id), result.value];
+      draw();
+    }
+  };
+
+  function draw() {
+    const rows = roll(event);
+    const count = (status) => rows.filter((row) => row.status === status).length;
+    const parts = [
+      `Отмечены: ${count('present')} из ${rows.length}`,
+      `с опозданием: ${rows.filter((row) => row.late).length}`,
+      ...ABSENCE_REASONS.map(([reason, label]) => `${label.toLowerCase()}: ${count(reason)}`),
+    ];
+    summary.textContent = parts.join(', ');
+    const query = nameKey(search.value);
+    list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) =>
+      h('li', { class: 'rollrow' },
+        h('button', {
+          type: 'button',
+          class: 'rollname',
+          'aria-pressed': String(row.status === 'present'),
+          onclick: () => setMark(row.name, row.status === 'present' ? null : 'present'),
+        }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
+        ...ABSENCE_REASONS.map(([reason, label]) => h('button', {
+          type: 'button',
+          class: 'reason',
+          'aria-pressed': String(row.status === reason),
+          onclick: () => setMark(row.name, row.status === reason ? null : reason),
+        }, label)))));
+  }
+
+  search.addEventListener('input', draw);
+  redrawRoll = draw;
+  draw();
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {},
+        h('h2', {}, event.title),
+        h('p', { class: 'help' }, `${typeName(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, summary, failure, h('div', { class: 'field' }, search), list),
+  );
+  dialog.showModal();
+}
+
+/* Отчёты */
+
+const TYPE_FILTERS = [
+  ['classes', 'Все пары', ['lesson', 'practice', 'task']],
+  ...EVENT_TYPES.map(([id, label]) => [id, label, [id]]),
+  ['all', 'Всё, включая мероприятия', EVENT_TYPES.map(([id]) => id)],
+];
+
+const reports = { tab: 'pairs', from: '', to: '', type: 'classes', group: '', teacher: '' };
+
+const shownPercent = (value) => (value === null ? 'нет данных' : `${value}%`);
+const shortDate = (iso) => iso.split('-').reverse().join('.');
+
+const COUNTS = [
+  ['Были', (r) => r.present],
+  ['Опоздали', (r) => r.late],
+  ['Болезнь', (r) => r.sick],
+  ['По приказу', (r) => r.order],
+  ['Уважительная', (r) => r.excused],
+  ['Без причины', (r) => r.absent],
+  ['%', (r) => shownPercent(r.percent)],
+];
+
+const REPORT_TABS = [
+  ['pairs', 'Проведённые пары', 'Пары', [
+    ['Дата', (r) => shortDate(r.event.date)],
+    ['Время', (r) => timeRange(r.event)],
+    ['Тип', (r) => typeName(r.event.type)],
+    ['Название', (r) => r.event.title],
+    ['Преподаватель', (r) => r.event.responsible],
+    ['Группы', (r) => r.groups.join(', ')],
+    ['Место', (r) => r.event.place],
+    ['Всего', (r) => r.total],
+    ...COUNTS,
+  ]],
+  ['students', 'Посещаемость студентов', 'Студенты', [
+    ['Группа', (r) => r.group],
+    ['Студент', (r) => r.name],
+    ['Пар', (r) => r.total],
+    ...COUNTS,
+  ]],
+  ['groups', 'По группам', 'Группы', [
+    ['Группа', (r) => r.name],
+    ['Всего мест', (r) => r.total],
+    ...COUNTS,
+  ]],
+];
+
+function currentReport() {
+  const clock = now();
+  return buildReport({
+    events: state.allEvents,
+    attendance: state.attendance,
+    students: refsOf('student'),
+    groups: refsOf('group'),
+    filters: {
+      from: reports.from,
+      to: reports.to,
+      types: TYPE_FILTERS.find(([id]) => id === reports.type)[2],
+      group: reports.group,
+      teacher: reports.teacher,
+    },
+    nowISO: clock.iso,
+    nowTime: clock.time,
+  });
+}
+
+function reportSummary(report) {
+  const total = report.pairs.reduce((sum, pair) => sum + pair.total, 0);
+  const present = report.pairs.reduce((sum, pair) => sum + pair.present, 0);
+  const pairs = report.pairs.length;
+  const label = `Проведено: ${pairs} ${plural(pairs, 'пара', 'пары', 'пар')}`;
+  return total ? `${label}. Посещаемость: ${Math.round((present / total) * 100)}%` : label;
+}
+
+function drawReportResult(box) {
+  const report = currentReport();
+  const [tab, , , columns] = REPORT_TABS.find(([id]) => id === reports.tab);
+  const rows = report[tab];
+  box.replaceChildren(
+    h('p', { class: 'rollsummary', id: 'report-summary' }, reportSummary(report)),
+    rows.length
+      ? h('div', { class: 'tablewrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, columns.map(([name]) => h('th', { scope: 'col' }, name)))),
+        h('tbody', {}, rows.map((row) => h('tr', {}, columns.map(([, value]) => h('td', {}, String(value(row) ?? ''))))))))
+      : h('p', { class: 'help' }, 'За этот период проведённых пар нет. Измените период или условия отбора.'),
+  );
+}
+
+async function exportReport() {
+  const report = currentReport();
+  const [tab, , fileName, columns] = REPORT_TABS.find(([id]) => id === reports.tab);
+  const csv = toCsv(columns.map(([name]) => name), report[tab].map((row) => columns.map(([, value]) => value(row))));
+  const result = await api.saveReport(`${fileName} ${reports.from} ${reports.to}.csv`, csv);
+  if (!result.ok) toast('Отчёт не сохранён: нет доступа к выбранной папке.');
+  else if (result.value) toast('Отчёт сохранён.');
+}
+
+function openReports() {
+  const dialog = $('reports');
+  const clock = now();
+  reports.from = `${clock.iso.slice(0, 8)}01`;
+  reports.to = clock.iso;
+  const result = h('div', { class: 'reportresult' });
+  const refresh = () => drawReportResult(result);
+
+  const dateField = (id, label, key) => {
+    const input = h('input', { id, type: 'date', value: reports[key] });
+    input.addEventListener('change', () => { if (input.value) { reports[key] = input.value; refresh(); } });
+    input.addEventListener('click', () => { try { input.showPicker(); } catch { /* окно уже открыто */ } });
+    return h('div', { class: 'field' }, h('label', { for: id }, label), input);
+  };
+
+  const selectField = (id, label, key, options) => {
+    const select = h('select', { id }, options.map(([value, text]) => h('option', { value, selected: reports[key] === value }, text)));
+    select.addEventListener('change', () => { reports[key] = select.value; refresh(); });
+    return h('div', { class: 'field' }, h('label', { for: id }, label), select);
+  };
+
+  const teachers = uniqueValues([...refsOf('teacher').map((t) => t.name), ...state.allEvents.map((e) => e.responsible)]);
+  const tabs = h('div', { class: 'tabs', role: 'group', 'aria-label': 'Вид отчёта' });
+  const drawTabs = () => tabs.replaceChildren(...REPORT_TABS.map(([id, label]) => h('button', {
+    type: 'button',
+    'aria-pressed': String(reports.tab === id),
+    onclick: () => { reports.tab = id; drawTabs(); refresh(); },
+  }, label)));
+  drawTabs();
+  refresh();
+
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, 'Отчёты'), closeButton(dialog)),
+    tabs,
+    h('div', { class: 'reportfilters' },
+      dateField('rp-from', 'С', 'from'),
+      dateField('rp-to', 'По', 'to'),
+      selectField('rp-type', 'Что считать', 'type', TYPE_FILTERS.map(([id, label]) => [id, label])),
+      selectField('rp-group', 'Группа', 'group', [['', 'Все группы'], ...refsOf('group').map((g) => [g.name, g.name])]),
+      selectField('rp-teacher', 'Преподаватель', 'teacher', [['', 'Все преподаватели'], ...teachers.map((t) => [t, t])])),
+    h('div', { class: 'sheetbody' }, result),
+    h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'button', onclick: exportReport }, 'Сохранить для Excel')),
+  );
+  dialog.showModal();
+}
+
 /* Настройки */
 
 const PROBLEMS = {
@@ -932,6 +1183,7 @@ const PROBLEMS = {
 
 const STATUS = {
   'wrong-key': 'Другой ключ сети',
+  outdated: 'Старая версия программы, обмен приостановлен',
   offline: 'Нет связи',
   unknown: 'Связи ещё не было',
 };
@@ -956,6 +1208,14 @@ function deviceList(status) {
     h('p', { class: 'help' }, `Адрес этого устройства: ${status.addresses.join(', ') || 'нет подключения к сети'}`),
     rows.length ? h('ul', { class: 'devices' }, rows) : h('p', { class: 'help' }, 'Других устройств пока не найдено.'),
   ];
+}
+
+function updateText(status) {
+  if (!status) return 'Обновления ещё не проверялись.';
+  const when = new Date(status.checkedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  if (status.result === 'installed') return `Обновление до версии ${status.latest} установлено ${when}.`;
+  if (status.result === 'up-to-date') return `Последняя проверка обновлений: ${when}. Установлена новейшая версия.`;
+  return `Обновления не удалось проверить ${when}. Нужен доступ к github.com. Следующая попытка пройдёт сама.`;
 }
 
 async function openSettings() {
@@ -1029,7 +1289,8 @@ async function openSettings() {
             },
           }, 'Обменяться сейчас')),
         devices),
-      h('p', { class: 'help' }, `Версия ${current.version}`)),
+      h('p', { class: 'help' }, `Версия ${current.version}`),
+      h('p', { class: 'help', id: 's-update' }, updateText(await api.updateStatus()))),
     h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'submit' }, 'Сохранить настройки'), message));
 
   dialog.replaceChildren(
@@ -1057,7 +1318,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if ($('form').open || $('preferences').open || $('catalog').open) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -1070,6 +1331,7 @@ function wire() {
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
   $('settings').addEventListener('click', openSettings);
+  $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';
     drawCatalog();

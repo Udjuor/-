@@ -152,6 +152,128 @@ export function uniqueValues(values) {
 export const visibleOn = (event, deviceId, showAll) =>
   showAll || !event.devices?.length || event.devices.includes(deviceId);
 
+export const EVENT_TYPES = [
+  ['lesson', 'Занятие'],
+  ['practice', 'Практика'],
+  ['task', 'Задание'],
+  ['event', 'Мероприятие'],
+];
+
+export const typeName = (type) => (EVENT_TYPES.find(([id]) => id === type) ?? EVENT_TYPES[3])[1];
+
+export const ABSENCE_REASONS = [
+  ['sick', 'Болезнь'],
+  ['order', 'По приказу'],
+  ['excused', 'Уважительная'],
+];
+
+export const statusName = (status) => ({
+  present: 'Присутствовал',
+  late: 'Опоздал',
+  sick: 'Болезнь',
+  order: 'По приказу',
+  excused: 'Уважительная причина',
+  absent: 'Без причины',
+  pending: 'Нет отметки',
+}[status]);
+
+/** Минуты опоздания: 0, если студент отметился вовремя. */
+export function lateMinutes(event, at) {
+  const [y, m, d] = event.date.split('-').map(Number);
+  const start = new Date(y, m - 1, d, ...event.start.split(':').map(Number));
+  return Math.max(0, Math.floor((new Date(at) - start) / 60000));
+}
+
+const hasEnded = (event, nowISO, nowTime) => eventState(event, nowISO, nowTime) === 'past';
+
+/**
+ * Положение каждого участника пары. Если пара закончилась, а отметки нет,
+ * это пропуск без причины; пока она идёт — просто «нет отметки».
+ */
+export function rollCall(event, doc, nowISO, nowTime) {
+  return event.participants.map((name) => {
+    const mark = doc?.marks?.[name];
+    if (mark?.status) {
+      const late = mark.status === 'present' ? lateMinutes(event, mark.at) : 0;
+      return { name, status: mark.status, at: mark.at, late };
+    }
+    return { name, status: hasEnded(event, nowISO, nowTime) ? 'absent' : 'pending', at: null, late: 0 };
+  });
+}
+
+/** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
+function tally(rows) {
+  const count = (status) => rows.filter((row) => row.status === status).length;
+  const present = count('present');
+  return {
+    total: rows.length,
+    present,
+    late: rows.filter((row) => row.late > 0).length,
+    sick: count('sick'),
+    order: count('order'),
+    excused: count('excused'),
+    absent: count('absent'),
+    percent: rows.length ? Math.round((present / rows.length) * 100) : null,
+  };
+}
+
+/**
+ * Данные отчёта за период.
+ * filters: { from, to, types: [..], group: название, teacher: имя }
+ * Проведённой считается пара, время окончания которой прошло.
+ */
+export function buildReport({ events, attendance, students, groups, filters, nowISO, nowTime }) {
+  const groupName = new Map(groups.map((group) => [group.id, group.name]));
+  const groupOf = new Map(students.map((student) => [nameKey(student.name), groupName.get(student.groupId) ?? '']));
+  const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const inGroup = (name) => !filters.group || groupOf.get(nameKey(name)) === filters.group;
+
+  const pairs = [];
+  const byStudent = new Map();
+  const held = events
+    .filter((event) => hasEnded(event, nowISO, nowTime)
+      && event.date >= filters.from && event.date <= filters.to
+      && filters.types.includes(event.type)
+      && (!filters.teacher || event.responsible === filters.teacher))
+    .sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b));
+
+  for (const event of held) {
+    const roster = rollCall(event, docs.get(event.id), nowISO, nowTime).filter((row) => inGroup(row.name));
+    if (filters.group && !roster.length) continue;
+    const eventGroups = [...new Set(event.participants.map((name) => groupOf.get(nameKey(name))).filter(Boolean))].sort();
+    pairs.push({ event, groups: eventGroups, ...tally(roster) });
+    for (const row of roster) {
+      const key = nameKey(row.name);
+      if (!byStudent.has(key)) byStudent.set(key, { name: row.name, group: groupOf.get(key) ?? '', rows: [] });
+      byStudent.get(key).rows.push(row);
+    }
+  }
+
+  const studentRows = [...byStudent.values()]
+    .map(({ name, group, rows }) => ({ name, group, ...tally(rows) }))
+    .sort((a, b) => a.group.localeCompare(b.group, 'ru') || a.name.localeCompare(b.name, 'ru'));
+
+  const byGroup = new Map();
+  for (const student of byStudent.values()) {
+    const name = student.group || 'Без группы';
+    if (!byGroup.has(name)) byGroup.set(name, []);
+    byGroup.get(name).push(...student.rows);
+  }
+  const groupRows = [...byGroup].map(([name, rows]) => ({ name, ...tally(rows) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+  return { pairs, students: studentRows, groups: groupRows };
+}
+
+/** CSV для Excel: точка с запятой и метка кодировки, чтобы кириллица открылась верно. */
+export function toCsv(header, rows) {
+  const cell = (value) => {
+    const text = String(value ?? '');
+    return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return `\uFEFF${[header, ...rows].map((row) => row.map(cell).join(';')).join('\r\n')}\r\n`;
+}
+
 /** Состояние мероприятия относительно текущего момента. */
 export function eventState(event, nowISO, nowTime) {
   if (event.date < nowISO || (event.date === nowISO && event.end <= nowTime)) return 'past';

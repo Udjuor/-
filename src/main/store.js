@@ -38,7 +38,9 @@ function cleanList(value) {
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const event = {
+    ...raw, // поля из будущих версий не должны теряться при пересылке
     id: String(raw.id ?? ''),
+    type: EVENT_TYPES.has(raw.type) ? raw.type : 'event',
     title: String(raw.title ?? '').trim(),
     date: String(raw.date ?? ''),
     start: String(raw.start ?? ''),
@@ -62,12 +64,15 @@ function normalizeEvent(raw) {
   return valid ? event : null;
 }
 
+const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
+const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher']);
 
 /** Запись справочника: группа, студент, техника или преподаватель. */
 function normalizeRef(raw) {
   if (!raw || !REF_KINDS.has(raw.kind)) return null;
   const ref = {
+    ...raw,
     id: String(raw.id ?? ''),
     kind: raw.kind,
     name: String(raw.name ?? '').trim(),
@@ -79,7 +84,54 @@ function normalizeRef(raw) {
   return valid ? ref : null;
 }
 
-/** Запись для хранения и обмена: мероприятие, справочник или отметка об удалении. */
+/**
+ * Отметки одной пары: { eventId, marks: { имя: { status, at, t, by } } }.
+ * Одна запись на пару, а не на студента: иначе за год набрались бы сотни тысяч
+ * файлов и обмен между устройствами перестал бы справляться.
+ * Снятая отметка хранится со status: null, чтобы не вернуться при обмене.
+ */
+function normalizeAttendance(raw) {
+  const doc = {
+    ...raw,
+    id: String(raw.id ?? ''),
+    kind: 'attendance',
+    eventId: String(raw.eventId ?? ''),
+    marks: {},
+    updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
+  };
+  if (!ID_RE.test(doc.id) || !ID_RE.test(doc.eventId) || typeof raw.marks !== 'object' || !raw.marks) return null;
+  for (const [name, mark] of Object.entries(raw.marks)) {
+    const status = mark?.status ?? null;
+    if ((status === null || MARK_STATUSES.has(status)) && STAMP_RE.test(mark?.t ?? '')) {
+      doc.marks[name] = { status, at: mark.at ?? null, t: mark.t, by: String(mark.by ?? '') };
+    }
+  }
+  return doc;
+}
+
+/** Номер записи отметок выводится из пары: на всех устройствах он одинаковый. */
+function attendanceId(eventId) {
+  const hex = crypto.createHash('sha256').update(`attendance:${eventId}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Объединяет отметки: по каждому студенту остаётся более поздняя. */
+function mergeMarks(a, b) {
+  const merged = { ...a };
+  for (const [name, mark] of Object.entries(b)) {
+    const mine = merged[name];
+    if (!mine || `${mark.t}|${mark.by}` > `${mine.t}|${mine.by}`) merged[name] = mark;
+  }
+  return merged;
+}
+
+const sameMarks = (a, b) => {
+  const sorted = (marks) => JSON.stringify(Object.keys(marks).sort().map((name) => [name, marks[name]]));
+  return sorted(a) === sorted(b);
+};
+
+/** Запись для хранения и обмена: мероприятие, справочник, отметки или отметка об удалении. */
 function normalizeRecord(raw) {
   if (raw && raw.deleted === true) {
     const id = String(raw.id ?? '');
@@ -87,6 +139,7 @@ function normalizeRecord(raw) {
       ? { id, deleted: true, updatedAt: String(raw.updatedAt ?? ''), updatedBy: String(raw.updatedBy ?? '') }
       : null;
   }
+  if (raw?.kind === 'attendance') return normalizeAttendance(raw);
   return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
 }
 
@@ -105,6 +158,14 @@ class EventStore {
     this.dir = path.join(dataDir, 'events');
     this.deviceId = deviceId;
     this.cache = new Map(); // имя файла → { stamp, record }
+    this.queue = Promise.resolve();
+  }
+
+  /** Отметки меняются чтением и записью: операции идут строго по очереди. */
+  exclusive(work) {
+    const run = this.queue.then(work, work);
+    this.queue = run.catch(() => {});
+    return run;
   }
 
   fileFor(id) {
@@ -147,7 +208,33 @@ class EventStore {
 
   /** Записи справочников. */
   async directory() {
-    return (await this.records()).filter((record) => !record.deleted && record.kind);
+    return (await this.records()).filter((record) => !record.deleted && record.kind && record.kind !== 'attendance');
+  }
+
+  /** Записи отметок всех пар. */
+  async attendance() {
+    return (await this.records()).filter((record) => record.kind === 'attendance');
+  }
+
+  /** Ставит или снимает отметку студента. Время берётся с часов этого компьютера. */
+  saveMark(eventId, name, status) {
+    return this.exclusive(async () => {
+      if (!ID_RE.test(String(eventId)) || !String(name).trim() || !(status === null || MARK_STATUSES.has(status))) {
+        throw new StoreError('invalid', 'Неверная отметка');
+      }
+      const id = attendanceId(eventId);
+      const current = await this.readCurrent(id);
+      const t = nextStamp(current?.marks?.[name]?.t);
+      const doc = normalizeAttendance({
+        id,
+        eventId,
+        marks: { ...(current?.marks ?? {}), [name]: { status, at: status ? new Date().toISOString() : null, t, by: this.deviceId } },
+        updatedAt: nextStamp(current?.updatedAt),
+        updatedBy: this.deviceId,
+      });
+      await this.write(doc);
+      return doc;
+    });
   }
 
   async readCurrent(id) {
@@ -208,20 +295,36 @@ class EventStore {
   }
 
   /** Принимает записи с другого устройства, оставляя более новую версию. */
-  async merge(incoming) {
+  merge(incoming) {
+    return this.exclusive(() => this.mergeNow(incoming));
+  }
+
+  async mergeNow(incoming) {
     const known = new Map((await this.records()).map((record) => [record.id, record]));
     let changed = 0;
     for (const raw of incoming) {
       const record = normalizeRecord(raw);
       if (!record || !STAMP_RE.test(record.updatedAt)) continue;
       const mine = known.get(record.id);
-      if (mine && revision(mine) >= revision(record)) continue;
-      await this.write(record);
-      known.set(record.id, record);
+      let result = record;
+      if (mine?.kind === 'attendance' && record.kind === 'attendance') {
+        // Разные панели могли отметить разных студентов: сохраняем всех.
+        const marks = mergeMarks(mine.marks, record.marks);
+        const newest = revision(mine) >= revision(record);
+        if (sameMarks(marks, mine.marks) && newest) continue;
+        if (!sameMarks(marks, record.marks)) {
+          const stamp = nextStamp(newest ? mine.updatedAt : record.updatedAt);
+          result = { ...record, marks, updatedAt: stamp, updatedBy: this.deviceId };
+        }
+      } else if (mine && revision(mine) >= revision(record)) {
+        continue;
+      }
+      await this.write(result);
+      known.set(result.id, result);
       changed += 1;
     }
     return changed;
   }
 }
 
-module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision };
+module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId };

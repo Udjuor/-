@@ -20,8 +20,9 @@
         <button data-view="week">Неделя</button>
         <button data-view="month">Месяц</button>
       </div>
+      <button class="text" id="open-reports">Отчёты</button>
       <button class="text" id="open-catalog">Справочники</button>
-      <button class="primary" id="add">Добавить мероприятие</button>
+      <button class="primary" id="add">Добавить</button>
       <time id="clock"></time>
       <button class="icon" id="settings" aria-label="Настройки"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
       <button class="icon" id="minimize" aria-label="Свернуть программу"><svg viewBox="0 0 24 24"><path d="M5 19h14"/></svg></button>
@@ -29,6 +30,12 @@
   </header>
   <div id="banner" class="banner" role="alert" hidden></div>
   <main id="board"></main>
+  <footer class="legend" aria-label="Обозначения">
+    <span class="t-lesson">Занятие</span>
+    <span class="t-practice">Практика</span>
+    <span class="t-task">Задание</span>
+    <span class="t-event">Мероприятие</span>
+  </footer>
   <div id="toast" class="toast" role="status" hidden></div>
 
   <dialog id="details" class="sheet"></dialog>
@@ -36,6 +43,8 @@
   <dialog id="preferences" class="sheet"></dialog>
   <dialog id="catalog" class="sheet wide"></dialog>
   <dialog id="picker" class="sheet"></dialog>
+  <dialog id="roll" class="sheet wide"></dialog>
+  <dialog id="reports" class="sheet full"></dialog>
 
   <script type="module" src="app.js"></script>
 </body>

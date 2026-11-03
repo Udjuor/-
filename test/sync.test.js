@@ -99,6 +99,66 @@ test('справочники и их удаление расходятся ка�
   assert.deepEqual((await a.store.directory()).map((r) => r.name), ['ИС-21']);
 });
 
+test('отметки разных панелей по одной паре объединяются, а не затирают друг друга', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save({ ...sample, participants: ['Иванов', 'Петров', 'Сидоров'] });
+  await a.node.syncWith(b.node.at);
+  await a.store.saveMark(event.id, 'Иванов', 'present');
+  await a.store.saveMark(event.id, 'Сидоров', 'present');
+  await new Promise((r) => setTimeout(r, 5));
+  await b.store.saveMark(event.id, 'Петров', 'sick');
+  await new Promise((r) => setTimeout(r, 5));
+  await a.store.saveMark(event.id, 'Сидоров', 'order'); // новее у a, но у b есть своя отметка
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  await a.node.syncWith(b.node.at);
+  const view = async (d) => Object.fromEntries(Object.entries((await d.store.attendance())[0].marks).map(([n, m]) => [n, m.status]));
+  const expected = { Иванов: 'present', Петров: 'sick', Сидоров: 'order' };
+  assert.deepEqual(await view(a), expected);
+  assert.deepEqual(await view(b), expected);
+  assert.equal((await a.store.records()).length, 2);
+});
+
+test('устройства завершают обмен отметками, а не пересылают их бесконечно', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save(sample);
+  await a.store.saveMark(event.id, 'Иванов', 'present');
+  await b.store.saveMark(event.id, 'Петров', 'present');
+  await a.node.syncWith(b.node.at);
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  const stamp = async (d) => (await d.store.attendance())[0].updatedAt;
+  const before = [await stamp(a), await stamp(b)];
+  assert.equal(before[0], before[1]);
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  assert.deepEqual([await stamp(a), await stamp(b)], before);
+});
+
+test('снятая отметка не возвращается при обмене', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save(sample);
+  await a.store.saveMark(event.id, 'Иванов', 'present');
+  await a.node.syncWith(b.node.at);
+  await new Promise((r) => setTimeout(r, 5));
+  await a.store.saveMark(event.id, 'Иванов', null);
+  await a.node.syncWith(b.node.at);
+  assert.equal((await b.store.attendance())[0].marks['Иванов'].status, null);
+});
+
+test('устройство старой версии не участвует в обмене и помечается', async (t) => {
+  const current = await device(t, 'current');
+  const old = await device(t, 'old', { protocol: 1 });
+  await current.store.save(sample);
+  assert.equal(await current.node.syncWith(old.node.at), false);
+  assert.equal(current.node.manualStatus.get(old.node.at), 'outdated');
+  assert.equal(await old.node.syncWith(current.node.at), false);
+  assert.equal((await old.store.list()).length, 0);
+});
+
 test('устройство с другим ключом не получает данные и не может их записать', async (t) => {
   const a = await device(t, 'a');
   const stranger = await device(t, 'stranger', { networkKey: 'XXXXX-XXXXX-XXXXX-XXXXX' });

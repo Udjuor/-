@@ -1,5 +1,6 @@
 'use strict';
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const { loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
@@ -119,6 +120,34 @@ function registerHandlers() {
     for (const { id, base } of refs) await store.remove(id, base);
     sync?.nudge();
   }));
+
+  ipcMain.handle('attendance:list', () => respond(() => store.attendance()));
+  ipcMain.handle('attendance:mark', (_e, eventId, name, status) => respond(async () => {
+    const doc = await store.saveMark(eventId, name, status);
+    sync?.nudge();
+    return doc;
+  }));
+
+  ipcMain.handle('report:save', (_e, fileName, text) => respond(async () => {
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Сохранить отчёт',
+      defaultPath: path.join(app.getPath('documents'), fileName),
+      filters: [{ name: 'Таблица для Excel', extensions: ['csv'] }],
+    });
+    if (result.canceled) return false;
+    await fs.writeFile(result.filePath, text, 'utf8');
+    return true;
+  }));
+
+  // Файл пишет системная задача обновления, см. build/update.ps1.
+  ipcMain.handle('update:status', async () => {
+    try {
+      const file = path.join(process.env.ProgramFiles ?? '', 'StudentCalendarUpdate', 'status.json');
+      return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
+    } catch {
+      return null;
+    }
+  });
 
   ipcMain.handle('settings:get', () => ({
     deviceId: config.deviceId,

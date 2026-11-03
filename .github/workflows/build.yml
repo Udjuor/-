@@ -67,6 +67,43 @@ jobs:
           npm install --no-save playwright
           node scripts/e2e.cjs
 
+      - name: Проверить автообновление
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+          $task = Get-ScheduledTask -TaskName StudentCalendarUpdate
+          if ($task.Principal.UserId -ne 'SYSTEM') { throw "Задача обновления не от SYSTEM: $($task.Principal.UserId)" }
+          Get-ScheduledTask -TaskName StudentCalendarLaunch | Out-Null
+          $ownUsers = (Get-Acl $root).Access | Where-Object { $_.IdentityReference -match 'Users' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
+          if ($ownUsers) { throw 'Обычные пользователи могут менять файлы обновления' }
+
+          $setup = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
+          $name = Split-Path $setup -Leaf
+          New-Item -ItemType Directory -Force feed/v99.0.0, feed/latest/download | Out-Null
+          Copy-Item $setup feed/v99.0.0/
+          $yml = Get-Content dist/latest.yml -Raw
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8123', '--directory', 'feed' -PassThru
+          Start-Sleep -Seconds 3
+
+          function Run-Update($content, $expected) {
+            [IO.File]::WriteAllText("$PWD/feed/latest/download/latest.yml", $content)
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'update.ps1') `
+              -LatestUrl http://127.0.0.1:8123/latest/download/latest.yml -AssetBase http://127.0.0.1:8123
+            $status = Get-Content (Join-Path $root 'status.json') -Raw | ConvertFrom-Json
+            Write-Host ($status | ConvertTo-Json)
+            if ($status.result -ne $expected) { throw "Ожидался результат $expected, получен $($status.result)" }
+          }
+
+          Run-Update ($yml -replace '(?m)^version:.*', 'version: 0.0.1') 'up-to-date'
+          Run-Update (($yml -replace '(?m)^version:.*', 'version: 99.0.0') -replace '(?m)^sha512:.*', 'sha512: AAAA') 'failed'
+          if (Get-ChildItem $root -Filter '*.exe') { throw 'Файл с неверной контрольной суммой не удалён' }
+          Run-Update ($yml -replace '(?m)^version:.*', 'version: 99.0.0') 'installed'
+          if (Get-ChildItem $root -Filter '*.exe') { throw 'Установщик не удалён после обновления' }
+          Get-ScheduledTask -TaskName StudentCalendarUpdate | Out-Null
+          Stop-Process -Name StudentCalendar -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $server.Id -Force
+          $global:LASTEXITCODE = 0
+
       - name: Проверить удаление
         shell: pwsh
         run: |
@@ -79,6 +116,8 @@ jobs:
           netsh advfirewall firewall show rule name=StudentCalendar | Out-Null
           if ($LASTEXITCODE -eq 0) { throw 'Правило брандмауэра осталось' }
           $global:LASTEXITCODE = 0
+          if (Get-ScheduledTask -TaskName StudentCalendarUpdate -ErrorAction SilentlyContinue) { throw 'Задача обновления осталась' }
+          if (Test-Path (Join-Path $env:ProgramFiles 'StudentCalendarUpdate')) { throw 'Каталог обновления остался' }
           if (-not (Test-Path "$env:ProgramData\StudentCalendar\config.ini")) { throw 'Настройки удалены' }
 
       - name: Сохранить снимки экрана
@@ -106,8 +145,7 @@ jobs:
           $file = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
           # Релиз могли создать вручную на GitHub: тогда только добавляем установщик.
           gh release view $tag 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $file --clobber
-          } else {
-            gh release create $tag $file --generate-notes
-          }
+          if ($LASTEXITCODE -ne 0) { gh release create $tag --generate-notes }
+          gh release upload $tag $file --clobber
+          # latest.yml последним: панели увидят версию, только когда установщик уже на месте.
+          gh release upload $tag dist/latest.yml --clobber
