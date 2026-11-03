@@ -107,7 +107,7 @@ async function saveMemo(memo, fileName) {
   const folder = path.join(app.getPath('documents'), 'Служебные записки');
   await fs.mkdir(folder, { recursive: true });
   const base = fileName.replace(/[\\/:*?"<>|\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-  const document = buildMemo(template, memo);
+  const document = buildMemo(template, { ...memo, from: config.memoFrom, signer: config.memoSigner });
   for (let copy = 0; copy < 50; copy += 1) {
     const target = path.join(folder, `${base}${copy ? ` (${copy + 1})` : ''}.docx`);
     try {
@@ -209,6 +209,8 @@ function registerHandlers() {
     showAll: config.showAll,
     theme: config.theme,
     uiSize: config.uiSize,
+    memoFrom: config.memoFrom,
+    memoSigner: config.memoSigner,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
   }));
@@ -230,6 +232,8 @@ function registerHandlers() {
         showAll: Boolean(settings.showAll),
         fullscreen: Boolean(settings.fullscreen),
         theme: settings.theme ?? config.theme,
+        memoFrom: String(settings.memoFrom ?? '').trim() || config.memoFrom,
+        memoSigner: String(settings.memoSigner ?? '').trim() || config.memoSigner,
       };
       saveConfig(homeDir(), config);
       nativeTheme.themeSource = config.theme;

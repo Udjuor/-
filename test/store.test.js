@@ -167,6 +167,14 @@ test('количество техники и своя камера сохран�
   assert.deepEqual(event.ownCameras, ['А']);
 });
 
+test('время подготовки сохраняется и проверяется', async (t) => {
+  const store = new EventStore(tempDir(t));
+  assert.equal((await store.save({ ...sample, prepMinutes: 45 })).prepMinutes, 45);
+  assert.equal((await store.save(sample)).prepMinutes, 0);
+  assert.equal((await store.save({ ...sample, prepMinutes: -5 })).prepMinutes, 0);
+  assert.equal((await store.save({ ...sample, prepMinutes: 9999 })).prepMinutes, 720);
+});
+
 test('тип события сохраняется, у старых записей это мероприятие', async (t) => {
   const store = new EventStore(tempDir(t));
   assert.equal((await store.save({ ...sample, type: 'practice' })).type, 'practice');
@@ -260,5 +268,6 @@ test('настройки: значения по умолчанию, запись
   assert.equal(again.showAll, true);
   assert.equal(again.fullscreen, false);
   assert.equal(again.uiSize, 'small');
+  assert.equal(first.memoSigner, 'Семенов И. А.');
   assert.deepEqual(parseIni('\uFEFF[calendar]\r\ndataDir=\\\\srv\\a=b\r\n; комментарий\r\n'), { dataDir: '\\\\srv\\a=b' });
 });

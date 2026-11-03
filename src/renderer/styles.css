@@ -601,3 +601,10 @@ dialog::backdrop { background: var(--backdrop); }
 .sheetfoot { flex-wrap: wrap; }
 dialog.sheet.small { width: min(34rem, 94vw); height: fit-content; margin: auto; border: .05rem solid var(--border); border-radius: .4rem; }
 .memofile { overflow-wrap: anywhere; }
+
+/* Подготовка и настройки записки */
+.field[hidden] { display: none; }
+.prepchoices { margin-top: .3rem; }
+.prepchoices button { min-width: 3.4rem; padding: 0 .6rem; }
+.settinghead { margin-bottom: .5rem; font-size: 1.2rem; font-weight: 600; }
+.settingnext { margin-top: .8rem; }

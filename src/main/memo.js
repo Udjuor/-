@@ -92,6 +92,20 @@ function fillRow(row, values) {
   });
 }
 
+/** Заменяет текст абзаца, который проходит проверку. Оформление первого фрагмента остаётся. */
+function setParagraph(xml, test, text) {
+  return xml.replace(/<w:p(?: [^>]*)?>(?:(?!<\/w:p>).)*?<\/w:p>/gs, (paragraphXml) => {
+    const current = [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('');
+    if (!test.test(current)) return paragraphXml;
+    let first = true;
+    return paragraphXml.replace(/<w:t(?: [^>]*)?>[^<]*<\/w:t>/g, () => {
+      const run = first ? `<w:t xml:space="preserve">${escapeXml(text)}</w:t>` : '<w:t></w:t>';
+      first = false;
+      return run;
+    });
+  });
+}
+
 function fillDocument(xml, memo) {
   const firstTable = xml.indexOf('</w:tbl>');
   const start = xml.indexOf('<w:tbl>', firstTable);
@@ -120,7 +134,10 @@ function fillDocument(xml, memo) {
   const head = xml.slice(0, start)
     .replace(/(<w:t[^>]*>)__(<\/w:t>)/, `$1${escapeXml(memo.day)}$2`)
     .replace(/_____\s+\d{4}\s*/, `${escapeXml(memo.month)} ${escapeXml(memo.year)} `);
-  return head + filled + xml.slice(end);
+  let result = head + filled + xml.slice(end);
+  if (memo.from) result = setParagraph(result, /^\s*От\s/, `От ${memo.from}`);
+  if (memo.signer) result = setParagraph(result, /^\s*Подпись\s/, `Подпись ___________/ ${memo.signer}`);
+  return result;
 }
 
 /** Возвращает готовый docx. */

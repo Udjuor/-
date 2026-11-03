@@ -254,6 +254,31 @@ test('значения записки', () => {
   assert.deepEqual(memo.students, [{ name: 'Иванова Анна', group: 'ИС-21' }, { name: 'Гость', group: '' }]);
 });
 
+test('подготовка делает участников занятыми раньше начала', () => {
+  const concert = ev('c', '11:00', '12:00', { prepMinutes: 60, participants: ['Иванов'] });
+  assert.equal(L.busyFrom(concert), '10:00');
+  assert.equal(L.busyFrom(ev('x', '00:30', '01:00', { prepMinutes: 90 })), '00:00');
+  assert.equal(L.busyFrom(ev('x', '10:00', '11:00')), '10:00');
+  const before = ev('b', '09:30', '10:30', { participants: ['Иванов'] });
+  assert.equal(L.findConflicts(before, [concert]).length, 1, 'пересечение с подготовкой');
+  assert.equal(L.findConflicts(ev('b', '09:00', '10:00', { participants: ['Иванов'] }), [concert]).length, 0);
+});
+
+test('подготовка занимает технику', () => {
+  const stock = { name: 'Камера', quantity: 1 };
+  const concert = { ...gear('c', '11:00', '12:00', ['Камера']), prepMinutes: 60 };
+  assert.equal(L.freeStock(ev('b', '10:30', '10:45'), [concert], stock), 0);
+  assert.equal(L.freeStock(ev('b', '09:00', '10:00'), [concert], stock), 1);
+});
+
+test('время освобождения в записке начинается с подготовки', () => {
+  const e = { type: 'event', title: 'К', date: '2026-11-05', start: '11:00', end: '12:00', prepMinutes: 45, place: '', responsible: '', participants: ['А'] };
+  const memo = L.memoData(e, [], [], '2026-11-03');
+  assert.equal(memo.release, '10:15–12:00');
+  assert.equal(memo.when, '5 ноября 2026, 11:00', 'начало события не меняется');
+  assert.equal(L.needsMemo(e, { ...e, id: '1', prepMinutes: 0 }), true, 'изменение подготовки обновляет записку');
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

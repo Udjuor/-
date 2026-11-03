@@ -41,6 +41,14 @@ test('дата записки подставлена, номер оставле�
   assert.ok(!text.includes('_____  2026'));
 });
 
+test('отправитель подставляется в строку «От» и в подпись', () => {
+  const text = textOf(xmlOf(buildMemo(template, { ...memo, from: 'Павлова С. Н.', signer: 'Павлов С. Н.' })));
+  assert.ok(text.includes('От Павлова С. Н.'));
+  assert.ok(text.includes('Подпись ___________/ Павлов С. Н.'));
+  assert.ok(!text.includes('От Семенова'));
+  assert.ok(text.includes('Семенов И. А'), 'председатель ПЦК остаётся');
+});
+
 test('строка на каждого студента', () => {
   const xml = xmlOf(buildMemo(template, memo));
   const rows = xml.slice(xml.lastIndexOf('<w:tbl>')).match(/<w:tr>/g);

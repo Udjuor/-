@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, busyFrom, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -97,6 +97,7 @@ function eventBlock(item, range, dayView) {
   if (event.place) details.push(h('span', {}, event.place));
   if (dayView) {
     details.push(h('span', {}, typeName(event.type)));
+    if (event.prepMinutes) details.push(h('span', {}, `Подготовка с ${busyFrom(event)}`));
     if (event.responsible) details.push(h('span', {}, `Ответственный: ${event.responsible}`));
     if (event.participants.length) details.push(h('span', {}, peopleCount(event.participants.length)));
     if (event.equipment.length) details.push(h('span', {}, `Техника: ${event.equipment.map((name) => equipmentLabel(event, name)).join(', ')}`));
@@ -347,6 +348,8 @@ function listGroup(title, items, ordered) {
   return h('section', { class: 'group' }, h('h3', {}, title), list);
 }
 
+const prepText = (event) => (event.prepMinutes ? `с ${busyFrom(event)}, ${event.prepMinutes} мин` : '');
+
 const attendanceOf = (eventId) => state.attendance.find((doc) => doc.eventId === eventId);
 
 const roll = (event) => {
@@ -401,6 +404,7 @@ function showDetails(id) {
         fact('Тип', typeName(event.type)),
         fact('Дата', fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '')),
         fact('Время', timeRange(event)),
+        fact('Подготовка', prepText(event)),
         fact('Место', event.place),
         fact('Ответственный', event.responsible || 'Не указан'),
         fact('Показывать на', event.devices.map(deviceName).join(', '))),
@@ -568,7 +572,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); updateConflicts(); },
   }, label)));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, 'Тип'), typeRow);
@@ -580,6 +584,17 @@ async function openForm(source = {}) {
     type: 'time',
     value: source.end ?? fromMinutes(Math.min(toMinutes(start) + 60, 23 * 60 + 55)),
   }, 'third');
+  const prep = field('Подготовка до начала, минут', 'f-prep', {
+    type: 'number', min: 0, max: 720, step: 5, value: source.prepMinutes || '', placeholder: 'Без подготовки',
+  });
+  prep.append(h('div', { class: 'targets prepchoices' }, [15, 30, 45, 60, 90, 120].map((minutes) => h('button', {
+    type: 'button',
+    onclick: () => { $('f-prep').value = minutes; updateConflicts(); },
+  }, String(minutes)))));
+  prep.append(h('p', { class: 'help' }, 'На это время студентов освобождают от занятий. Они и техника уже считаются занятыми.'));
+  const showPrep = () => { prep.hidden = draft.type === 'lesson'; };
+  showPrep();
+
   const place = field('Место', 'f-place', { value: source.place ?? '', autocomplete: 'off' }, 'half');
   place.append(attachSuggest(place.querySelector('input'), () => state.allEvents.map((e) => e.place), (value) => {
     $('f-place').value = value;
@@ -638,6 +653,7 @@ async function openForm(source = {}) {
     date: $('f-date').value,
     start: $('f-start').value,
     end: $('f-end').value,
+    prepMinutes: draft.type === 'lesson' ? 0 : Math.max(0, Math.round(Number($('f-prep').value) || 0)),
     place: $('f-place').value.trim(),
     responsible: $('f-responsible').value.trim(),
     participants: draft.participants,
@@ -764,7 +780,7 @@ async function openForm(source = {}) {
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        typeField, title, date, from, to, place, responsible, targets,
+        typeField, title, date, from, to, prep, place, responsible, targets,
         participants.element, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, 'Примечание'),
@@ -1310,6 +1326,7 @@ function paperSheet(event) {
       fact('Тип', typeName(event.type)),
       fact('День', `${weekday}, ${date}`),
       fact('Время', timeRange(event)),
+      fact('Подготовка', prepText(event)),
       fact('Место', event.place),
       fact('Ответственный', event.responsible),
       fact('Участников', event.participants.length ? String(event.participants.length) : '')),
@@ -1789,6 +1806,8 @@ async function openSettings() {
   const name = h('input', { id: 's-name', value: current.deviceName, autocomplete: 'off', maxlength: 60 });
   const key = h('input', { id: 's-key', value: current.syncKey, spellcheck: 'false', autocomplete: 'off' });
   const peers = h('input', { id: 's-peers', value: current.peers.join(', '), spellcheck: 'false', autocomplete: 'off' });
+  const memoFrom = h('input', { id: 's-memo-from', value: current.memoFrom, autocomplete: 'off', maxlength: 60 });
+  const memoSigner = h('input', { id: 's-memo-signer', value: current.memoSigner, autocomplete: 'off', maxlength: 60 });
   const showAll = h('input', { id: 's-all', type: 'checkbox', checked: current.showAll });
   const fullscreen = h('input', { id: 's-fullscreen', type: 'checkbox', checked: current.fullscreen });
   let theme = current.theme;
@@ -1834,6 +1853,8 @@ async function openSettings() {
         showAll: showAll.checked,
         fullscreen: fullscreen.checked,
         theme,
+        memoFrom: memoFrom.value,
+        memoSigner: memoSigner.value,
       });
       if (!result.ok) {
         message.textContent = result.code === 'invalid' ? result.message : 'Настройки не сохранены: нет доступа к файлу настроек.';
@@ -1858,6 +1879,16 @@ async function openSettings() {
         h('label', { for: 's-name' }, 'Название устройства'),
         name,
         h('p', { class: 'help' }, 'Например, «Ауд. 204» или «Кабинет Лебедевой». Его увидят на других устройствах.')),
+      h('section', { class: 'setting' },
+        h('h3', { class: 'settinghead' }, 'Служебная записка'),
+        h('div', { class: 'field' },
+          h('label', { for: 's-memo-from' }, 'От кого'),
+          memoFrom,
+          h('p', { class: 'help' }, 'Как в строке «От», например Семенова И. А.')),
+        h('div', { class: 'field settingnext' },
+          h('label', { for: 's-memo-signer' }, 'Подпись'),
+          memoSigner,
+          h('p', { class: 'help' }, 'Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.'))),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, 'Ключ сети'),
         h('div', { class: 'adder' }, key, h('button', {

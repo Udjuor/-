@@ -60,6 +60,7 @@ function normalizeEvent(raw) {
     equipment: cleanList(raw.equipment),
     equipmentQty: cleanCounts(raw.equipmentQty),
     ownCameras: cleanList(raw.ownCameras),
+    prepMinutes: Number.isInteger(raw.prepMinutes) && raw.prepMinutes > 0 ? Math.min(raw.prepMinutes, 720) : 0,
     notes: String(raw.notes ?? '').trim(),
     devices: cleanList(raw.devices),
     updatedAt: String(raw.updatedAt ?? ''),

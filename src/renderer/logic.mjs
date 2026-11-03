@@ -101,7 +101,10 @@ export function layoutDay(dayEvents) {
   return placed;
 }
 
-export const overlaps = (a, b) => a.date === b.date && a.start < b.end && b.start < a.end;
+/** Когда участники заняты: с начала подготовки. Раньше полуночи время не уходит. */
+export const busyFrom = (event) => fromMinutes(Math.max(0, toMinutes(event.start) - (event.prepMinutes ?? 0)));
+
+export const overlaps = (a, b) => a.date === b.date && busyFrom(a) < b.end && busyFrom(b) < a.end;
 
 export const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ');
 
@@ -329,7 +332,7 @@ export function toCsv(header, rows) {
 }
 
 const memoFields = (event) => [
-  event.title, event.date, event.start, event.end, event.place, event.responsible, ...event.participants,
+  event.title, event.date, event.start, event.end, event.prepMinutes ?? 0, event.place, event.responsible, ...event.participants,
 ];
 
 /** Записка нужна всем, кроме обычных занятий, если есть кого освобождать. */
@@ -355,7 +358,7 @@ export function memoData(event, students, groups, todayISO) {
     year,
     title: event.title,
     when: `${eventDate}, ${event.start}`,
-    release: `${event.start}–${event.end}`,
+    release: `${busyFrom(event)}–${event.end}`,
     place: event.place,
     responsible: event.responsible,
     students: event.participants.map((name) => ({ name, group: groupOf.get(nameKey(name)) ?? '' })),

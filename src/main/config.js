@@ -32,6 +32,8 @@ function saveConfig(homeDir, config) {
     `showAll=${config.showAll ? 1 : 0}`,
     `theme=${config.theme}`,
     `uiSize=${config.uiSize}`,
+    `memoFrom=${config.memoFrom}`,
+    `memoSigner=${config.memoSigner}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -54,6 +56,8 @@ function loadConfig(homeDir) {
     showAll: values.showAll === '1',
     theme: ['dark', 'light', 'system'].includes(values.theme) ? values.theme : 'dark',
     uiSize: ['small', 'medium', 'large'].includes(values.uiSize) ? values.uiSize : 'medium',
+    memoFrom: values.memoFrom || 'Семенова И. А.',
+    memoSigner: values.memoSigner || 'Семенов И. А.',
   };
   if (!values.deviceId) {
     try {

@@ -584,11 +584,21 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
     await page.fill('#f-start', '15:00');
     await page.fill('#f-end', '16:30');
     await page.fill('#f-place', 'Актовый зал');
+    if (type === 'Занятие') assert.equal(await page.isVisible('#f-prep'), false, 'у занятия подготовки нет');
+    else await page.click('#form .prepchoices button:has-text("60")');
     await page.fill('#f-participants', 'Алексеева Мария');
     await page.keyboard.press('Enter');
     await page.click('dialog#form button[type=submit]');
     await page.waitForSelector('dialog#form', { state: 'hidden' });
   };
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  await page.fill('#s-memo-from', 'Павлова С. Н.');
+  await page.fill('#s-memo-signer', 'Павлов С. Н.');
+  await page.click('#preferences button[type=submit]');
+  await page.waitForSelector('dialog#preferences', { state: 'hidden' });
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /memoSigner=Павлов С\. Н\./);
+
   await addWithStudent('Обычная пара', 'Занятие', day(14));
   await page.waitForTimeout(500);
   assert.equal(await page.locator('#memo[open]').count(), 0, 'для занятия записки нет');
@@ -602,6 +612,8 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   const { readZip } = require('../src/main/memo');
   const memoXml = readZip(fs.readFileSync(path.join(memoFolder, memoFiles[0]))).find((e) => e.name === 'word/document.xml').data.toString('utf8');
   assert.ok(memoXml.includes('Концерт') && memoXml.includes('Алексеева Мария') && memoXml.includes('ИС-21'), 'записка заполнена');
+  assert.ok(memoXml.includes('14:00–16:30'), 'освобождение с начала подготовки');
+  assert.ok(memoXml.includes('От Павлова С. Н.') && memoXml.includes('/ Павлов С. Н.'), 'отправитель из настроек');
   if (process.env.MEMO_COPY) fs.copyFileSync(path.join(memoFolder, memoFiles[0]), process.env.MEMO_COPY);
 
   await page.click('.block:has-text("Концерт")');
