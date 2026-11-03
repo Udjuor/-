@@ -571,6 +571,53 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   assert.match(await page.textContent('#pet .petlevel'), /Здоровье 70 из 100/);
   await page.click('#pet [aria-label=Закрыть]');
 
+  // Служебная записка: сама при назначении на практику, не для занятий.
+  const documents = path.join(home, 'documents');
+  await app.evaluate(({ app: electronApp }, folder) => electronApp.setPath('documents', folder), documents);
+  const memoFolder = path.join(documents, 'Служебные записки');
+  const addWithStudent = async (title, type, date) => {
+    await page.click('#add');
+    await page.waitForSelector('#form[open]');
+    await page.fill('#f-title', title);
+    await page.click(`#form .targets button:has-text("${type}")`);
+    await page.fill('#f-date', date);
+    await page.fill('#f-start', '15:00');
+    await page.fill('#f-end', '16:30');
+    await page.fill('#f-place', 'Актовый зал');
+    await page.fill('#f-participants', 'Алексеева Мария');
+    await page.keyboard.press('Enter');
+    await page.click('dialog#form button[type=submit]');
+    await page.waitForSelector('dialog#form', { state: 'hidden' });
+  };
+  await addWithStudent('Обычная пара', 'Занятие', day(14));
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('#memo[open]').count(), 0, 'для занятия записки нет');
+  await addWithStudent('Концерт', 'Мероприятие', day(14));
+  await page.waitForSelector('#memo[open]');
+  assert.match(await page.textContent('#memo'), /Служебная записка готова/);
+  await shot('memo');
+  await page.click('#memo [aria-label=Закрыть]');
+  const memoFiles = fs.readdirSync(memoFolder);
+  assert.equal(memoFiles.length, 1, 'файл записки создан');
+  const { readZip } = require('../src/main/memo');
+  const memoXml = readZip(fs.readFileSync(path.join(memoFolder, memoFiles[0]))).find((e) => e.name === 'word/document.xml').data.toString('utf8');
+  assert.ok(memoXml.includes('Концерт') && memoXml.includes('Алексеева Мария') && memoXml.includes('ИС-21'), 'записка заполнена');
+  if (process.env.MEMO_COPY) fs.copyFileSync(path.join(memoFolder, memoFiles[0]), process.env.MEMO_COPY);
+
+  await page.click('.block:has-text("Концерт")');
+  await page.click('#details >> text=Изменить');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-notes', 'Только примечание');
+  await page.click('dialog#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('#memo[open]').count(), 0, 'примечание не меняет записку');
+  await page.click('.block:has-text("Концерт")');
+  await page.click('#details >> text=Служебная записка');
+  await page.waitForSelector('#memo[open]');
+  await page.click('#memo [aria-label=Закрыть]');
+  await page.click('#today');
+
   // Преподаватель видит всё.
   await page.click('#settings');
   await page.click('label:has-text("Показывать мероприятия всех устройств")');

@@ -1,6 +1,6 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petPixels, petStatus } from './pet.mjs';
@@ -369,6 +369,7 @@ function showDetails(id) {
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, `Отметка: ${countPresent(event)} из ${event.participants.length}`),
     h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, 'Тех. задание'),
+    memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, 'Служебная записка'),
     h('div', { class: 'spacer' }),
     h('button', { class: 'plain', onclick: showConfirm }, 'Удалить'),
   );
@@ -758,6 +759,7 @@ async function openForm(source = {}) {
       dialog.close();
       render();
       if (event.devices.length) toast(`Событие отправлено: ${event.devices.map(deviceName).join(', ')}`);
+      if (needsMemo(result.value, source)) createMemo(result.value);
     },
   },
     h('div', { class: 'sheetbody' },
@@ -1243,6 +1245,42 @@ function openRoll(id) {
     h('div', { class: 'sheetbody' }, summary, failure, h('div', { class: 'field' }, search), list),
   );
   dialog.showModal();
+}
+
+/* Служебная записка */
+
+/** Формирует записку об освобождении от занятий и показывает, где она лежит. */
+async function createMemo(event) {
+  const dialog = $('memo');
+  const today = now().iso;
+  const memo = memoData(event, refsOf('student'), refsOf('group'), today);
+  const result = await api.createMemo(memo, `Записка ${event.date} ${event.title}`);
+  const note = h('p', { class: 'error' });
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('h2', {}, result.ok ? 'Служебная записка готова' : 'Записка не сформирована'),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      result.ok
+        ? [
+          h('p', {}, `Освобождение от занятий: ${peopleCount(event.participants.length)}.`),
+          h('p', { class: 'help memofile' }, `Документы, папка «Служебные записки»: ${result.value}`),
+        ]
+        : h('p', {}, 'Не удалось записать файл в папку «Документы». Проверьте свободное место и попробуйте ещё раз кнопкой в карточке события.'),
+      note),
+    result.ok && h('div', { class: 'sheetfoot' },
+      h('button', {
+        class: 'primary',
+        type: 'button',
+        onclick: async () => {
+          const opened = await api.openMemo();
+          if (opened.ok) dialog.close();
+          else note.textContent = 'На этом компьютере нет программы для файлов Word. Откройте записку на другом компьютере.';
+        },
+      }, 'Открыть'),
+      h('button', { class: 'plain', type: 'button', onclick: () => api.revealMemo() }, 'Показать в папке')),
+  );
+  if (!dialog.open) dialog.showModal();
 }
 
 /* Техническое задание */
@@ -1896,7 +1934,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;

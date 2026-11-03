@@ -1,10 +1,11 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron');
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
+const { buildMemo } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
@@ -98,6 +99,28 @@ async function respond(work) {
   }
 }
 
+let lastMemo = null;
+
+/** Пишет записку в «Документы». Если файл открыт в Word, рядом появится копия. */
+async function saveMemo(memo, fileName) {
+  const template = await fs.readFile(path.join(__dirname, '..', 'assets', 'memo-template.docx'));
+  const folder = path.join(app.getPath('documents'), 'Служебные записки');
+  await fs.mkdir(folder, { recursive: true });
+  const base = fileName.replace(/[\\/:*?"<>|\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const document = buildMemo(template, memo);
+  for (let copy = 0; copy < 50; copy += 1) {
+    const target = path.join(folder, `${base}${copy ? ` (${copy + 1})` : ''}.docx`);
+    try {
+      await fs.writeFile(target, document);
+      lastMemo = target;
+      return path.basename(target);
+    } catch (err) {
+      if (err.code !== 'EBUSY' && err.code !== 'EPERM') throw err;
+    }
+  }
+  throw new Error('Файл записки занят');
+}
+
 // Файл пишет системная задача обновления, см. build/update.ps1.
 async function readUpdateStatus() {
   try {
@@ -149,6 +172,15 @@ function registerHandlers() {
     await fs.writeFile(result.filePath, text, 'utf8');
     return true;
   }));
+
+  ipcMain.handle('memo:create', (_e, memo, fileName) => respond(() => saveMemo(memo, fileName)));
+  ipcMain.handle('memo:open', async () => {
+    const problem = lastMemo ? await shell.openPath(lastMemo) : 'нет файла';
+    return { ok: !problem };
+  });
+  ipcMain.handle('memo:reveal', () => {
+    if (lastMemo) shell.showItemInFolder(lastMemo);
+  });
 
   ipcMain.handle('update:status', readUpdateStatus);
 

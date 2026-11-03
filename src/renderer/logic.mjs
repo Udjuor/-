@@ -328,6 +328,40 @@ export function toCsv(header, rows) {
   return `\uFEFF${[header, ...rows].map((row) => row.map(cell).join(';')).join('\r\n')}\r\n`;
 }
 
+const memoFields = (event) => [
+  event.title, event.date, event.start, event.end, event.place, event.responsible, ...event.participants,
+];
+
+/** Записка нужна всем, кроме обычных занятий, если есть кого освобождать. */
+export const memoApplies = (event) => event.type !== 'lesson' && event.participants.length > 0;
+
+/** Новая записка нужна, если изменилось то, что в ней написано. */
+export function needsMemo(saved, previous) {
+  if (!memoApplies(saved)) return false;
+  return !previous?.id || JSON.stringify(memoFields(saved)) !== JSON.stringify(memoFields(previous));
+}
+
+/** Значения для шаблона служебной записки. */
+export function memoData(event, students, groups, todayISO) {
+  const groupName = new Map(groups.map((group) => [group.id, group.name]));
+  const groupOf = new Map(students.map((student) => [nameKey(student.name), groupName.get(student.groupId) ?? '']));
+  const longDate = (iso, options) => new Intl.DateTimeFormat('ru-RU', options).format(fromISO(iso));
+  const eventDate = longDate(event.date, { day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '');
+  const [year, , day] = todayISO.split('-');
+  const month = longDate(todayISO, { day: 'numeric', month: 'long' }).split(' ')[1];
+  return {
+    day,
+    month,
+    year,
+    title: event.title,
+    when: `${eventDate}, ${event.start}`,
+    release: `${event.start}–${event.end}`,
+    place: event.place,
+    responsible: event.responsible,
+    students: event.participants.map((name) => ({ name, group: groupOf.get(nameKey(name)) ?? '' })),
+  };
+}
+
 /** Состояние мероприятия относительно текущего момента. */
 export function eventState(event, nowISO, nowTime) {
   if (event.date < nowISO || (event.date === nowISO && event.end <= nowTime)) return 'past';

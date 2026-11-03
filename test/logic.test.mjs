@@ -231,6 +231,29 @@ test('столбцы техники из таблицы', () => {
   ]);
 });
 
+test('записка: только не для занятий и только если есть участники', () => {
+  const e = { type: 'practice', title: 'Т', date: '2026-11-03', start: '10:00', end: '11:00', place: '', responsible: '', participants: ['Иванов'] };
+  assert.equal(L.memoApplies(e), true);
+  assert.equal(L.memoApplies({ ...e, type: 'lesson' }), false);
+  assert.equal(L.memoApplies({ ...e, participants: [] }), false);
+  assert.equal(L.needsMemo(e, {}), true);
+  assert.equal(L.needsMemo(e, { ...e, id: '1' }), false, 'без изменений записка не пересоздаётся');
+  assert.equal(L.needsMemo(e, { ...e, id: '1', participants: [] }), true);
+  assert.equal(L.needsMemo(e, { ...e, id: '1', notes: 'другое' }), false);
+  assert.equal(L.needsMemo({ ...e, type: 'lesson' }, {}), false);
+});
+
+test('значения записки', () => {
+  const memo = L.memoData(
+    { title: 'Концерт', date: '2026-11-05', start: '11:00', end: '14:30', place: 'Зал', responsible: 'Павлов С. Н.', participants: ['Иванова Анна', 'Гость'] },
+    [{ name: 'Иванова Анна', groupId: 'g' }], [{ id: 'g', name: 'ИС-21' }], '2026-11-03',
+  );
+  assert.deepEqual([memo.day, memo.month, memo.year], ['03', 'ноября', '2026']);
+  assert.equal(memo.when, '5 ноября 2026, 11:00');
+  assert.equal(memo.release, '11:00–14:30');
+  assert.deepEqual(memo.students, [{ name: 'Иванова Анна', group: 'ИС-21' }, { name: 'Гость', group: '' }]);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

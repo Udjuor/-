@@ -596,3 +596,8 @@ dialog::backdrop { background: var(--backdrop); }
 @media (prefers-reduced-motion: reduce) {
   .petsprite, .petsprite .frame0, .petsprite .frame1 { animation: none; }
 }
+
+/* Служебная записка */
+.sheetfoot { flex-wrap: wrap; }
+dialog.sheet.small { width: min(34rem, 94vw); height: auto; margin: auto; border: .05rem solid var(--border); border-radius: .4rem; }
+.memofile { overflow-wrap: anywhere; }
