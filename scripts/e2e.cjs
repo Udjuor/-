@@ -550,6 +550,9 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.click('text=Обменяться сейчас');
   await page.waitForSelector('#s-devices li:has-text("Кабинет преподавателя"):has-text("На связи")');
   await shot('settings');
+  await page.click('#check-update');
+  await page.waitForFunction(() => !document.getElementById('check-update').disabled, null, { timeout: 100000 });
+  assert.match(await page.textContent('#s-update'), process.platform === 'win32' ? /Последняя проверка обновлений|не удалось проверить/ : /Проверку запустить не удалось/);
   await page.click('#preferences [aria-label=Закрыть]');
 
   assert.deepEqual(errors, [], 'ошибок на странице нет');

@@ -35,4 +35,16 @@ if (-not (Get-ScheduledTask -TaskName 'StudentCalendarUpdate' -ErrorAction Silen
     -Settings $settings | Out-Null
 }
 
+# Lets ordinary users start the update check from the program. Read and execute
+# only: they cannot change what the task runs. Repeated on every install because
+# tasks registered by older versions do not have this permission.
+$service = New-Object -ComObject Schedule.Service
+$service.Connect()
+$task = $service.GetFolder('\').GetTask('StudentCalendarUpdate')
+$sddl = $task.GetSecurityDescriptor(0xF)
+if ($sddl -notmatch '\(A;;GRGX;;;BU\)') {
+  $sddl = [regex]::Replace($sddl, '^(.*?D:[^(]*(?:\([^)]*\))*)', '$1(A;;GRGX;;;BU)')
+  $task.SetSecurityDescriptor($sddl, 0)
+}
+
 "$(Get-Date -Format s) ok" | Set-Content -LiteralPath $log

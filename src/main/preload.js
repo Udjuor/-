@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('calendar', {
   mark: (eventId, name, status) => ipcRenderer.invoke('attendance:mark', eventId, name, status),
   saveReport: (fileName, text) => ipcRenderer.invoke('report:save', fileName, text),
   updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
   setSize: (size) => ipcRenderer.invoke('size:set', size),
   printPaper: () => ipcRenderer.invoke('paper:print'),
   savePaperPdf: (fileName) => ipcRenderer.invoke('paper:pdf', fileName),

@@ -1,5 +1,6 @@
 'use strict';
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme } = require('electron');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { loadConfig, saveConfig, splitPeers } = require('./config');
@@ -97,6 +98,16 @@ async function respond(work) {
   }
 }
 
+// Файл пишет системная задача обновления, см. build/update.ps1.
+async function readUpdateStatus() {
+  try {
+    const file = path.join(process.env.ProgramFiles ?? '', 'StudentCalendarUpdate', 'status.json');
+    return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+}
+
 function registerHandlers() {
   ipcMain.handle('events:list', () => respond(() => store.list()));
   ipcMain.handle('events:save', (_e, event, base) => respond(async () => {
@@ -139,14 +150,23 @@ function registerHandlers() {
     return true;
   }));
 
-  // Файл пишет системная задача обновления, см. build/update.ps1.
-  ipcMain.handle('update:status', async () => {
-    try {
-      const file = path.join(process.env.ProgramFiles ?? '', 'StudentCalendarUpdate', 'status.json');
-      return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
-    } catch {
-      return null;
+  ipcMain.handle('update:status', readUpdateStatus);
+
+  // Запускает системную задачу и ждёт её результат. Если новая версия найдена,
+  // задача сама закроет программу, установит обновление и откроет её снова.
+  ipcMain.handle('update:check', async () => {
+    const before = (await readUpdateStatus())?.checkedAt;
+    const schtasks = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'schtasks.exe');
+    const started = await new Promise((resolve) => {
+      execFile(schtasks, ['/Run', '/TN', 'StudentCalendarUpdate'], { windowsHide: true }, (err) => resolve(!err));
+    });
+    if (!started) return { ok: false };
+    for (let i = 0; i < 45; i += 1) {
+      await new Promise((resolve) => { setTimeout(resolve, 2000); });
+      const status = await readUpdateStatus();
+      if (status && status.checkedAt !== before) return { ok: true, status };
     }
+    return { ok: true, status: null };
   });
 
   ipcMain.handle('settings:get', () => ({

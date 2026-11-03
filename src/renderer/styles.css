@@ -536,3 +536,5 @@ dialog::backdrop { background: var(--backdrop); }
   body > #printarea { display: block !important; }
   .paper { max-width: none; margin: 0; padding: 0; }
 }
+
+.checkupdate { margin-top: .5rem; }

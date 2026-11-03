@@ -1614,7 +1614,23 @@ async function openSettings() {
           }, 'Обменяться сейчас')),
         devices),
       h('p', { class: 'help' }, `Версия ${current.version}`),
-      h('p', { class: 'help', id: 's-update' }, updateText(await api.updateStatus()))),
+      h('p', { class: 'help', id: 's-update' }, updateText(await api.updateStatus())),
+      h('button', {
+        type: 'button',
+        class: 'plain checkupdate',
+        id: 'check-update',
+        onclick: async (e) => {
+          const button = e.currentTarget;
+          const line = $('s-update');
+          button.disabled = true;
+          line.textContent = 'Проверяю обновления. Если есть новая версия, программа закроется и откроется снова.';
+          const result = await api.checkUpdate();
+          button.disabled = false;
+          if (!result.ok) line.textContent = 'Проверку запустить не удалось. Обновления по-прежнему проверяются сами при включении компьютера и ночью.';
+          else if (!result.status) line.textContent = 'Проверка ещё идёт. Результат появится здесь при следующем открытии настроек.';
+          else line.textContent = updateText(result.status);
+        },
+      }, 'Проверить обновления')),
     h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'submit' }, 'Сохранить настройки'), message));
 
   dialog.replaceChildren(

@@ -83,6 +83,11 @@ jobs:
           $task = Get-ScheduledTask -TaskName StudentCalendarUpdate
           if ($task.Principal.UserId -ne 'SYSTEM') { throw "Задача обновления не от SYSTEM: $($task.Principal.UserId)" }
           Get-ScheduledTask -TaskName StudentCalendarLaunch | Out-Null
+          $service = New-Object -ComObject Schedule.Service
+          $service.Connect()
+          $sddl = $service.GetFolder('\').GetTask('StudentCalendarUpdate').GetSecurityDescriptor(0xF)
+          Write-Host $sddl
+          if ($sddl -notmatch '\(A;;GRGX;;;BU\)') { throw 'Пользователям не разрешён запуск проверки' }
           $ownUsers = (Get-Acl $root).Access | Where-Object { $_.IdentityReference -match 'Users' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($ownUsers) { throw 'Обычные пользователи могут менять файлы обновления' }
 
@@ -90,7 +95,15 @@ jobs:
           $launch = (Get-ScheduledTask -TaskName StudentCalendarLaunch).Actions[0].Execute
           if ($launch -ne $env:CAL_EXE) { throw "Задача запуска указывает на $launch" }
           Remove-Item (Join-Path $root 'status.json') -ErrorAction SilentlyContinue
-          Start-ScheduledTask -TaskName StudentCalendarUpdate
+          # Запуск от обычной учётной записи: так проверку начинает кнопка на панели.
+          $password = 'Pw' + [guid]::NewGuid().ToString('N') + '!'
+          net user calcheck $password /add | Out-Null
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          $credential = New-Object System.Management.Automation.PSCredential('calcheck', $secure)
+          $check = Start-Process schtasks.exe -ArgumentList '/Run', '/TN', 'StudentCalendarUpdate' -Credential $credential -WorkingDirectory $env:SystemRoot -Wait -PassThru -WindowStyle Hidden
+          Write-Host "schtasks от обычного пользователя: код $($check.ExitCode)"
+          net user calcheck /delete | Out-Null
+          if ($check.ExitCode -ne 0) { throw 'Обычный пользователь не может запустить проверку обновлений' }
           foreach ($i in 1..24) {
             if (Test-Path (Join-Path $root 'status.json')) { break }
             Start-Sleep -Seconds 5
