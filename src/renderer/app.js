@@ -25,6 +25,14 @@ const state = {
   today: toISO(new Date()),
 };
 
+/** Выполняет перерисовку внутри окна, не теряя место в длинном списке. */
+function keepScroll(node, work) {
+  const box = node.closest('.sheetbody');
+  const top = box?.scrollTop;
+  work();
+  if (box) box.scrollTop = top;
+}
+
 /** Создаёт элемент. Текст всегда попадает как текст, а не как разметка. */
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -410,12 +418,12 @@ function listInput(label, inputId, placeholder, values, onChange, pick, { tagLab
 
   const draw = () => {
     heading.textContent = values.length ? `${label}: ${values.length}` : label;
-    tags.replaceChildren(...values.map((value, index) =>
+    keepScroll(tags, () => tags.replaceChildren(...values.map((value, index) =>
       h('span', { class: 'tag' }, tagLabel(value), h('button', {
         type: 'button',
         'aria-label': `Убрать: ${value}`,
         onclick: () => { values.splice(index, 1); draw(); onChange(); },
-      }, '×'))));
+      }, '×')))));
   };
 
   const addFrom = (text) => {
@@ -863,7 +871,7 @@ function openPicker({ title, sections, selected, single = false, busy = new Map(
         rows.push(...items.map(row));
       }
     }
-    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'help' }, listed.size || sections.length ? 'Ничего не найдено.' : empty)]));
+    keepScroll(list, () => list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'help' }, listed.size || sections.length ? 'Ничего не найдено.' : empty)])));
     confirm.textContent = `Готово: выбрано ${[...chosen].filter((key) => listed.has(key)).length}`;
   }
 
@@ -887,21 +895,29 @@ function openStockPicker({ event, values, qty, holders, done }) {
   }));
   const list = h('div', { class: 'picklist' });
 
-  function draw() {
-    list.replaceChildren(...stock.map((item) => {
+  // Строки не пересоздаются: меняется только число, поэтому список стоит на месте.
+  const stockRow = (item) => {
+    const free = freeStock(event, state.allEvents, item);
+    const value = h('output', { 'aria-label': `Выбрано: ${item.name}` });
+    const change = (delta) => { counts.set(item.name, counts.get(item.name) + delta); update(); };
+    const less = h('button', { type: 'button', 'aria-label': `Меньше: ${item.name}`, onclick: () => change(-1) }, '−');
+    const more = h('button', { type: 'button', 'aria-label': `Больше: ${item.name}`, onclick: () => change(1) }, '+');
+    const update = () => {
       const count = counts.get(item.name);
-      const free = freeStock(event, state.allEvents, item);
-      const change = (delta) => { counts.set(item.name, count + delta); draw(); };
-      return h('div', { class: 'qtyrow' },
-        h('div', { class: 'qtyname' },
-          h('strong', {}, item.name),
-          h('span', {}, free === null ? 'Без лимита' : `Свободно ${free} из ${item.quantity}`)),
-        h('button', { type: 'button', 'aria-label': `Меньше: ${item.name}`, disabled: count === 0, onclick: () => change(-1) }, '−'),
-        h('output', { 'aria-label': `Выбрано: ${item.name}` }, String(count)),
-        h('button', { type: 'button', 'aria-label': `Больше: ${item.name}`, disabled: free !== null && count >= free, onclick: () => change(1) }, '+'));
-    }));
-    if (!stock.length) list.replaceChildren(h('p', { class: 'help' }, 'Список техники пуст. Добавьте её в разделе «Справочники».'));
-  }
+      value.textContent = String(count);
+      less.disabled = count === 0;
+      more.disabled = free !== null && count >= free;
+    };
+    update();
+    return h('div', { class: 'qtyrow' },
+      h('div', { class: 'qtyname' },
+        h('strong', {}, item.name),
+        h('span', {}, free === null ? 'Без лимита' : `Свободно ${free} из ${item.quantity}`)),
+      less, value, more);
+  };
+
+  list.append(...stock.map(stockRow));
+  if (!stock.length) list.append(h('p', { class: 'help' }, 'Список техники пуст. Добавьте её в разделе «Справочники».'));
 
   const finish = () => {
     const listed = new Set(stock.map((item) => nameKey(item.name)));
@@ -914,7 +930,6 @@ function openStockPicker({ event, values, qty, holders, done }) {
     done();
   };
 
-  draw();
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, 'Техника'), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
@@ -1121,8 +1136,9 @@ function equipmentPane() {
     })), 'Добавьте технику, чтобы выбирать её в событиях.'));
 }
 
-function drawCatalog() {
+function drawCatalog({ fromTop = false } = {}) {
   const dialog = $('catalog');
+  const scrolled = fromTop ? 0 : dialog.querySelector('.sheetbody')?.scrollTop ?? 0;
   const pane = catalog.tab === 'groups'
     ? groupsPane()
     : catalog.tab === 'equipment'
@@ -1136,12 +1152,13 @@ function drawCatalog() {
         'aria-pressed': String(catalog.tab === tab),
         onclick: () => {
           Object.assign(catalog, { tab, editing: null, confirming: null, message: '' });
-          drawCatalog();
+          drawCatalog({ fromTop: true });
         },
       }, label))),
     h('div', { class: 'sheetbody' }, catalog.message && h('p', { class: 'notice' }, catalog.message), pane),
   );
-  $('c-edit')?.focus();
+  dialog.querySelector('.sheetbody').scrollTop = scrolled;
+  $('c-edit')?.focus({ preventScroll: true });
 }
 
 /* Отметка на паре */
@@ -1183,7 +1200,7 @@ function openRoll(id) {
     ];
     summary.textContent = parts.join(', ');
     const query = nameKey(search.value);
-    list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) =>
+    keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) =>
       h('li', { class: 'rollrow' },
         h('button', {
           type: 'button',
@@ -1196,7 +1213,7 @@ function openRoll(id) {
           class: 'reason',
           'aria-pressed': String(row.status === reason),
           onclick: () => setMark(row.name, row.status === reason ? null : reason),
-        }, label)))));
+        }, label))))));
   }
 
   search.addEventListener('input', draw);
@@ -1644,7 +1661,7 @@ function wire() {
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';
-    drawCatalog();
+    drawCatalog({ fromTop: true });
     $('catalog').showModal();
   });
   $('minimize').addEventListener('click', () => api.minimize());

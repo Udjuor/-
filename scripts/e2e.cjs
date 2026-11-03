@@ -286,6 +286,20 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await paste('#c-add-student', Array.from({ length: 40 }, (_, i) => `Тестов Ученик${i}`).join('\n') + '\n');
   await page.waitForSelector('#catalog li:has-text("Тестов Ученик39")');
 
+  // Действия в длинном списке не сбрасывают его на начало.
+  const catalogBody = '#catalog .sheetbody';
+  await page.evaluate((box) => { document.querySelector(box).scrollTop = 500; }, catalogBody);
+  await page.click('#catalog li:has-text("Тестов Ученик20") .owntoggle');
+  await page.waitForSelector('#catalog li:has-text("Тестов Ученик20") .owntoggle[aria-pressed=true]');
+  const kept = await page.evaluate((box) => document.querySelector(box).scrollTop, catalogBody);
+  assert.ok(kept > 300, `список остался на месте: ${kept}`);
+  await page.click('#catalog li:has-text("Тестов Ученик20") >> text=Изменить');
+  assert.ok(await page.evaluate((box) => document.querySelector(box).scrollTop, catalogBody) > 300, 'изменение не сбрасывает список');
+  await page.click('#catalog .refrow.editing >> text=Отмена');
+  await page.click('#catalog li:has-text("Тестов Ученик20") .owntoggle');
+  await page.waitForSelector('#catalog li:has-text("Тестов Ученик20") .owntoggle[aria-pressed=false]');
+  await page.evaluate((box) => { document.querySelector(box).scrollTop = 0; }, catalogBody);
+
   // Своя камера студента и лимит техники.
   await page.click('#catalog li:has-text("Алексеева Мария") .owntoggle');
   await page.waitForSelector('#catalog li:has-text("Алексеева Мария") .owntoggle[aria-pressed=true]');
@@ -328,8 +342,10 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForSelector('#form .ownbox:has-text("Алексеева Мария")');
   await page.click('#form .field:has(#f-equipment) >> text=Из списка');
   assert.match(await page.textContent('#picker .qtyrow:has-text("Камера")'), /Свободно 2 из 2/);
+  await page.evaluate(() => { document.querySelector('#picker .qtyrow').dataset.same = '1'; });
   await page.click('#picker [aria-label="Больше: Камера"]');
   await page.click('#picker [aria-label="Больше: Камера"]');
+  assert.equal(await page.getAttribute('#picker .qtyrow', 'data-same'), '1', 'строки не пересоздаются');
   assert.equal(await page.isDisabled('#picker [aria-label="Больше: Камера"]'), true, 'больше лимита не выбрать');
   await shot('stock-picker');
   await page.click('#picker .sheetfoot .primary');
