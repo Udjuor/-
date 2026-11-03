@@ -599,5 +599,5 @@ dialog::backdrop { background: var(--backdrop); }
 
 /* Служебная записка */
 .sheetfoot { flex-wrap: wrap; }
-dialog.sheet.small { width: min(34rem, 94vw); height: auto; margin: auto; border: .05rem solid var(--border); border-radius: .4rem; }
+dialog.sheet.small { width: min(34rem, 94vw); height: fit-content; margin: auto; border: .05rem solid var(--border); border-radius: .4rem; }
 .memofile { overflow-wrap: anywhere; }
