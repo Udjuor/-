@@ -347,6 +347,13 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.click('#picker [aria-label="Больше: Камера"]');
   assert.equal(await page.getAttribute('#picker .qtyrow', 'data-same'), '1', 'строки не пересоздаются');
   assert.equal(await page.isDisabled('#picker [aria-label="Больше: Камера"]'), true, 'больше лимита не выбрать');
+  await page.fill('#p-search', 'микро');
+  assert.equal(await page.locator('#picker .qtyrow:visible').count(), 1, 'поиск по названию техники');
+  assert.ok(await page.locator('#picker .qtyrow:has-text("Микрофон")').isVisible());
+  await page.fill('#p-search', 'нет такого');
+  assert.ok(await page.locator('#picker >> text=Ничего не найдено.').isVisible());
+  await page.fill('#p-search', '');
+  assert.equal(await page.textContent('#picker [aria-label="Выбрано: Камера"]'), '2', 'поиск не сбрасывает количество');
   await shot('stock-picker');
   await page.click('#picker .sheetfoot .primary');
   await page.waitForSelector('#form .tag:has-text("Камера × 2")');

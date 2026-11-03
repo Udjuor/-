@@ -546,3 +546,5 @@ dialog::backdrop { background: var(--backdrop); }
 }
 
 .checkupdate { margin-top: .5rem; }
+
+.qtyrow[hidden] { display: none; }

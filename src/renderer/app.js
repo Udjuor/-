@@ -916,8 +916,19 @@ function openStockPicker({ event, values, qty, holders, done }) {
       less, value, more);
   };
 
-  list.append(...stock.map(stockRow));
+  const rows = stock.map((item) => ({ key: nameKey(item.name), element: stockRow(item) }));
+  list.append(...rows.map((row) => row.element));
   if (!stock.length) list.append(h('p', { class: 'help' }, 'Список техники пуст. Добавьте её в разделе «Справочники».'));
+
+  // Строки только скрываются: выбранное количество при поиске не теряется.
+  const search = h('input', { id: 'p-search', type: 'search', placeholder: 'Поиск по названию', autocomplete: 'off', 'aria-label': 'Поиск по названию' });
+  const nothing = h('p', { class: 'help', hidden: true }, 'Ничего не найдено.');
+  list.append(nothing);
+  search.addEventListener('input', () => {
+    const query = nameKey(search.value);
+    for (const row of rows) row.element.hidden = Boolean(query) && !row.key.includes(query);
+    nothing.hidden = !rows.length || rows.some((row) => !row.element.hidden);
+  });
 
   const finish = () => {
     const listed = new Set(stock.map((item) => nameKey(item.name)));
@@ -934,6 +945,7 @@ function openStockPicker({ event, values, qty, holders, done }) {
     h('div', { class: 'sheethead' }, h('h2', {}, 'Техника'), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       holders.length > 0 && h('p', { class: 'notice' }, `Со своей камерой: ${holders.join(', ')}.`),
+      h('div', { class: 'field' }, search),
       list),
     h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'button', onclick: finish }, 'Готово')),
   );
