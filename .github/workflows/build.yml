@@ -36,6 +36,19 @@ jobs:
       - name: Собрать установщик
         run: npm run dist
 
+      - name: Поставить прошлую версию
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Новая версия ставится поверх настоящего релиза, как при обновлении панелей.
+          New-Item -ItemType Directory -Force previous | Out-Null
+          gh release download v1.10.0 --pattern '*.exe' --dir previous
+          $old = (Get-ChildItem previous/*.exe).FullName
+          $p = Start-Process $old -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Код выхода установщика прошлой версии: $($p.ExitCode)" }
+          Get-ChildItem "$env:PUBLIC\Desktop" | Format-Table Name | Out-String | Write-Host
+
       - name: Установить без вопросов, как на панелях
         shell: pwsh
         run: |
@@ -51,6 +64,10 @@ jobs:
           Write-Host "Автозапуск: $run"
           $exe = $run.Trim('"')
           if (-not (Test-Path -LiteralPath $exe)) { throw "Нет программы: $exe" }
+          $desktop = Get-ChildItem "$env:PUBLIC\Desktop" | ForEach-Object Name
+          Write-Host ($desktop -join ', ')
+          if ($desktop -notcontains 'Староста.lnk') { throw 'Нет ярлыка с новым названием' }
+          if ($desktop -contains 'Календарь мероприятий.lnk') { throw 'Остался старый ярлык' }
           "CAL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $ini = Get-Content "$env:ProgramData\StudentCalendar\config.ini" -Raw
           Write-Host $ini

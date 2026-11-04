@@ -85,6 +85,17 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => {});
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });
 
+  // Панель-визитка: название, версия, исчезает сама и по нажатию.
+  await page.waitForSelector('#splash .petsprite');
+  assert.match(await page.textContent('#splash'), /Староста[\s\S]*Знает, кто где[\s\S]*Версия \d+\.\d+\.\d+/);
+  await shot('splash');
+  await page.waitForSelector('#splash', { state: 'detached', timeout: 8000 });
+  await page.reload();
+  await page.waitForSelector('#splash .petsprite');
+  await page.click('#splash');
+  await page.waitForSelector('#splash', { state: 'detached', timeout: 3000 });
+  assert.equal(await page.title(), 'Староста');
+
   await page.locator('.block').first().waitFor();
   assert.equal(await page.locator('.block').count(), 7, 'неделя показывает свои мероприятия');
   assert.match(await page.textContent('#title'), /2–8 ноября 2026/);

@@ -608,3 +608,22 @@ dialog.sheet.small { width: min(34rem, 94vw); height: fit-content; margin: auto;
 .prepchoices button { min-width: 3.4rem; padding: 0 .6rem; }
 .settinghead { margin-bottom: .5rem; font-size: 1.2rem; font-weight: 600; }
 .settingnext { margin-top: .8rem; }
+
+/* Панель-визитка при запуске */
+.splash { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 1rem; background: var(--canvas); cursor: pointer; transition: opacity .3s; }
+.splash.leaving { opacity: 0; pointer-events: none; }
+.splashcard { width: min(34rem, 92vw); padding: 2.5rem 2.5rem 1.6rem; border: .05rem solid var(--border); border-radius: .6rem; background: var(--canvas-subtle); text-align: center; }
+.splashlogo { width: 8rem; margin: 0 auto 1.2rem; }
+.splashlogo .petsprite { width: 100%; }
+.splashcard h1 { margin: 0; overflow: visible; font-size: 3.6rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; }
+.splashtag { margin-top: .5rem; color: var(--accent); font-size: 1.5rem; font-weight: 600; }
+.splashtext { margin-top: 1rem; color: var(--fg-muted); font-size: 1.1rem; }
+.splashversion { margin-top: 1.6rem; color: var(--fg-muted); font-size: .95rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash { transition: none; }
+}
+
+@media print {
+  .splash { display: none !important; }
+}

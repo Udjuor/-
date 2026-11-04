@@ -3,10 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'">
-  <title>Календарь мероприятий</title>
+  <title>Староста</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="splash" class="splash">
+    <section class="splashcard" aria-label="Староста">
+      <div id="splash-logo" class="splashlogo"></div>
+      <h1>Староста</h1>
+      <p class="splashtag">Знает, кто где</p>
+      <p class="splashtext">Расписание, посещаемость и документы колледжа в одной программе</p>
+      <p id="splash-version" class="splashversion"></p>
+    </section>
+  </div>
   <header class="topbar">
     <div class="period">
       <button class="icon" id="prev" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 4 7 12l8 8"/></svg></button>

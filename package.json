@@ -1,8 +1,8 @@
 {
   "name": "student-calendar",
-  "productName": "Календарь мероприятий",
-  "version": "1.11.0",
-  "description": "Календарь распределения студентов на мероприятия для интерактивных панелей в аудиториях",
+  "productName": "Староста",
+  "version": "1.12.0",
+  "description": "Расписание, посещаемость и документы колледжа в одной программе",
   "author": "Udjuor",
   "license": "UNLICENSED",
   "private": true,
@@ -33,7 +33,7 @@
       "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Календарь мероприятий",
+      "shortcutName": "Староста",
       "installerLanguages": ["ru_RU"],
       "language": "1049",
       "include": "build/installer.nsh"

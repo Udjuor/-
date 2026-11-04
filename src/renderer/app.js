@@ -2002,6 +2002,24 @@ function wire() {
   }
 }
 
+const SPLASH_MS = 2600;
+
+/** Панель-визитка при запуске. Убирается сама или по нажатию. */
+function showSplash(version) {
+  const splash = $('splash');
+  $('splash-logo').append(petSprite('play'));
+  $('splash-version').textContent = `Версия ${version}`;
+  const hide = () => {
+    splash.classList.add('leaving');
+    setTimeout(() => splash.remove(), 350);
+  };
+  const timer = setTimeout(hide, SPLASH_MS);
+  splash.addEventListener('click', () => {
+    clearTimeout(timer);
+    hide();
+  }, { once: true });
+}
+
 function applySize(size) {
   document.documentElement.dataset.size = size;
   render();
@@ -2011,6 +2029,7 @@ async function start() {
   wire();
   state.settings = await api.getSettings();
   applySize(state.settings.uiSize);
+  showSplash(state.settings.version);
   api.onChanged(refresh);
   render();
   tick();
