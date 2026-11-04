@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer, webFrame } = require('electron');
 webFrame.setVisualZoomLevelLimits(1, 1);
 
 contextBridge.exposeInMainWorld('calendar', {
+  language: ipcRenderer.sendSync('i18n:language'),
+  setLanguage: (lang) => ipcRenderer.invoke('lang:set', lang),
   list: () => ipcRenderer.invoke('events:list'),
   save: (event, baseUpdatedAt) => ipcRenderer.invoke('events:save', event, baseUpdatedAt),
   remove: (id, baseUpdatedAt) => ipcRenderer.invoke('events:remove', id, baseUpdatedAt),
@@ -13,7 +15,7 @@ contextBridge.exposeInMainWorld('calendar', {
   removeRefs: (refs) => ipcRenderer.invoke('directory:remove', refs),
   attendance: () => ipcRenderer.invoke('attendance:list'),
   mark: (eventId, name, status) => ipcRenderer.invoke('attendance:mark', eventId, name, status),
-  saveReport: (fileName, text) => ipcRenderer.invoke('report:save', fileName, text),
+  saveReport: (fileName, text, labels) => ipcRenderer.invoke('report:save', fileName, text, labels),
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   createMemo: (memo, fileName) => ipcRenderer.invoke('memo:create', memo, fileName),
@@ -21,7 +23,7 @@ contextBridge.exposeInMainWorld('calendar', {
   revealMemo: () => ipcRenderer.invoke('memo:reveal'),
   setSize: (size) => ipcRenderer.invoke('size:set', size),
   printPaper: () => ipcRenderer.invoke('paper:print'),
-  savePaperPdf: (fileName) => ipcRenderer.invoke('paper:pdf', fileName),
+  savePaperPdf: (fileName, title) => ipcRenderer.invoke('paper:pdf', fileName, title),
   setTheme: (theme) => ipcRenderer.invoke('theme:set', theme),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),

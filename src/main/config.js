@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const LANGUAGES = ['auto', 'ru', 'en', 'es', 'zh', 'ja', 'ko'];
+
 function parseIni(text) {
   const values = {};
   for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
@@ -32,6 +34,7 @@ function saveConfig(homeDir, config) {
     `showAll=${config.showAll ? 1 : 0}`,
     `theme=${config.theme}`,
     `uiSize=${config.uiSize}`,
+    `lang=${config.lang}`,
     `memoFrom=${config.memoFrom}`,
     `memoSigner=${config.memoSigner}`,
   ];
@@ -56,6 +59,8 @@ function loadConfig(homeDir) {
     showAll: values.showAll === '1',
     theme: ['dark', 'light', 'system'].includes(values.theme) ? values.theme : 'dark',
     uiSize: ['small', 'medium', 'large'].includes(values.uiSize) ? values.uiSize : 'medium',
+    // Уже работающие устройства остаются на русском, новые определяют язык по Windows.
+    lang: LANGUAGES.includes(values.lang) ? values.lang : (values.deviceId ? 'ru' : 'auto'),
     memoFrom: values.memoFrom || 'Семенова И. А.',
     memoSigner: values.memoSigner || 'Семенов И. А.',
   };
@@ -69,4 +74,4 @@ function loadConfig(homeDir) {
   return config;
 }
 
-module.exports = { loadConfig, saveConfig, parseIni, splitPeers };
+module.exports = { loadConfig, saveConfig, parseIni, splitPeers, LANGUAGES };

@@ -415,6 +415,20 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(13, 17, 23)');
   await page.click('#preferences [aria-label=Закрыть]');
 
+  // Выбор языка сохраняется и перезапускает программу.
+  await app.evaluate(({ app: electronApp }) => {
+    electronApp.relaunch = () => { globalThis.relaunched = true; };
+    electronApp.exit = () => {};
+  });
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  await page.click('#preferences .targets button:has-text("日本語")');
+  await until(async () => app.evaluate(() => globalThis.relaunched === true), 'перезапуск при смене языка');
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /lang=ja/);
+  await page.click('#preferences .targets button:has-text("Русский")');
+  await until(() => /lang=ru/.test(fs.readFileSync(path.join(home, 'config.ini'), 'utf8')), 'возврат языка');
+  await page.click('#preferences [aria-label=Закрыть]');
+
   // Размер интерфейса.
   await page.click('#settings');
   await page.waitForSelector('#preferences[open]');

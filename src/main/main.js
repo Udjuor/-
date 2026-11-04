@@ -3,7 +3,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = requir
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { loadConfig, saveConfig, splitPeers } = require('./config');
+const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
 const { buildMemo } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
@@ -17,11 +17,18 @@ function homeDir() {
   return app.getPath('userData');
 }
 
-// Подписи в полях даты и времени — по-русски и в 24-часовом формате.
-app.commandLine.appendSwitch('lang', 'ru');
+/** Язык интерфейса. Если языка Windows нет среди наших, берём английский. */
+function interfaceLanguage() {
+  if (config.lang !== 'auto') return config.lang;
+  const system = app.getLocale().split('-')[0];
+  if (system === 'sah') return 'ru';
+  return LANGUAGES.includes(system) ? system : 'en';
+}
 
 let win = null;
-let config = null;
+let config = loadConfig(homeDir());
+// Поля даты и времени рисует Chromium: язык ему нужен до запуска окна.
+if (config.lang !== 'auto') app.commandLine.appendSwitch('lang', config.lang);
 let store = null;
 let sync = null;
 let syncProblem = null;
@@ -162,11 +169,11 @@ function registerHandlers() {
     return doc;
   }));
 
-  ipcMain.handle('report:save', (_e, fileName, text) => respond(async () => {
+  ipcMain.handle('report:save', (_e, fileName, text, labels) => respond(async () => {
     const result = await dialog.showSaveDialog(win, {
-      title: 'Сохранить отчёт',
+      title: labels.title,
       defaultPath: path.join(app.getPath('documents'), fileName),
-      filters: [{ name: 'Таблица для Excel', extensions: ['csv'] }],
+      filters: [{ name: labels.filter, extensions: ['csv'] }],
     });
     if (result.canceled) return false;
     await fs.writeFile(result.filePath, text, 'utf8');
@@ -209,6 +216,7 @@ function registerHandlers() {
     showAll: config.showAll,
     theme: config.theme,
     uiSize: config.uiSize,
+    lang: config.lang,
     memoFrom: config.memoFrom,
     memoSigner: config.memoSigner,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
@@ -218,9 +226,7 @@ function registerHandlers() {
   ipcMain.handle('settings:save', (_e, settings) =>
     respond(async () => {
       const syncKey = String(settings.syncKey ?? '').trim();
-      if (syncKey && syncKey.length < 12) {
-        throw Object.assign(new Error('Ключ сети должен быть не короче 12 символов'), { code: 'invalid' });
-      }
+      if (syncKey && syncKey.length < 12) throw Object.assign(new Error('short key'), { code: 'short-key' });
       const syncChanged = syncKey !== config.syncKey
         || settings.deviceName !== config.deviceName
         || splitPeers(settings.peers).join() !== config.peers.join();
@@ -249,6 +255,16 @@ function registerHandlers() {
     saveConfig(homeDir(), config);
   }));
 
+  // Запрашивается страницей при загрузке, ещё до первого рисунка.
+  ipcMain.on('i18n:language', (event) => { event.returnValue = interfaceLanguage(); });
+  ipcMain.handle('lang:set', (_e, lang) => {
+    if (!LANGUAGES.includes(lang) || lang === config.lang) return;
+    config = { ...config, lang };
+    saveConfig(homeDir(), config);
+    app.relaunch();
+    app.exit(0);
+  });
+
   ipcMain.handle('size:set', (_e, uiSize) => respond(() => {
     if (!['small', 'medium', 'large'].includes(uiSize)) return;
     config = { ...config, uiSize };
@@ -262,9 +278,9 @@ function registerHandlers() {
     });
   }));
 
-  ipcMain.handle('paper:pdf', (_e, fileName) => respond(async () => {
+  ipcMain.handle('paper:pdf', (_e, fileName, title) => respond(async () => {
     const result = await dialog.showSaveDialog(win, {
-      title: 'Сохранить PDF',
+      title,
       defaultPath: path.join(app.getPath('documents'), fileName.replace(/[\\/:*?"<>|]/g, ' ')),
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     });
@@ -297,7 +313,6 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    config = loadConfig(homeDir());
     nativeTheme.themeSource = config.theme;
     store = new EventStore(config.dataDir, config.deviceId);
     registerHandlers();

@@ -251,12 +251,20 @@ test('недоступная папка даёт ошибку, а не паде�
   await assert.rejects(store.save(sample));
 });
 
+test('уже работающее устройство остаётся на русском', (t) => {
+  const home = tempDir(t);
+  fs.writeFileSync(path.join(home, 'config.ini'), '[calendar]\r\ndeviceId=abc\r\n');
+  assert.equal(loadConfig(home).lang, 'ru');
+});
+
 test('настройки: значения по умолчанию, запись и файл от NSIS', (t) => {
   const home = tempDir(t);
   const first = loadConfig(home);
   assert.equal(first.dataDir, path.join(home, 'data'));
   assert.equal(first.fullscreen, true);
   assert.equal(first.uiSize, 'medium');
+  assert.equal(first.lang, 'auto', 'новое устройство определяет язык само');
+  assert.equal(loadConfig(home).lang, 'auto');
   assert.equal(first.deviceName, os.hostname());
   assert.match(first.deviceId, /^[0-9a-f-]{36}$/);
   assert.equal(loadConfig(home).deviceId, first.deviceId, 'номер устройства не меняется между запусками');
