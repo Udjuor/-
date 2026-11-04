@@ -26,6 +26,63 @@ function interfaceLanguage() {
 }
 
 let win = null;
+let splash = null;
+let splashDone = false;
+let mainReady = false;
+
+const SPLASH_MS = 4500;
+
+/** Главное окно показывается, когда визитка отработала и само окно готово. */
+function revealMain() {
+  if (!splashDone || !mainReady || !win) return;
+  // Полный экран только здесь: заданный при создании окна, он показал бы его раньше панели.
+  if (config.fullscreen) win.setFullScreen(true);
+  else win.maximize();
+  win.show();
+  win.focus();
+}
+
+function finishSplash() {
+  if (splashDone) return;
+  splashDone = true;
+  splash?.close();
+  revealMain();
+}
+
+/** Небольшая панель-визитка: отдельное окно без рамки по центру экрана. */
+function createSplash() {
+  splash = new BrowserWindow({
+    width: 640,
+    height: 360,
+    center: true,
+    show: false,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    backgroundColor: '#161b22',
+    title: 'Horatus',
+    icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  splash.once('ready-to-show', () => {
+    splash.show();
+    setTimeout(finishSplash, SPLASH_MS);
+  });
+  splash.on('closed', () => {
+    splash = null;
+    finishSplash();
+  });
+  splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'));
+}
 let config = loadConfig(homeDir());
 // Поля даты и времени рисует Chromium: язык ему нужен до запуска окна.
 if (config.lang !== 'auto') app.commandLine.appendSwitch('lang', config.lang);
@@ -63,7 +120,6 @@ function createWindow() {
     width: 1600,
     height: 900,
     show: false,
-    fullscreen: config.fullscreen,
     backgroundColor: '#0d1117',
     title: 'Horatus',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
@@ -75,8 +131,8 @@ function createWindow() {
     },
   });
   win.once('ready-to-show', () => {
-    if (!config.fullscreen) win.maximize();
-    win.show();
+    mainReady = true;
+    revealMain();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
@@ -217,6 +273,7 @@ function registerHandlers() {
     theme: config.theme,
     uiSize: config.uiSize,
     lang: config.lang,
+    setupDone: config.setupDone,
     memoFrom: config.memoFrom,
     memoSigner: config.memoSigner,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
@@ -257,6 +314,11 @@ function registerHandlers() {
 
   // Запрашивается страницей при загрузке, ещё до первого рисунка.
   ipcMain.on('i18n:language', (event) => { event.returnValue = interfaceLanguage(); });
+  ipcMain.handle('setup:done', () => {
+    config = { ...config, setupDone: true };
+    saveConfig(homeDir(), config);
+  });
+
   ipcMain.handle('lang:set', (_e, lang) => {
     if (!LANGUAGES.includes(lang) || lang === config.lang) return;
     config = { ...config, lang };
@@ -296,6 +358,8 @@ function registerHandlers() {
   });
   ipcMain.handle('sync:generate-key', () => generateKey());
 
+  ipcMain.handle('splash:skip', finishSplash);
+
   ipcMain.handle('window:minimize', () => {
     if (win) win.minimize();
   });
@@ -316,6 +380,7 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = config.theme;
     store = new EventStore(config.dataDir, config.deviceId);
     registerHandlers();
+    createSplash();
     createWindow();
     restartSync();
   });

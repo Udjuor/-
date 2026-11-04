@@ -6,12 +6,12 @@ import { ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, statusName } from '../src/ren
 
 const read = (file) => fs.readFileSync(new URL(`../src/renderer/${file}`, import.meta.url), 'utf8');
 const app = read('app.js');
-const page = read('index.html');
+const page = read('index.html') + read('splash.html');
 const unescape = (text) => text.replace(/\\\\/g, '\\').replace(/\\'/g, "'");
 
 const usedKeys = () => {
   const keys = new Set([...app.matchAll(/\bt\('((?:[^'\\]|\\.)*)'/g)].map((m) => unescape(m[1])));
-  const body = page.slice(page.indexOf('<body'));
+  const body = page.replace(/<head>.*?<\/head>/gs, '');
   for (const m of body.matchAll(/>([^<>]*[А-Яа-яЁё][^<>]*)</g)) keys.add(m[1].trim());
   for (const m of body.matchAll(/aria-label="([^"]*[А-Яа-яЁё][^"]*)"/g)) keys.add(m[1]);
   for (const [, label] of [...EVENT_TYPES, ...ABSENCE_REASONS]) keys.add(label);

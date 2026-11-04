@@ -67,6 +67,8 @@ seed(-1, '13:00', '14:30', 'Встреча с работодателем', { pla
 seed(3, '09:30', '11:00', 'Экскурсия в музей');
 for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, `Секция ${i + 1}`);
 
+const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `${name}.png`) });
+
 (async () => {
   await teacher.start();
   const app = await _electron.launch({
@@ -75,7 +77,25 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
     env: { ...process.env, STUDENT_CALENDAR_HOME: home },
   });
   const errors = [];
-  const page = await app.firstWindow();
+  // Панель-визитка: отдельное небольшое окно, потом главное.
+  const startedAt = Date.now();
+  const opened = (name) => app.windows().find((w) => w.url().endsWith(name));
+  await app.firstWindow();
+  await until(() => opened('splash.html') && opened('index.html'), 'окна программы');
+  const splash = opened('splash.html');
+  await splash.waitForSelector('#splash-logo .petsprite');
+  await splash.waitForFunction(() => document.getElementById('splash-version').textContent);
+  assert.match(await splash.textContent('body'), /Horatus[\s\S]*Время для того, что важно![\s\S]*Автор: Udjuor[\s\S]*Версия \d+\.\d+\.\d+/);
+  const sizes = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => ({ size: w.getSize(), visible: w.isVisible(), top: w.isAlwaysOnTop() })));
+  const card = sizes.find((w) => w.top);
+  assert.ok(card.visible && card.size[0] === 640 && card.size[1] === 360, 'небольшое окно');
+  assert.equal(sizes.filter((w) => w.visible).length, 1, 'главное окно ждёт панель');
+  await page_shot(splash, 'splash');
+  await until(async () => (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)) === 1, 'закрытие панели');
+  assert.ok(Date.now() - startedAt >= 3500, 'панель держится несколько секунд');
+  await until(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 'показ главного окна');
+  const page = opened('index.html');
+  assert.equal(await page.title(), 'Horatus');
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // Playwright по умолчанию подменяет тему страницы, а нужна настоящая тема программы.
@@ -84,17 +104,6 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   await page.reload();
   await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => {});
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });
-
-  // Панель-визитка: название, версия, исчезает сама и по нажатию.
-  await page.waitForSelector('#splash .petsprite');
-  assert.match(await page.textContent('#splash'), /Horatus[\s\S]*Время для того, что важно![\s\S]*Версия \d+\.\d+\.\d+/);
-  await shot('splash');
-  await page.waitForSelector('#splash', { state: 'detached', timeout: 8000 });
-  await page.reload();
-  await page.waitForSelector('#splash .petsprite');
-  await page.click('#splash');
-  await page.waitForSelector('#splash', { state: 'detached', timeout: 3000 });
-  assert.equal(await page.title(), 'Horatus');
 
   await page.locator('.block').first().waitFor();
   assert.equal(await page.locator('.block').count(), 7, 'неделя показывает свои мероприятия');
@@ -422,10 +431,14 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   });
   await page.click('#settings');
   await page.waitForSelector('#preferences[open]');
-  await page.click('#preferences .targets button:has-text("日本語")');
+  assert.equal(await page.locator('#preferences .langs button').count(), 7);
+  const langWidths = await page.locator('#preferences .langs button').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().width)));
+  assert.equal(new Set(langWidths).size, 1, 'кнопки языка одного размера');
+  await shot('settings-langs');
+  await page.click('#preferences .langs button[aria-label="日本語"]');
   await until(async () => app.evaluate(() => globalThis.relaunched === true), 'перезапуск при смене языка');
   assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /lang=ja/);
-  await page.click('#preferences .targets button:has-text("Русский")');
+  await page.click('#preferences .langs button[aria-label="Русский"]');
   await until(() => /lang=ru/.test(fs.readFileSync(path.join(home, 'config.ini'), 'utf8')), 'возврат языка');
   await page.click('#preferences [aria-label=Закрыть]');
 
@@ -698,6 +711,63 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
   assert.deepEqual(errors, [], 'ошибок на странице нет');
   await app.close();
   await teacher.stop();
+
+  // Первый запуск: мастер настройки, пропуск и прохождение до конца.
+  const firstRun = async (folder) => {
+    // Новое устройство: только язык, иначе программа возьмёт язык системы.
+    if (!fs.existsSync(path.join(folder, 'config.ini'))) fs.writeFileSync(path.join(folder, 'config.ini'), '[calendar]\r\nlang=ru\r\n');
+    const launched = await _electron.launch({
+      executablePath: process.env.CAL_EXE,
+      args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
+      env: { ...process.env, STUDENT_CALENDAR_HOME: folder },
+    });
+    await launched.firstWindow();
+    const windowOf = (name) => launched.windows().find((w) => w.url().endsWith(name));
+    await until(() => windowOf('splash.html') && windowOf('index.html'), 'окна первого запуска');
+    await windowOf('splash.html').click('body');
+    return { launched, wizard: windowOf('index.html') };
+  };
+  const skipHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-skip-'));
+  const skipped = await firstRun(skipHome);
+  await skipped.wizard.waitForSelector('#welcome[open]');
+  assert.equal(await skipped.wizard.locator('#welcome .langs button').count(), 7, 'выбор языка в мастере');
+  await skipped.wizard.click('#welcome >> text=Пропустить настройку');
+  await skipped.wizard.waitForSelector('#welcome', { state: 'hidden' });
+  await until(() => /setupDone=1/.test(fs.readFileSync(path.join(skipHome, 'config.ini'), 'utf8')), 'пропуск мастера');
+  await skipped.launched.close();
+  const again = await firstRun(skipHome);
+  await again.wizard.waitForSelector('.day, .cell');
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.equal(await again.wizard.locator('#welcome[open]').count(), 0, 'второй раз мастер не появляется');
+  await again.launched.close();
+
+  const setupHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-setup-'));
+  const setup = await firstRun(setupHome);
+  const w = setup.wizard;
+  await w.waitForSelector('#welcome[open]');
+  await w.click('#welcome .sheetfoot >> text=Далее');
+  await w.fill('#w-name', 'Ауд. 305');
+  await w.click('#welcome .targets button:has-text("Компьютер преподавателя")');
+  await page_shot(w, 'welcome');
+  await w.click('#welcome .sheetfoot >> text=Далее');
+  await w.fill('#w-key', 'коротко');
+  await w.click('#welcome .sheetfoot >> text=Далее');
+  await w.fill('#w-from', 'Павлова С. Н.');
+  await w.click('#welcome .sheetfoot >> text=Начать работу');
+  await w.waitForSelector('#welcome .error:has-text("не короче 12")');
+  await w.click('#welcome .sheetfoot >> text=Назад');
+  await w.click('#welcome button:has-text("Создать")');
+  await w.waitForFunction(() => document.getElementById('w-key').value.length > 12);
+  await w.click('#welcome .sheetfoot >> text=Далее');
+  await w.click('#welcome .sheetfoot >> text=Начать работу');
+  await w.waitForSelector('#welcome', { state: 'hidden' });
+  const saved_ = fs.readFileSync(path.join(setupHome, 'config.ini'), 'utf8');
+  assert.match(saved_, /deviceName=Ауд\. 305/);
+  assert.match(saved_, /showAll=1/);
+  assert.match(saved_, /memoFrom=Павлова С\. Н\./);
+  assert.match(saved_, /syncKey=[A-Z2-9-]{23}/);
+  assert.match(saved_, /setupDone=1/);
+  await setup.launched.close();
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(teacherDir, { recursive: true, force: true });
   console.log('Все сценарии пройдены');

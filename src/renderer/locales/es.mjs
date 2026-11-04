@@ -272,7 +272,23 @@ export default {
     "Опоздал": "Con retraso",
     "Уважительная причина": "Falta justificada",
     "Нет отметки": "Sin marcar",
-    "Без группы": "Sin grupo"
+    "Без группы": "Sin grupo",
+    "Автор: Udjuor": "Autor: Udjuor",
+    "Авто": "Auto",
+    "Язык и оформление": "Idioma y apariencia",
+    "Это устройство": "Este dispositivo",
+    "Как используется это устройство?": "¿Cómo se usa este dispositivo?",
+    "Панель в аудитории": "Panel de aula",
+    "Компьютер преподавателя": "Ordenador del docente",
+    "Преподаватель видит мероприятия всех устройств.": "El docente ve los eventos de todos los dispositivos.",
+    "Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.": "Crea una clave o introduce la que ya usan tus otros dispositivos. Sin clave, el programa funciona solo en este dispositivo.",
+    "Обмен между устройствами": "Sincronización entre dispositivos",
+    "Добро пожаловать в Horatus": "Te damos la bienvenida a Horatus",
+    "Настроим программу за минуту. Всё можно изменить позже в настройках.": "Lo configuramos en un minuto. Podrás cambiarlo todo después en los ajustes.",
+    "Шаг {0} из {1}": "Paso {0} de {1}",
+    "Начать работу": "Empezar",
+    "Далее": "Siguiente",
+    "Пропустить настройку": "Omitir la configuración"
   },
   "plurals": {
     "people": {

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('calendar', {
   createMemo: (memo, fileName) => ipcRenderer.invoke('memo:create', memo, fileName),
   openMemo: () => ipcRenderer.invoke('memo:open'),
   revealMemo: () => ipcRenderer.invoke('memo:reveal'),
+  finishSetup: () => ipcRenderer.invoke('setup:done'),
   setSize: (size) => ipcRenderer.invoke('size:set', size),
   printPaper: () => ipcRenderer.invoke('paper:print'),
   savePaperPdf: (fileName, title) => ipcRenderer.invoke('paper:pdf', fileName, title),
@@ -32,4 +33,5 @@ contextBridge.exposeInMainWorld('calendar', {
   generateKey: () => ipcRenderer.invoke('sync:generate-key'),
   onChanged: (callback) => ipcRenderer.on('events:changed', () => callback()),
   minimize: () => ipcRenderer.invoke('window:minimize'),
+  skipSplash: () => ipcRenderer.invoke('splash:skip'),
 });

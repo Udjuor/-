@@ -3,7 +3,7 @@ import {
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
-import { petPixels, petStatus } from './pet.mjs';
+import { petSprite, petStatus } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -1601,31 +1601,6 @@ function rememberPetGroup(id) {
   } catch { /* выбор просто не запомнится */ }
 }
 
-/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
-function petSprite(mood) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('shape-rendering', 'crispEdges');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.classList.add('petsprite', `mood-${mood}`);
-  for (const frame of [0, 1]) {
-    const layer = document.createElementNS(ns, 'g');
-    layer.classList.add(`frame${frame}`);
-    for (const { x, y, fill } of petPixels(mood, frame)) {
-      const pixel = document.createElementNS(ns, 'rect');
-      pixel.setAttribute('x', x);
-      pixel.setAttribute('y', y);
-      pixel.setAttribute('width', 1);
-      pixel.setAttribute('height', 1);
-      pixel.setAttribute('fill', fill);
-      layer.append(pixel);
-    }
-    svg.append(layer);
-  }
-  return svg;
-}
-
 function currentPetGroup() {
   const groups = refsOf('group');
   return groups.find((group) => group.id === savedPetGroup()) ?? groups[0] ?? null;
@@ -1804,6 +1779,147 @@ function updateText(status) {
   return t('Обновления не удалось проверить {0}. Нужен доступ к github.com. Следующая попытка пройдёт сама.', [when]);
 }
 
+/** Ряд одинаковых кнопок языка. Полное название в подсказке. */
+function languageButtons(selected) {
+  return h('div', { class: 'targets langs', role: 'group', 'aria-labelledby': 'l-language' },
+    [['auto', t('Как в Windows'), t('Авто')], ...LANGUAGES.map(([id, name]) => [id, name, id.toUpperCase()])]
+      .map(([id, name, label]) => h('button', {
+        type: 'button',
+        title: name,
+        'aria-label': name,
+        'aria-pressed': String(selected === id),
+        onclick: () => api.setLanguage(id),
+      }, label)));
+}
+
+/** Ряд взаимоисключающих кнопок для мастера. */
+function choiceRow(options, selected, pick) {
+  const row = h('div', { class: 'targets' });
+  const draw = (value) => row.replaceChildren(...options.map(([id, label]) => h('button', {
+    type: 'button',
+    'aria-pressed': String(value === id),
+    onclick: () => { pick(id); draw(id); },
+  }, label)));
+  draw(selected);
+  return row;
+}
+
+/** Мастер первого запуска: всё необязательно и позже меняется в настройках. */
+function openWelcome() {
+  const dialog = $('welcome');
+  const current = state.settings;
+  const draft = {
+    deviceName: current.deviceName,
+    showAll: current.showAll,
+    syncKey: current.syncKey,
+    memoFrom: current.memoFrom,
+    memoSigner: current.memoSigner,
+  };
+  let step = 0;
+  const failure = h('p', { class: 'error' });
+
+  const input = (id, label, key, help = null) => {
+    const element = h('input', { id, value: draft[key], autocomplete: 'off', spellcheck: 'false' });
+    element.addEventListener('input', () => { draft[key] = element.value; });
+    return h('div', { class: 'field settingnext' }, h('label', { for: id }, label), element, help && h('p', { class: 'help' }, help));
+  };
+
+  const skip = async () => {
+    await api.finishSetup();
+    state.settings = await api.getSettings();
+    dialog.close();
+  };
+
+  const finish = async () => {
+    const result = await api.saveSettings({ ...current, ...draft, theme: undefined });
+    if (!result.ok) {
+      failure.textContent = result.code === 'short-key' ? t('Ключ сети должен быть не короче 12 символов') : t('Настройки не сохранены: нет доступа к файлу настроек.');
+      return;
+    }
+    await api.finishSetup();
+    state.settings = await api.getSettings();
+    setEvents(state.allEvents);
+    dialog.close();
+    render();
+    refresh();
+  };
+
+  const STEPS = [
+    () => [
+      h('h3', { class: 'settinghead' }, t('Язык и оформление')),
+      h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-language' }, t('Язык')), languageButtons(current.lang),
+        h('p', { class: 'help' }, t('При смене языка программа перезапустится.'))),
+      h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Оформление')),
+        choiceRow([['dark', t('Тёмная')], ['light', t('Светлая')], ['system', t('Как в Windows')]], current.theme, (id) => api.setTheme(id))),
+      h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Размер интерфейса')),
+        choiceRow([['small', t('Мелкий')], ['medium', t('Обычный')], ['large', t('Крупный')]], current.uiSize, async (id) => {
+          await api.setSize(id);
+          applySize(id);
+        })),
+    ],
+    () => [
+      h('h3', { class: 'settinghead' }, t('Это устройство')),
+      input('w-name', t('Название устройства'), 'deviceName', t('Например, «Ауд. 204» или «Кабинет Лебедевой». Его увидят на других устройствах.')),
+      h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Как используется это устройство?')),
+        choiceRow([['room', t('Панель в аудитории')], ['teacher', t('Компьютер преподавателя')]], draft.showAll ? 'teacher' : 'room', (id) => { draft.showAll = id === 'teacher'; }),
+        h('p', { class: 'help' }, t('Преподаватель видит мероприятия всех устройств.'))),
+    ],
+    () => {
+      const key = input('w-key', t('Ключ сети'), 'syncKey', t('Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.'));
+      const field = key.querySelector('input');
+      const row = h('div', { class: 'adder' });
+      field.replaceWith(row);
+      row.append(field, h('button', {
+        type: 'button',
+        onclick: async () => {
+          field.value = await api.generateKey();
+          draft.syncKey = field.value;
+        },
+      }, t('Создать')));
+      return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), key];
+    },
+    () => [
+      h('h3', { class: 'settinghead' }, t('Служебная записка')),
+      input('w-from', t('От кого'), 'memoFrom', t('Как в строке «От», например Семенова И. А.')),
+      input('w-signer', t('Подпись'), 'memoSigner', t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')),
+    ],
+  ];
+
+  const draw = () => {
+    const last = step === STEPS.length - 1;
+    failure.textContent = '';
+    dialog.replaceChildren(
+      h('div', { class: 'sheethead' }, h('div', {},
+        h('h2', {}, t('Добро пожаловать в Horatus')),
+        h('p', { class: 'help' }, t('Настроим программу за минуту. Всё можно изменить позже в настройках.')))),
+      h('div', { class: 'sheetbody' },
+        h('p', { class: 'help welcomestep' }, t('Шаг {0} из {1}', [step + 1, STEPS.length])),
+        STEPS[step](),
+        failure),
+      h('div', { class: 'sheetfoot' },
+        step > 0 && h('button', { class: 'plain', type: 'button', onclick: () => { step -= 1; draw(); } }, t('Назад')),
+        h('button', {
+          class: 'primary',
+          type: 'button',
+          onclick: () => {
+            if (last) {
+              finish();
+            } else {
+              step += 1;
+              draw();
+            }
+          },
+        }, last ? t('Начать работу') : t('Далее')),
+        h('div', { class: 'spacer' }),
+        h('button', { class: 'plain', type: 'button', onclick: skip }, t('Пропустить настройку'))),
+    );
+  };
+
+  dialog.addEventListener('cancel', (e) => e.preventDefault());
+  draw();
+  dialog.showModal();
+}
+
 async function openSettings() {
   const dialog = $('preferences');
   const current = await api.getSettings();
@@ -1827,12 +1943,7 @@ async function openSettings() {
       },
     }, label)));
   drawThemes();
-  const languageRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-language' },
-    [['auto', t('Как в Windows')], ...LANGUAGES].map(([id, label]) => h('button', {
-      type: 'button',
-      'aria-pressed': String(current.lang === id),
-      onclick: () => api.setLanguage(id),
-    }, label)));
+  const languageRow = languageButtons(current.lang);
   let size = current.uiSize;
   const sizeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-size' });
   const drawSizes = () => sizeRow.replaceChildren(...[['small', t('Мелкий')], ['medium', t('Обычный')], ['large', t('Крупный')]].map(([id, label]) =>
@@ -1979,7 +2090,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2016,24 +2127,6 @@ function wire() {
   }
 }
 
-const SPLASH_MS = 2600;
-
-/** Панель-визитка при запуске. Убирается сама или по нажатию. */
-function showSplash(version) {
-  const splash = $('splash');
-  $('splash-logo').append(petSprite('play'));
-  $('splash-version').textContent = t('Версия {0}', [version]);
-  const hide = () => {
-    splash.classList.add('leaving');
-    setTimeout(() => splash.remove(), 350);
-  };
-  const timer = setTimeout(hide, SPLASH_MS);
-  splash.addEventListener('click', () => {
-    clearTimeout(timer);
-    hide();
-  }, { once: true });
-}
-
 function applySize(size) {
   document.documentElement.dataset.size = size;
   render();
@@ -2044,11 +2137,11 @@ async function start() {
   wire();
   state.settings = await api.getSettings();
   applySize(state.settings.uiSize);
-  showSplash(state.settings.version);
   api.onChanged(refresh);
   render();
   tick();
   await refresh();
+  if (!state.settings.setupDone) openWelcome();
 }
 
 start();

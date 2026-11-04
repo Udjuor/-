@@ -171,3 +171,28 @@ export function petPixels(mood, frame = 0) {
   }));
   return pixels;
 }
+
+/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
+export function petSprite(mood) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('petsprite', `mood-${mood}`);
+  for (const frame of [0, 1]) {
+    const layer = document.createElementNS(ns, 'g');
+    layer.classList.add(`frame${frame}`);
+    for (const { x, y, fill } of petPixels(mood, frame)) {
+      const pixel = document.createElementNS(ns, 'rect');
+      pixel.setAttribute('x', x);
+      pixel.setAttribute('y', y);
+      pixel.setAttribute('width', 1);
+      pixel.setAttribute('height', 1);
+      pixel.setAttribute('fill', fill);
+      layer.append(pixel);
+    }
+    svg.append(layer);
+  }
+  return svg;
+}

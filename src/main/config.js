@@ -35,6 +35,7 @@ function saveConfig(homeDir, config) {
     `theme=${config.theme}`,
     `uiSize=${config.uiSize}`,
     `lang=${config.lang}`,
+    `setupDone=${config.setupDone ? 1 : 0}`,
     `memoFrom=${config.memoFrom}`,
     `memoSigner=${config.memoSigner}`,
   ];
@@ -60,6 +61,8 @@ function loadConfig(homeDir) {
     theme: ['dark', 'light', 'system'].includes(values.theme) ? values.theme : 'dark',
     uiSize: ['small', 'medium', 'large'].includes(values.uiSize) ? values.uiSize : 'medium',
     // Уже работающие устройства остаются на русском, новые определяют язык по Windows.
+    // Мастер первого запуска: не для работающих устройств и не для установки с готовым ключом.
+    setupDone: values.setupDone === undefined ? Boolean(values.deviceId || values.syncKey) : values.setupDone === '1',
     lang: LANGUAGES.includes(values.lang) ? values.lang : (values.deviceId ? 'ru' : 'auto'),
     memoFrom: values.memoFrom || 'Семенова И. А.',
     memoSigner: values.memoSigner || 'Семенов И. А.',

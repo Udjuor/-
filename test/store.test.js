@@ -251,10 +251,20 @@ test('недоступная папка даёт ошибку, а не паде�
   await assert.rejects(store.save(sample));
 });
 
-test('уже работающее устройство остаётся на русском', (t) => {
+test('уже работающее устройство остаётся на русском и без мастера', (t) => {
   const home = tempDir(t);
   fs.writeFileSync(path.join(home, 'config.ini'), '[calendar]\r\ndeviceId=abc\r\n');
   assert.equal(loadConfig(home).lang, 'ru');
+  assert.equal(loadConfig(home).setupDone, true);
+});
+
+test('мастер первого запуска: новое устройство, ключ от установщика, повторный запуск', (t) => {
+  const fresh = tempDir(t);
+  assert.equal(loadConfig(fresh).setupDone, false);
+  assert.equal(loadConfig(fresh).setupDone, false, 'пока мастер не пройден, он появляется снова');
+  const installed = tempDir(t);
+  fs.writeFileSync(path.join(installed, 'config.ini'), '[calendar]\r\nsyncKey=ABCDE-ABCDE-ABCDE\r\n');
+  assert.equal(loadConfig(installed).setupDone, true);
 });
 
 test('настройки: значения по умолчанию, запись и файл от NSIS', (t) => {
