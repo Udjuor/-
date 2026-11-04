@@ -66,7 +66,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe)) { throw "Нет программы: $exe" }
           $desktop = Get-ChildItem "$env:PUBLIC\Desktop" | ForEach-Object Name
           Write-Host ($desktop -join ', ')
-          if ($desktop -notcontains 'Староста.lnk') { throw 'Нет ярлыка с новым названием' }
+          if ($desktop -notcontains 'Lumo.lnk') { throw 'Нет ярлыка с новым названием' }
           if ($desktop -contains 'Календарь мероприятий.lnk') { throw 'Остался старый ярлык' }
           "CAL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $ini = Get-Content "$env:ProgramData\StudentCalendar\config.ini" -Raw
