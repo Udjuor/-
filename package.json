@@ -1,7 +1,7 @@
 {
   "name": "student-calendar",
-  "productName": "Paratus Hora",
-  "version": "1.13.0",
+  "productName": "Horatus",
+  "version": "1.14.0",
   "description": "Расписание, посещаемость и документы колледжа в одной программе",
   "author": "Udjuor",
   "license": "UNLICENSED",
@@ -33,7 +33,7 @@
       "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Paratus Hora",
+      "shortcutName": "Horatus",
       "installerLanguages": ["ru_RU"],
       "language": "1049",
       "include": "build/installer.nsh"

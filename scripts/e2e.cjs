@@ -87,14 +87,14 @@ for (let i = 0; i < 6; i += 1) seed(9, `${pad(9 + i)}:00`, `${pad(10 + i)}:00`, 
 
   // Панель-визитка: название, версия, исчезает сама и по нажатию.
   await page.waitForSelector('#splash .petsprite');
-  assert.match(await page.textContent('#splash'), /Paratus Hora[\s\S]*Готов к своему часу[\s\S]*Версия \d+\.\d+\.\d+/);
+  assert.match(await page.textContent('#splash'), /Horatus[\s\S]*Время для того, что важно![\s\S]*Версия \d+\.\d+\.\d+/);
   await shot('splash');
   await page.waitForSelector('#splash', { state: 'detached', timeout: 8000 });
   await page.reload();
   await page.waitForSelector('#splash .petsprite');
   await page.click('#splash');
   await page.waitForSelector('#splash', { state: 'detached', timeout: 3000 });
-  assert.equal(await page.title(), 'Paratus Hora');
+  assert.equal(await page.title(), 'Horatus');
 
   await page.locator('.block').first().waitFor();
   assert.equal(await page.locator('.block').count(), 7, 'неделя показывает свои мероприятия');

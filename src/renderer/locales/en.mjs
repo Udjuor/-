@@ -253,7 +253,7 @@ export default {
     "Проверить обновления": "Check for updates",
     "Сохранить настройки": "Save settings",
     "Настройки": "Settings",
-    "Готов к своему часу": "Ready for its hour",
+    "Время для того, что важно!": "Time for what matters!",
     "Расписание, посещаемость и документы колледжа в одной программе": "Schedule, attendance and college documents in one program",
     "Сегодня": "Today",
     "Неделя": "Week",

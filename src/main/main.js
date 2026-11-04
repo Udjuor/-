@@ -65,7 +65,7 @@ function createWindow() {
     show: false,
     fullscreen: config.fullscreen,
     backgroundColor: '#0d1117',
-    title: 'Paratus Hora',
+    title: 'Horatus',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

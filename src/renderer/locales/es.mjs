@@ -253,7 +253,7 @@ export default {
     "Проверить обновления": "Buscar actualizaciones",
     "Сохранить настройки": "Guardar ajustes",
     "Настройки": "Ajustes",
-    "Готов к своему часу": "Listo para su hora",
+    "Время для того, что важно!": "¡Tiempo para lo que importa!",
     "Расписание, посещаемость и документы колледжа в одной программе": "Horario, asistencia y documentos del centro en un solo programa",
     "Сегодня": "Hoy",
     "Неделя": "Semana",
