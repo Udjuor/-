@@ -42,6 +42,13 @@ function saveConfig(homeDir, config) {
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
 
+/** Папка данных из настроек, записанных до переезда из StudentCalendar. */
+function movedDataDir(dataDir, homeDir) {
+  const old = path.join(path.dirname(homeDir), 'StudentCalendar');
+  if (!dataDir || homeDir === old || !dataDir.startsWith(`${old}${path.sep}`) || fs.existsSync(dataDir)) return dataDir;
+  return path.join(homeDir, dataDir.slice(old.length));
+}
+
 function loadConfig(homeDir) {
   const file = path.join(homeDir, 'config.ini');
   let values = {};
@@ -51,7 +58,7 @@ function loadConfig(homeDir) {
     if (err.code !== 'ENOENT') console.error('config.ini не прочитан:', err.message);
   }
   const config = {
-    dataDir: values.dataDir || path.join(homeDir, 'data'),
+    dataDir: movedDataDir(values.dataDir, homeDir) || path.join(homeDir, 'data'),
     fullscreen: values.fullscreen === undefined ? true : values.fullscreen === '1',
     deviceId: values.deviceId || crypto.randomUUID(),
     deviceName: values.deviceName || os.hostname(),

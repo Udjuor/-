@@ -48,37 +48,95 @@ jobs:
           $p = Start-Process $old -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Код выхода установщика прошлой версии: $($p.ExitCode)" }
           Get-ChildItem "$env:PUBLIC\Desktop" | Format-Table Name | Out-String | Write-Host
+          # Запись и личный ярлык из прошлой версии должны пережить обновление как положено.
+          $events = "$env:ProgramData\StudentCalendar\data\events"
+          New-Item -ItemType Directory -Force $events | Out-Null
+          '{"id":"11111111-1111-4111-8111-111111111111","title":"Старая запись","date":"2026-01-10","start":"09:00","end":"10:00","updatedAt":"2026-01-01T00:00:00.000Z"}' | Set-Content "$events\11111111-1111-4111-8111-111111111111.json"
+          $old_exe = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar.Trim('"')
+          $link = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:USERPROFILE\Desktop\Календарь мероприятий.lnk")
+          $link.TargetPath = $old_exe
+          $link.Save()
+
+      - name: Обновить прошлую версию её же задачей
+        shell: pwsh
+        run: |
+          # Настоящий путь панелей: старая задача скачивает установщик с новым именем.
+          $setup = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
+          New-Item -ItemType Directory -Force oldfeed/v99.0.0, oldfeed/latest/download | Out-Null
+          Copy-Item $setup oldfeed/v99.0.0/
+          $yml = (Get-Content dist/latest.yml -Raw) -replace '(?m)^version:.*', 'version: 99.0.0'
+          [IO.File]::WriteAllText("$PWD/oldfeed/latest/download/latest.yml", $yml)
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8124', '--bind', '127.0.0.1', '--directory', 'oldfeed' -PassThru
+          Start-Sleep -Seconds 3
+          $oldRoot = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+          $script = Join-Path $oldRoot 'update.ps1'
+          $text = (Get-Content $script -Raw) -replace 'https://github.com/Udjuor/-/releases/latest/download/latest.yml', 'http://127.0.0.1:8124/latest/download/latest.yml' -replace 'https://github.com/Udjuor/-/releases/download', 'http://127.0.0.1:8124'
+          Set-Content $script $text -Encoding ascii
+          Start-ScheduledTask -TaskName StudentCalendarUpdate
+          $result = $null
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 5
+            if (Test-Path "$oldRoot\status.json") {
+              $result = (Get-Content "$oldRoot\status.json" -Raw | ConvertFrom-Json).result
+              if ($result) { break }
+            }
+          }
+          Write-Host "Результат старой задачи: $result"
+          Stop-Process -Id $server.Id -Force
+          if ($result -ne 'installed') { throw "Старая задача не обновила программу: $result" }
+          $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis
+          if (-not $run) { throw 'Нет новой записи автозапуска' }
+          $launch = (Get-ScheduledTask -TaskName StudentCalendarLaunch).Actions[0].Execute
+          if ($launch -ne $run.Trim('"')) { throw "Старая задача запуска указывает на $launch" }
+          Get-ScheduledTask -TaskName KerdiisUpdate | Out-Null
+          Get-Content (Join-Path $env:ProgramFiles 'KerdiisUpdate\register.log') | Write-Host
 
       - name: Установить без вопросов, как на панелях
         shell: pwsh
         run: |
-          $setup = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
-          $p = Start-Process $setup -ArgumentList '/S', '/SYNCKEY=CI000-CI000-CI000-CI000', '/PEERS=10.0.2.15,10.0.3.7' -Wait -PassThru
+          # Обе версии собраны из одной программы, разница задаётся именем установщика.
+          $setup = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
+          if ((Get-Content (Join-Path (Split-Path (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis.Trim('"')) 'edition.txt') -Raw).Trim() -ne 'client') { throw 'Панель из прошлой версии не стала клиентом' }
+          $admin = $setup -replace 'Kerdiis-Setup', 'Kerdiis-Admin-Setup'
+          Copy-Item $setup $admin
+          $p = Start-Process $admin -ArgumentList '/S', '/SYNCKEY=CI000-CI000-CI000-CI000', '/PEERS=10.0.2.15,10.0.3.7' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Код выхода установщика: $($p.ExitCode)" }
 
       - name: Проверить автозапуск, настройки и права
         shell: pwsh
         run: |
-          $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
+          $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis
           if (-not $run) { throw 'Нет записи автозапуска' }
           Write-Host "Автозапуск: $run"
           $exe = $run.Trim('"')
           if (-not (Test-Path -LiteralPath $exe)) { throw "Нет программы: $exe" }
           $desktop = Get-ChildItem "$env:PUBLIC\Desktop" | ForEach-Object Name
           Write-Host ($desktop -join ', ')
-          if ($desktop -notcontains 'Horatus.lnk') { throw 'Нет ярлыка с новым названием' }
-          if ($desktop -contains 'Календарь мероприятий.lnk') { throw 'Остался старый ярлык' }
+          $shortcut = 'Kerdiis.lnk'
+          if ($desktop -notcontains $shortcut) { throw 'Нет ярлыка с новым названием' }
+          if ($desktop -match 'Календарь|Horatus|Lumo|Paratus|Староста') { throw 'Остался старый ярлык' }
+          if (Test-Path "$env:USERPROFILE\Desktop\Календарь мероприятий.lnk") { throw 'Остался личный старый ярлык' }
+          if ((Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar) { throw 'Осталась старая запись автозапуска' }
+          if (Test-Path "$env:ProgramData\StudentCalendar") { throw 'Папка данных не переехала' }
+          if (-not (Test-Path "$env:ProgramData\Kerdiis\data\events\11111111-1111-4111-8111-111111111111.json")) { throw 'Данные прошлой версии потеряны' }
+          foreach ($name in 'StudentCalendarUpdate', 'StudentCalendarLaunch') {
+            if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { throw "Осталась старая задача $name" }
+          }
+          if (Test-Path (Join-Path $env:ProgramFiles 'StudentCalendarUpdate')) { throw 'Остался старый каталог обновления' }
+          $uninstall = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'Kerdiis' }
+          if (-not $uninstall) { throw 'В списке программ нет Kerdiis' }
           "CAL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          $ini = Get-Content "$env:ProgramData\StudentCalendar\config.ini" -Raw
+          if ((Get-Content (Join-Path (Split-Path $exe) 'edition.txt') -Raw).Trim() -ne 'admin') { throw 'Не установилась версия для преподавателей' }
+          $ini = Get-Content "$env:ProgramData\Kerdiis\config.ini" -Raw
           Write-Host $ini
           if ($ini -notmatch 'syncKey=CI000-CI000-CI000-CI000') { throw 'Ключ сети не записан' }
           if ($ini -notmatch 'peers=10\.0\.2\.15,10\.0\.3\.7') { throw 'Адреса устройств не записаны' }
-          $rule = netsh advfirewall firewall show rule name=StudentCalendar verbose | Out-String
+          $rule = netsh advfirewall firewall show rule name=Kerdiis verbose | Out-String
           Write-Host $rule
-          if ($LASTEXITCODE -ne 0 -or $rule -notmatch 'StudentCalendar\.exe') { throw 'Нет правила брандмауэра' }
+          if ($LASTEXITCODE -ne 0 -or $rule -notmatch 'Kerdiis\.exe') { throw 'Нет правила брандмауэра' }
           $sid = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-545'
           $group = $sid.Translate([Security.Principal.NTAccount]).Value
-          $acl = Get-Acl "$env:ProgramData\StudentCalendar"
+          $acl = Get-Acl "$env:ProgramData\Kerdiis"
           if (-not ($acl.Access | Where-Object { $_.IdentityReference -eq $group -and $_.FileSystemRights -match 'Modify' })) {
             throw 'Нет прав на запись у группы «Пользователи»'
           }
@@ -91,25 +149,34 @@ jobs:
           npm install --no-save playwright
           node scripts/e2e.cjs
 
+      - name: Проверить клиент для панелей
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
+          $p = Start-Process $setup -ArgumentList '/S', '/EDITION=client' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Код выхода установщика: $($p.ExitCode)" }
+          if ((Get-Content (Join-Path (Split-Path $env:CAL_EXE) 'edition.txt') -Raw).Trim() -ne 'client') { throw 'Не установился клиент' }
+          node scripts/e2e-client.cjs
+
       - name: Проверить автообновление
         shell: pwsh
         run: |
-          $root = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+          $root = Join-Path $env:ProgramFiles 'KerdiisUpdate'
           Get-ChildItem $root | Format-Table Name, Length | Out-String | Write-Host
           Get-Content (Join-Path $root 'register.log') | Write-Host
-          $task = Get-ScheduledTask -TaskName StudentCalendarUpdate
+          $task = Get-ScheduledTask -TaskName KerdiisUpdate
           if ($task.Principal.UserId -ne 'SYSTEM') { throw "Задача обновления не от SYSTEM: $($task.Principal.UserId)" }
-          Get-ScheduledTask -TaskName StudentCalendarLaunch | Out-Null
+          Get-ScheduledTask -TaskName KerdiisLaunch | Out-Null
           $service = New-Object -ComObject Schedule.Service
           $service.Connect()
-          $sddl = $service.GetFolder('\').GetTask('StudentCalendarUpdate').GetSecurityDescriptor(0xF)
+          $sddl = $service.GetFolder('\').GetTask('KerdiisUpdate').GetSecurityDescriptor(0xF)
           Write-Host $sddl
           if ($sddl -notmatch '\(A;;[^;]*;;;BU\)') { throw 'Пользователям не разрешён запуск проверки' }
           $ownUsers = (Get-Acl $root).Access | Where-Object { $_.IdentityReference -match 'Users' -and $_.FileSystemRights -match 'Write|Modify|FullControl' }
           if ($ownUsers) { throw 'Обычные пользователи могут менять файлы обновления' }
 
           # Настоящий запуск задачи от SYSTEM: ошибку в её команде потом не исправить удалённо.
-          $launch = (Get-ScheduledTask -TaskName StudentCalendarLaunch).Actions[0].Execute
+          $launch = (Get-ScheduledTask -TaskName KerdiisLaunch).Actions[0].Execute
           if ($launch -ne $env:CAL_EXE) { throw "Задача запуска указывает на $launch" }
           Remove-Item (Join-Path $root 'status.json') -ErrorAction SilentlyContinue
           # Запуск от обычной учётной записи: так проверку начинает кнопка на панели.
@@ -118,7 +185,7 @@ jobs:
           New-LocalUser -Name calcheck -Password $secure -PasswordNeverExpires | Out-Null
           Add-LocalGroupMember -SID 'S-1-5-32-545' -Member calcheck
           $credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\calcheck", $secure)
-          $check = Start-Process schtasks.exe -ArgumentList '/Run', '/TN', 'StudentCalendarUpdate' -Credential $credential -WorkingDirectory $env:SystemRoot -Wait -PassThru -WindowStyle Hidden
+          $check = Start-Process schtasks.exe -ArgumentList '/Run', '/TN', 'KerdiisUpdate' -Credential $credential -WorkingDirectory $env:SystemRoot -Wait -PassThru -WindowStyle Hidden
           Write-Host "schtasks от обычного пользователя: код $($check.ExitCode)"
           Remove-LocalUser -Name calcheck
           if ($check.ExitCode -ne 0) { throw 'Обычный пользователь не может запустить проверку обновлений' }
@@ -130,7 +197,7 @@ jobs:
           Write-Host ($own | ConvertTo-Json)
           if (-not $own.current) { throw 'Задача не определила версию программы' }
 
-          $setup = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
+          $setup = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
           $name = Split-Path $setup -Leaf
           New-Item -ItemType Directory -Force feed/v99.0.0, feed/latest/download | Out-Null
           Copy-Item $setup feed/v99.0.0/
@@ -162,8 +229,9 @@ jobs:
           if (Get-ChildItem $root -Filter '*.exe') { throw 'Файл с неверной контрольной суммой не удалён' }
           Run-Update ($yml -replace '(?m)^version:.*', 'version: 99.0.0') 'installed'
           if (Get-ChildItem $root -Filter '*.exe') { throw 'Установщик не удалён после обновления' }
-          Get-ScheduledTask -TaskName StudentCalendarUpdate | Out-Null
-          Stop-Process -Name StudentCalendar -Force -ErrorAction SilentlyContinue
+          if ((Get-Content (Join-Path (Split-Path $env:CAL_EXE) 'edition.txt') -Raw).Trim() -ne 'client') { throw 'Обновление изменило версию программы' }
+          Get-ScheduledTask -TaskName KerdiisUpdate | Out-Null
+          Stop-Process -Name Kerdiis -Force -ErrorAction SilentlyContinue
           Stop-Process -Id $server.Id -Force
           $global:LASTEXITCODE = 0
 
@@ -174,14 +242,14 @@ jobs:
           $un = (Get-ChildItem $dir -Filter 'Uninstall*.exe').FullName
           Start-Process $un -ArgumentList '/S' -Wait
           Start-Sleep -Seconds 10
-          $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
+          $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis
           if ($run) { throw 'Запись автозапуска осталась' }
-          netsh advfirewall firewall show rule name=StudentCalendar | Out-Null
+          netsh advfirewall firewall show rule name=Kerdiis | Out-Null
           if ($LASTEXITCODE -eq 0) { throw 'Правило брандмауэра осталось' }
           $global:LASTEXITCODE = 0
-          if (Get-ScheduledTask -TaskName StudentCalendarUpdate -ErrorAction SilentlyContinue) { throw 'Задача обновления осталась' }
-          if (Test-Path (Join-Path $env:ProgramFiles 'StudentCalendarUpdate')) { throw 'Каталог обновления остался' }
-          if (-not (Test-Path "$env:ProgramData\StudentCalendar\config.ini")) { throw 'Настройки удалены' }
+          if (Get-ScheduledTask -TaskName KerdiisUpdate -ErrorAction SilentlyContinue) { throw 'Задача обновления осталась' }
+          if (Test-Path (Join-Path $env:ProgramFiles 'KerdiisUpdate')) { throw 'Каталог обновления остался' }
+          if (-not (Test-Path "$env:ProgramData\Kerdiis\config.ini")) { throw 'Настройки удалены' }
 
       - name: Сохранить снимки экрана
         if: always()
@@ -195,7 +263,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer
-          path: dist/StudentCalendar-Setup-*.exe
+          path: dist/Kerdiis-*Setup-*.exe
           if-no-files-found: error
 
       - name: Опубликовать релиз
@@ -205,10 +273,11 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          $file = (Get-ChildItem dist/StudentCalendar-Setup-*.exe).FullName
+          $file = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
           # Релиз могли создать вручную на GitHub: тогда только добавляем установщик.
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) { gh release create $tag --generate-notes }
           gh release upload $tag $file --clobber
+          gh release upload $tag (Get-ChildItem dist/Kerdiis-Admin-Setup-*.exe).FullName --clobber
           # latest.yml последним: панели увидят версию, только когда установщик уже на месте.
           gh release upload $tag dist/latest.yml --clobber

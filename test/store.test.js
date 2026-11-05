@@ -298,6 +298,20 @@ test('зафиксированную пару нельзя удалить или
   assert.equal(saved.deadline, '2026-11-12T18:00');
 });
 
+test('папка данных из старых настроек следует за переездом', (t) => {
+  const root = tempDir(t);
+  const home = path.join(root, 'Kerdiis');
+  fs.mkdirSync(home, { recursive: true });
+  const oldData = path.join(root, 'StudentCalendar', 'data');
+  fs.writeFileSync(path.join(home, 'config.ini'), `[calendar]\r\ndataDir=${oldData}\r\ndeviceId=11111111-1111-4111-8111-111111111111\r\ndeviceName=А\r\n`);
+  assert.equal(loadConfig(home).dataDir, path.join(home, 'data'));
+  fs.mkdirSync(oldData, { recursive: true });
+  assert.equal(loadConfig(home).dataDir, oldData, 'пока старая папка есть, данные читаются из неё');
+  const custom = path.join(root, 'share', 'data');
+  fs.writeFileSync(path.join(home, 'config.ini'), `[calendar]\r\ndataDir=${custom}\r\ndeviceId=11111111-1111-4111-8111-111111111111\r\ndeviceName=А\r\n`);
+  assert.equal(loadConfig(home).dataDir, custom, 'своя папка не меняется');
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });

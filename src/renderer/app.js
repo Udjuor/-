@@ -292,7 +292,7 @@ async function refresh() {
     const banner = $('banner');
     banner.hidden = !error;
     banner.textContent = error
-      ? t('Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\StudentCalendar.')
+      ? t('Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\Kerdiis.')
       : '';
   }
   if (changed || bannerChanged) render();
@@ -356,7 +356,9 @@ const storeMessage = (result) => (result.code === 'conflict'
       ? t('Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.')
       : result.code === 'protected'
         ? t('Сначала снимите PIN этого преподавателя.')
-        : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
+        : result.code === 'teacher-only'
+          ? t('Это может сделать только преподаватель. Войдите по PIN.')
+          : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
 
 /* Карточка мероприятия */
 
@@ -406,7 +408,7 @@ function showDetails(id) {
   const footer = h('div', { class: 'sheetfoot' });
 
   const showActions = () => footer.replaceChildren(
-    h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
+    h('button', { class: 'plain', onclick: () => whenTeacher(() => { dialog.close(); openForm(event); }) }, t('Изменить')),
     event.participants.length > 0 && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
@@ -414,16 +416,16 @@ function showDetails(id) {
     h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
     event.deadline && h('button', {
       class: 'plain',
-      onclick: async () => {
+      onclick: () => whenTeacher(async () => {
         if (await setDeadlineDone(event, !event.deadlineDone)) {
           dialog.close();
           showDetails(event.id);
         }
-      },
+      }),
     }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
-    memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
+    canManage() && memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
     h('div', { class: 'spacer' }),
-    h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
+    h('button', { class: 'plain', onclick: () => whenTeacher(showConfirm) }, t('Удалить')),
   );
 
   const showConfirm = () => footer.replaceChildren(
@@ -846,7 +848,7 @@ async function openForm(source = {}) {
       dialog.close();
       render();
       if (event.devices.length) toast(t('Событие отправлено: {0}', [event.devices.map(deviceName).join(', ')]));
-      if (needsMemo(result.value, source)) createMemo(result.value);
+      if (canManage() && needsMemo(result.value, source)) createMemo(result.value);
     },
   },
     h('div', { class: 'sheetbody' },
@@ -1295,6 +1297,26 @@ function endTeacherMode() {
   teacherSession = null;
 }
 
+const isClient = () => state.settings?.edition === 'client';
+const canManage = () => !isClient() || Boolean(teacherSession);
+
+/** На клиенте сначала спрашивает PIN. Вход заканчивается вместе с открытым окном. */
+function whenTeacher(run) {
+  if (canManage()) run();
+  else askTeacher(null, run);
+}
+
+const TEACHER_DIALOGS = ['roll', 'catalog', 'reports', 'preferences', 'notices', 'form', 'details', 'pet', 'deadlines'];
+
+function teacherDialogClosed() {
+  // Окна сменяют друг друга: карточка закрывается, и сразу открывается форма.
+  setTimeout(() => {
+    if (!teacherSession || $('pinpad').open || TEACHER_DIALOGS.some((id) => $(id).open)) return;
+    endTeacherMode();
+    if (isClient()) render();
+  }, 300);
+}
+
 function shuffled(items) {
   const list = [...items];
   const random = crypto.getRandomValues(new Uint32Array(list.length));
@@ -1333,7 +1355,15 @@ function pinPad(onComplete) {
 function askTeacher(event, done) {
   const dialog = $('pinpad');
   const teachers = refsOf('teacher').filter((ref) => ref.hasPin);
-  const responsible = teachers.find((ref) => nameKey(ref.name) === nameKey(event.responsible));
+  if (!teachers.length) {
+    dialog.replaceChildren(
+      h('div', { class: 'sheethead' }, h('h2', {}, t('Вход преподавателя')), closeButton(dialog)),
+      h('div', { class: 'sheetbody' }, h('p', {}, t('На этом устройстве нет преподавателей с PIN. Задайте PIN в версии для преподавателей и дождитесь обмена данными.'))),
+    );
+    dialog.showModal();
+    return;
+  }
+  const responsible = teachers.find((ref) => nameKey(ref.name) === nameKey(event?.responsible ?? ''));
   const select = h('select', { id: 'pin-teacher', 'aria-label': t('Преподаватель') },
     teachers.map((ref) => h('option', { value: ref.id, selected: ref === responsible }, ref.name)));
   const failure = h('p', { class: 'error' });
@@ -2070,7 +2100,8 @@ function drawPet() {
   const pet = petOf(group);
   const failure = h('p', { class: 'error' });
 
-  const saveGroup = async (changes) => {
+  const saveGroup = (changes) => whenTeacher(() => storeGroup(changes));
+  const storeGroup = async (changes) => {
     const result = await api.saveRefs([{ ref: { ...group, ...changes }, base: group.updatedAt }]);
     if (!result.ok) {
       failure.textContent = t('Не удалось сохранить. Попробуйте ещё раз.');
@@ -2191,7 +2222,7 @@ function petItems() {
 function refreshTicker() {
   const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...petItems()];
   const box = $('ticker');
-  $('notices-open').hidden = !state.settings?.showAll;
+  $('notices-open').hidden = false;
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
   if (key === tickerKey) return;
   tickerKey = key;
@@ -2246,7 +2277,7 @@ function drawNotices() {
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Напоминания')), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
-      h('p', { class: 'help noticehelp' }, t('Строка показывается внизу экрана на всех устройствах сети. Управлять ею можно с компьютеров преподавателей.')),
+      h('p', { class: 'help noticehelp' }, t('Строка показывается внизу экрана на всех устройствах сети. Управлять ею могут только преподаватели.')),
       h('p', { class: 'help noticehelp' }, t('Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.')),
       h('div', { class: 'field' }, h('label', { for: 'n-text' }, t('Текст')), text),
       h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Цвет')),
@@ -2324,7 +2355,7 @@ function deadlineTable(title, events, late = false) {
         h('td', {}, String(event.participants.length)),
         h('td', {}, h('button', {
           class: 'plain',
-          onclick: () => setDeadlineDone(event, !event.deadlineDone),
+          onclick: () => whenTeacher(() => setDeadlineDone(event, !event.deadlineDone)),
         }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу'))))))))); 
 }
 
@@ -2561,7 +2592,7 @@ function openWelcome() {
     () => [
       h('h3', { class: 'settinghead' }, t('Это устройство')),
       input('w-name', t('Название устройства'), 'deviceName', t('Например, «Ауд. 204» или «Кабинет Лебедевой». Его увидят на других устройствах.')),
-      h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Как используется это устройство?')),
+      current.edition !== 'client' && h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Как используется это устройство?')),
         choiceRow([['room', t('Панель в аудитории')], ['teacher', t('Компьютер преподавателя')]], draft.showAll ? 'teacher' : 'room', (id) => { draft.showAll = id === 'teacher'; }),
         h('p', { class: 'help' }, t('Преподаватель видит мероприятия всех устройств.'))),
     ],
@@ -2592,7 +2623,7 @@ function openWelcome() {
     failure.textContent = '';
     dialog.replaceChildren(
       h('div', { class: 'sheethead' }, h('div', {},
-        h('h2', {}, t('Добро пожаловать в Horatus')),
+        h('h2', {}, t('Добро пожаловать в Kerdiis')),
         h('p', { class: 'help' }, t('Настроим программу за минуту. Всё можно изменить позже в настройках.')))),
       h('div', { class: 'sheetbody' },
         h('p', { class: 'help welcomestep' }, t('Шаг {0} из {1}', [step + 1, STEPS.length])),
@@ -2737,9 +2768,7 @@ async function openSettings() {
         h('p', { class: 'help' }, t('Нужны, только если устройства не находят друг друга сами, например 10.0.2.15, 10.0.3.7. Достаточно одного адреса: остальные передадутся автоматически.'))),
       h('div', { class: 'setting' },
         h('label', { class: 'check' }, showAll, t('Показывать мероприятия всех устройств')),
-        current.showAll
-          ? h('button', { type: 'button', class: 'plain', onclick: () => { $('preferences').close(); openNotices(); } }, t('Напоминания'))
-          : h('p', { class: 'help' }, t('Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.', [t('Показывать мероприятия всех устройств')])),
+        h('p', { class: 'help' }, current.edition === 'client' ? t('Версия программы: клиент для панелей.') : t('Версия программы: для преподавателей.')),
         h('p', { class: 'help' }, t('Включите на компьютерах преподавателей.')),
         h('label', { class: 'check' }, fullscreen, t('Открывать на весь экран'))),
       h('section', { class: 'setting' },
@@ -2819,7 +2848,7 @@ function wire() {
   $('next').addEventListener('click', () => move(1));
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
-  $('settings').addEventListener('click', openSettings);
+  $('settings').addEventListener('click', () => whenTeacher(openSettings));
   $('theme').addEventListener('click', () => {
     api.setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
   });
@@ -2828,15 +2857,15 @@ function wire() {
     $('pet').showModal();
   });
   $('open-gear').addEventListener('click', openGear);
-  $('roll').addEventListener('close', endTeacherMode);
+  for (const id of TEACHER_DIALOGS) $(id).addEventListener('close', teacherDialogClosed);
   $('open-deadlines').addEventListener('click', openDeadlines);
-  $('notices-open').addEventListener('click', openNotices);
-  $('open-reports').addEventListener('click', openReports);
-  $('open-catalog').addEventListener('click', () => {
+  $('notices-open').addEventListener('click', () => whenTeacher(openNotices));
+  $('open-reports').addEventListener('click', () => whenTeacher(openReports));
+  $('open-catalog').addEventListener('click', () => whenTeacher(() => {
     catalog.message = '';
     drawCatalog({ fromTop: true });
     $('catalog').showModal();
-  });
+  }));
   $('minimize').addEventListener('click', () => api.minimize());
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });

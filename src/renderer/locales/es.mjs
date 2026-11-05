@@ -6,7 +6,7 @@ export default {
     "Техника: {0}": "Equipos: {0}",
     "На этот день мероприятий нет. Нажмите на нужное время, чтобы добавить.": "No hay nada programado este día. Toca una hora para añadir un evento.",
     "ещё {0}": "{0} más",
-    "Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\StudentCalendar.": "No se pueden leer los eventos en este ordenador. En pantalla están los últimos datos cargados. Comprueba el espacio libre y los permisos de C:\\ProgramData\\StudentCalendar.",
+    "Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\Kerdiis.": "No se pueden leer los eventos en este ordenador. En pantalla están los últimos datos cargados. Comprueba el espacio libre y los permisos de C:\\ProgramData\\Kerdiis.",
     "Неизвестное устройство": "Dispositivo desconocido",
     "Это мероприятие уже изменили или удалили на другом устройстве. Закройте окно и откройте его заново.": "Este evento se cambió o eliminó en otro dispositivo. Cierra esta ventana y ábrela de nuevo.",
     "Проверьте название, дату и время": "Revisa el título, la fecha y la hora",
@@ -283,7 +283,7 @@ export default {
     "Преподаватель видит мероприятия всех устройств.": "El docente ve los eventos de todos los dispositivos.",
     "Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.": "Crea una clave o introduce la que ya usan tus otros dispositivos. Sin clave, el programa funciona solo en este dispositivo.",
     "Обмен между устройствами": "Sincronización entre dispositivos",
-    "Добро пожаловать в Horatus": "Te damos la bienvenida a Horatus",
+    "Добро пожаловать в Kerdiis": "Te damos la bienvenida a Kerdiis",
     "Настроим программу за минуту. Всё можно изменить позже в настройках.": "Lo configuramos en un minuto. Podrás cambiarlo todo después en los ajustes.",
     "Шаг {0} из {1}": "Paso {0} de {1}",
     "Начать работу": "Empezar",
@@ -305,7 +305,7 @@ export default {
     "Введите текст напоминания": "Escriba el texto del recordatorio",
     "Срок должен быть позже текущего времени": "La fecha límite debe ser posterior a la hora actual",
     "Напоминания": "Recordatorios",
-    "Строка показывается внизу экрана на всех устройствах сети. Управлять ею можно с компьютеров преподавателей.": "La cinta se muestra en la parte inferior de la pantalla en todos los dispositivos de la red. Se administra desde los ordenadores de los profesores.",
+    "Строка показывается внизу экрана на всех устройствах сети. Управлять ею могут только преподаватели.": "La cinta se muestra en la parte inferior de la pantalla en todos los dispositivos de la red. Solo los profesores pueden administrarla.",
     "Текст": "Texto",
     "Цвет": "Color",
     "Показывать до": "Mostrar hasta",
@@ -389,7 +389,10 @@ export default {
     "Новый ключ": "Clave nueva",
     "Текущий ключ": "Clave actual",
     "Текущий ключ сети введён неверно.": "La clave de red actual es incorrecta.",
-    "Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.": "La clave está configurada y oculta porque autoriza los PIN de profesores. Para cambiarla, introduzca la actual y la nueva."
+    "Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.": "La clave está configurada y oculta porque autoriza los PIN de profesores. Para cambiarla, introduzca la actual y la nueva.",
+    "На этом устройстве нет преподавателей с PIN. Задайте PIN в версии для преподавателей и дождитесь обмена данными.": "No hay profesores con PIN en este dispositivo. Configure un PIN en la versión para profesores y espere al intercambio de datos.",
+    "Версия программы: клиент для панелей.": "Versión del programa: cliente para paneles.",
+    "Версия программы: для преподавателей.": "Versión del programa: para profesores."
   },
   "plurals": {
     "days": {

@@ -74,7 +74,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-    env: { ...process.env, STUDENT_CALENDAR_HOME: home },
+    env: { ...process.env, KERDIIS_HOME: home },
   });
   const errors = [];
   // Панель-визитка: отдельное небольшое окно, потом главное.
@@ -85,7 +85,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const splash = opened('splash.html');
   await splash.waitForSelector('#splash-logo .petsprite');
   await splash.waitForFunction(() => document.getElementById('splash-version').textContent);
-  assert.match(await splash.textContent('body'), /Horatus[\s\S]*Время для того, что важно![\s\S]*Автор: Udjuor[\s\S]*Версия \d+\.\d+\.\d+/);
+  assert.match(await splash.textContent('body'), /Kerdi:s[\s\S]*Время для того, что важно![\s\S]*Автор: Udjuor[\s\S]*Версия \d+\.\d+\.\d+/);
   const sizes = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => ({ size: w.getSize(), visible: w.isVisible(), top: w.isAlwaysOnTop() })));
   const card = sizes.find((w) => w.top);
   assert.ok(card.visible && card.size[0] === 640 && card.size[1] === 360, 'небольшое окно');
@@ -95,7 +95,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.ok(Date.now() - startedAt >= 3500, 'панель держится несколько секунд');
   await until(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 'показ главного окна');
   const page = opened('index.html');
-  assert.equal(await page.title(), 'Horatus');
+  assert.equal(await page.title(), 'Kerdiis');
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // Playwright по умолчанию подменяет тему страницы, а нужна настоящая тема программы.
@@ -706,9 +706,6 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#memo [aria-label=Закрыть]');
   await page.click('#today');
 
-  // На панели нельзя управлять строкой, на компьютере преподавателя можно.
-  assert.equal(await page.isVisible('#notices-open'), false, 'панель не модерирует строку');
-
   // Преподаватель видит всё.
   await page.click('#settings');
   await page.click('label:has-text("Показывать мероприятия всех устройств")');
@@ -828,6 +825,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.equal(forged.code, 'locked', 'обход кнопки тоже не проходит');
   await shot('roll-locked');
   await page.click('#roll [aria-label=Закрыть]');
+  await page.waitForTimeout(500);
   await page.click('.block:has-text("Пара с фиксацией")');
   await page.click('#details >> text=Удалить');
   await page.click('#details .danger');
@@ -888,7 +886,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
     const launched = await _electron.launch({
       executablePath: process.env.CAL_EXE,
       args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-      env: { ...process.env, STUDENT_CALENDAR_HOME: folder },
+      env: { ...process.env, KERDIIS_HOME: folder },
     });
     await launched.firstWindow();
     const windowOf = (name) => launched.windows().find((w) => w.url().endsWith(name));

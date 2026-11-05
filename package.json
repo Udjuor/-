@@ -1,7 +1,7 @@
 {
-  "name": "student-calendar",
-  "productName": "Horatus",
-  "version": "1.18.0",
+  "name": "kerdis",
+  "productName": "Kerdiis",
+  "version": "1.19.0",
   "description": "Расписание, посещаемость и документы колледжа в одной программе",
   "author": "Udjuor",
   "license": "UNLICENSED",
@@ -18,8 +18,8 @@
   },
   "build": {
     "appId": "ru.udjuor.studentcalendar",
-    "executableName": "StudentCalendar",
-    "artifactName": "StudentCalendar-Setup-${version}.${ext}",
+    "executableName": "Kerdiis",
+    "artifactName": "Kerdiis-Setup-${version}.${ext}",
     "directories": { "output": "dist", "buildResources": "build" },
     "files": ["src/**/*", "package.json"],
     "win": {
@@ -33,7 +33,7 @@
       "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Horatus",
+      "shortcutName": "Kerdiis",
       "installerLanguages": ["ru_RU"],
       "language": "1049",
       "include": "build/installer.nsh"

@@ -1,4 +1,4 @@
-# Silent self-update of Student Calendar. Runs as SYSTEM from a scheduled task.
+# Silent self-update of Kerdiis. Runs as SYSTEM from a scheduled task.
 # Keep this file ASCII: Windows PowerShell 5.1 misreads UTF-8 without a BOM.
 param(
   [string]$LatestUrl = 'https://github.com/Udjuor/-/releases/latest/download/latest.yml',
@@ -26,7 +26,13 @@ function Save-Status([string]$Result, [string]$Detail = '') {
 }
 
 try {
-  $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').StudentCalendar
+  # Tasks of the old name stay until the update that ran inside them has finished.
+  foreach ($name in 'StudentCalendarUpdate', 'StudentCalendarLaunch') {
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+  }
+  Remove-Item -LiteralPath (Join-Path $env:ProgramFiles 'StudentCalendarUpdate') -Recurse -Force -ErrorAction SilentlyContinue
+
+  $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis
   $exe = $run.Trim('"')
   $script:currentVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
 
@@ -53,14 +59,14 @@ try {
   try { $actual = [Convert]::ToBase64String($sha.ComputeHash($stream)) } finally { $stream.Dispose() }
   if ($actual -ne $hash) { throw 'Checksum mismatch' }
 
-  Get-Process -Name StudentCalendar -ErrorAction SilentlyContinue | Stop-Process -Force
+  Get-Process -Name Kerdiis -ErrorAction SilentlyContinue | Stop-Process -Force
   Start-Sleep -Seconds 2
   $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
   if ($process.ExitCode -ne 0) { throw "Installer exit code $($process.ExitCode)" }
 
   Save-Status 'installed'
   # SYSTEM has no desktop: this task starts the program in the signed-in session.
-  Start-ScheduledTask -TaskName 'StudentCalendarLaunch' -ErrorAction SilentlyContinue
+  Start-ScheduledTask -TaskName 'KerdiisLaunch' -ErrorAction SilentlyContinue
 } catch {
   Save-Status 'failed' $_.Exception.Message
   exit 1

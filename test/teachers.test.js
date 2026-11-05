@@ -37,11 +37,12 @@ test('вход выдаёт сессию, которая заканчивает�
   const { token, name } = await gate.login(teacher.id, '123456');
   assert.equal(name, 'Лебедева О. В.');
   assert.equal(gate.session(token), name);
-  clock.now += 9 * 60_000;
+  clock.now += 4 * 60_000;
   assert.equal(gate.session(token), name, 'действие продлевает сессию');
-  clock.now += 9 * 60_000;
-  assert.equal(gate.session(token), name);
-  clock.now += 11 * 60_000;
+  clock.now += 4 * 60_000;
+  assert.equal(gate.active(), true);
+  clock.now += 6 * 60_000;
+  assert.equal(gate.active(), false);
   assert.equal(gate.session(token), null);
   assert.equal(gate.session('чужой'), null);
 });

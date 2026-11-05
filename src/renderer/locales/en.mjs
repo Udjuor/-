@@ -6,7 +6,7 @@ export default {
     "Техника: {0}": "Equipment: {0}",
     "На этот день мероприятий нет. Нажмите на нужное время, чтобы добавить.": "Nothing scheduled for this day. Tap a time to add an event.",
     "ещё {0}": "{0} more",
-    "Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\StudentCalendar.": "Events on this computer cannot be read. The last loaded data is on screen. Check free disk space and permissions for C:\\ProgramData\\StudentCalendar.",
+    "Не удаётся прочитать мероприятия на этом компьютере. На экране последние загруженные данные. Проверьте свободное место и права на папку C:\\ProgramData\\Kerdiis.": "Events on this computer cannot be read. The last loaded data is on screen. Check free disk space and permissions for C:\\ProgramData\\Kerdiis.",
     "Неизвестное устройство": "Unknown device",
     "Это мероприятие уже изменили или удалили на другом устройстве. Закройте окно и откройте его заново.": "This event was changed or deleted on another device. Close this window and open it again.",
     "Проверьте название, дату и время": "Check the title, date and time",
@@ -283,7 +283,7 @@ export default {
     "Преподаватель видит мероприятия всех устройств.": "A teacher sees events from all devices.",
     "Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.": "Create a key or enter the one used on your other devices. Without a key the program works on this device only.",
     "Обмен между устройствами": "Sync between devices",
-    "Добро пожаловать в Horatus": "Welcome to Horatus",
+    "Добро пожаловать в Kerdiis": "Welcome to Kerdiis",
     "Настроим программу за минуту. Всё можно изменить позже в настройках.": "Let's set things up in a minute. You can change everything later in settings.",
     "Шаг {0} из {1}": "Step {0} of {1}",
     "Начать работу": "Get started",
@@ -305,7 +305,7 @@ export default {
     "Введите текст напоминания": "Enter the reminder text",
     "Срок должен быть позже текущего времени": "The end time must be later than now",
     "Напоминания": "Reminders",
-    "Строка показывается внизу экрана на всех устройствах сети. Управлять ею можно с компьютеров преподавателей.": "The ticker runs at the bottom of the screen on every device in the network. It can be managed from teacher computers.",
+    "Строка показывается внизу экрана на всех устройствах сети. Управлять ею могут только преподаватели.": "The ticker runs at the bottom of the screen on every device in the network. Only teachers can manage it.",
     "Текст": "Text",
     "Цвет": "Color",
     "Показывать до": "Show until",
@@ -389,7 +389,10 @@ export default {
     "Новый ключ": "New key",
     "Текущий ключ": "Current key",
     "Текущий ключ сети введён неверно.": "The current network key is wrong.",
-    "Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.": "The key is set and hidden because it authorizes teacher PINs. To replace it, enter the current and new keys."
+    "Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.": "The key is set and hidden because it authorizes teacher PINs. To replace it, enter the current and new keys.",
+    "На этом устройстве нет преподавателей с PIN. Задайте PIN в версии для преподавателей и дождитесь обмена данными.": "No teachers with a PIN on this device. Set a PIN in the teacher version and wait for devices to exchange data.",
+    "Версия программы: клиент для панелей.": "Program version: panel client.",
+    "Версия программы: для преподавателей.": "Program version: for teachers."
   },
   "plurals": {
     "days": {

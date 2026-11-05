@@ -9,7 +9,7 @@ const scrypt = promisify(crypto.scrypt);
 const PIN_RE = /^\d{6}$/;
 const MAX_TRIES = 5;
 const WAIT_MS = 5 * 60_000;
-const IDLE_MS = 10 * 60_000;
+const IDLE_MS = 5 * 60_000;
 
 const digest = async (pin, salt) =>
   (await scrypt(pin, salt, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })).toString('hex');
@@ -75,6 +75,11 @@ class TeacherGate {
     }
     session.seen = this.clock();
     return session.name;
+  }
+
+  /** Есть ли действующий вход. Окно у программы одно, поэтому вход один на устройство. */
+  active() {
+    return [...this.sessions.keys()].some((token) => this.session(token));
   }
 
   logout(token) {

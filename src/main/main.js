@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron');
 const { execFile } = require('node:child_process');
+const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
@@ -11,9 +12,12 @@ const { TeacherGate, sameText } = require('./teachers');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
 function homeDir() {
-  if (process.env.STUDENT_CALENDAR_HOME) return process.env.STUDENT_CALENDAR_HOME;
+  if (process.env.KERDIIS_HOME) return process.env.KERDIIS_HOME;
   if (process.platform === 'win32' && process.env.ProgramData) {
-    return path.join(process.env.ProgramData, 'StudentCalendar');
+    const home = path.join(process.env.ProgramData, 'Kerdiis');
+    const old = path.join(process.env.ProgramData, 'StudentCalendar');
+    // Установщик переносит папку. Если она была занята, данные остаются на старом месте.
+    return !existsSync(home) && existsSync(old) ? old : home;
   }
   return app.getPath('userData');
 }
@@ -66,7 +70,7 @@ function createSplash() {
     skipTaskbar: true,
     alwaysOnTop: true,
     backgroundColor: '#161b22',
-    title: 'Horatus',
+    title: 'Kerdi:s',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -90,6 +94,7 @@ let config = loadConfig(homeDir());
 if (config.lang !== 'auto') app.commandLine.appendSwitch('lang', config.lang);
 let store = null;
 let gate = null;
+let edition = 'client';
 let sync = null;
 let syncProblem = null;
 
@@ -124,7 +129,7 @@ function createWindow() {
     height: 900,
     show: false,
     backgroundColor: '#0d1117',
-    title: 'Horatus',
+    title: 'Kerdiis',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -190,11 +195,33 @@ async function saveMemo(memo, fileName) {
 // Файл пишет системная задача обновления, см. build/update.ps1.
 async function readUpdateStatus() {
   try {
-    const file = path.join(process.env.ProgramFiles ?? '', 'StudentCalendarUpdate', 'status.json');
+    const file = path.join(process.env.ProgramFiles ?? '', 'KerdiisUpdate', 'status.json');
     return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
   } catch {
     return null;
   }
+}
+
+/**
+ * Версия: клиент для панелей или для преподавателей. Файл кладёт установщик
+ * рядом с программой, куда у обычных пользователей нет записи. Переменная
+ * окружения работает только при разработке, иначе ею мог бы воспользоваться любой.
+ */
+function readEdition() {
+  if (!app.isPackaged) return process.env.KERDIIS_EDITION === 'client' ? 'client' : 'admin';
+  try {
+    return readFileSync(path.join(path.dirname(process.execPath), 'edition.txt'), 'utf8').trim() === 'admin' ? 'admin' : 'client';
+  } catch {
+    return 'client';
+  }
+}
+
+/** На клиенте действие проходит только после входа преподавателя по PIN. */
+function managed(work) {
+  return respond(async () => {
+    if (edition === 'client' && !gate.active()) throw Object.assign(new Error('teacher only'), { code: 'teacher-only' });
+    return work();
+  });
 }
 
 /** Хеши PIN на страницу не попадают. */
@@ -206,24 +233,28 @@ function publicRef(ref) {
 
 function registerHandlers() {
   ipcMain.handle('events:list', () => respond(() => store.list()));
-  ipcMain.handle('events:save', (_e, event, base) => respond(async () => {
-    const saved = await store.save(event, base);
-    sync?.nudge();
-    return saved;
-  }));
-  ipcMain.handle('events:remove', (_e, id, base) => respond(async () => {
+  ipcMain.handle('events:save', (_e, event, base) => {
+    const save = async () => {
+      const saved = await store.save(event, base);
+      sync?.nudge();
+      return saved;
+    };
+    // Новое событие можно добавить с панели, а менять уже записанные нельзя.
+    return event?.id ? managed(save) : respond(save);
+  });
+  ipcMain.handle('events:remove', (_e, id, base) => managed(async () => {
     await store.remove(id, base);
     sync?.nudge();
   }));
 
   ipcMain.handle('directory:list', () => respond(async () => (await store.directory()).map(publicRef)));
-  ipcMain.handle('directory:save', (_e, refs) => respond(async () => {
+  ipcMain.handle('directory:save', (_e, refs) => managed(async () => {
     const saved = [];
     for (const { ref, base } of refs) saved.push(await store.saveRef(ref, base));
     sync?.nudge();
     return saved.map(publicRef);
   }));
-  ipcMain.handle('directory:remove', (_e, refs) => respond(async () => {
+  ipcMain.handle('directory:remove', (_e, refs) => managed(async () => {
     for (const { id, base } of refs) await store.remove(id, base);
     sync?.nudge();
   }));
@@ -258,7 +289,7 @@ function registerHandlers() {
     sync?.nudge();
   }));
 
-  ipcMain.handle('report:save', (_e, fileName, text, labels) => respond(async () => {
+  ipcMain.handle('report:save', (_e, fileName, text, labels) => managed(async () => {
     const result = await dialog.showSaveDialog(win, {
       title: labels.title,
       defaultPath: path.join(app.getPath('documents'), fileName),
@@ -269,7 +300,7 @@ function registerHandlers() {
     return true;
   }));
 
-  ipcMain.handle('memo:create', (_e, memo, fileName) => respond(() => saveMemo(memo, fileName)));
+  ipcMain.handle('memo:create', (_e, memo, fileName) => managed(() => saveMemo(memo, fileName)));
   ipcMain.handle('memo:open', async () => {
     const problem = lastMemo ? await shell.openPath(lastMemo) : 'нет файла';
     return { ok: !problem };
@@ -286,7 +317,7 @@ function registerHandlers() {
     const before = (await readUpdateStatus())?.checkedAt;
     const schtasks = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'schtasks.exe');
     const started = await new Promise((resolve) => {
-      execFile(schtasks, ['/Run', '/TN', 'StudentCalendarUpdate'], { windowsHide: true }, (err) => resolve(!err));
+      execFile(schtasks, ['/Run', '/TN', 'KerdiisUpdate'], { windowsHide: true }, (err) => resolve(!err));
     });
     if (!started) return { ok: false };
     for (let i = 0; i < 45; i += 1) {
@@ -300,6 +331,7 @@ function registerHandlers() {
   ipcMain.handle('settings:get', () => ({
     deviceId: config.deviceId,
     deviceName: config.deviceName,
+    edition,
     hasKey: Boolean(config.syncKey), // сам ключ подтверждает смену PIN, поэтому на экран не выводится
     peers: config.peers,
     showAll: config.showAll,
@@ -314,7 +346,8 @@ function registerHandlers() {
   }));
 
   ipcMain.handle('settings:save', (_e, settings) =>
-    respond(async () => {
+    // Мастер первого запуска работает до появления преподавателей и PIN.
+    (config.setupDone ? managed : respond)(async () => {
       const typedKey = String(settings.syncKey ?? '').trim();
       if (typedKey && typedKey.length < 12) throw Object.assign(new Error('short key'), { code: 'short-key' });
       if (typedKey && config.syncKey && typedKey !== config.syncKey && !sameText(settings.currentKey ?? '', config.syncKey)) {
@@ -417,6 +450,7 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = config.theme;
     store = new EventStore(config.dataDir, config.deviceId);
     gate = new TeacherGate(store, () => config.syncKey);
+    edition = readEdition();
     registerHandlers();
     createSplash();
     createWindow();
