@@ -6,6 +6,14 @@
 !define CAL_RUN_NAME "Kerdiis"
 !define CAL_OLD_NAME "StudentCalendar"
 
+; Папка программы задаётся здесь, иначе обновление оставит её под прежним именем.
+!macro preInit
+  SetRegView 64
+  WriteRegExpandStr HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation "$PROGRAMFILES64\Kerdiis"
+  SetRegView 32
+  WriteRegExpandStr HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation "$PROGRAMFILES64\Kerdiis"
+!macroend
+
 ; Прошлые версии назывались StudentCalendar.exe: проверка установщика их не видит.
 !macro customInit
   nsExec::Exec 'taskkill /F /IM ${CAL_OLD_NAME}.exe'

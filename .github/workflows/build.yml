@@ -124,8 +124,11 @@ jobs:
             if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { throw "Осталась старая задача $name" }
           }
           if (Test-Path (Join-Path $env:ProgramFiles 'StudentCalendarUpdate')) { throw 'Остался старый каталог обновления' }
-          $uninstall = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'Kerdiis' }
-          if (-not $uninstall) { throw 'В списке программ нет Kerdiis' }
+          $apps = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
+          if (-not ($apps | Where-Object { $_.DisplayName -like 'Kerdiis*' })) { throw 'В списке программ нет Kerdiis' }
+          if ($apps | Where-Object { $_.DisplayName -match 'Календарь|Horatus|StudentCalendar' }) { throw 'В списке программ старое название' }
+          if ($exe -notlike '*\Kerdiis\Kerdiis.exe') { throw "Программа в старой папке: $exe" }
+          if (Test-Path (Join-Path $env:ProgramFiles 'StudentCalendar')) { throw 'Осталась старая папка программы' }
           "CAL_EXE=$exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           if ((Get-Content (Join-Path (Split-Path $exe) 'edition.txt') -Raw).Trim() -ne 'admin') { throw 'Не установилась версия для преподавателей' }
           $ini = Get-Content "$env:ProgramData\Kerdiis\config.ini" -Raw
