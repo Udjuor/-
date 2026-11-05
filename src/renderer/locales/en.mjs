@@ -344,7 +344,12 @@ export default {
     "Сдано": "Submitted",
     "Сроки сдачи": "Deadlines",
     "Сроки": "Deadlines",
-    "Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.": "Ticker reminders are written on a teacher computer. To write them here, turn on \"{0}\" and save."
+    "Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.": "Ticker reminders are written on a teacher computer. To write them here, turn on \"{0}\" and save.",
+    "Просрочено: {0}, срок был {1}": "Overdue: {0}, was due {1}",
+    "{0}: {1}, до {2}": "{0}: {1}, by {2}",
+    "Ещё сроков: {0}": "More deadlines: {0}",
+    "Группа {0}: {1}": "Group {0}: {1}",
+    "Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Deadlines and pet status changes appear in the ticker automatically and are not listed here."
   },
   "plurals": {
     "days": {

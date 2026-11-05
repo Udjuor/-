@@ -224,6 +224,16 @@ export function deadlineList(events, moment) {
 const pickDeadlines = (items, state) => items.filter((item) => item.state === state)
   .map((item) => item.event).sort((a, b) => a.deadline.localeCompare(b.deadline));
 
+/** Что напоминать в бегущей строке: просроченное не дольше трёх дней и то, что поджимает. */
+export function deadlineAlerts(events, moment) {
+  const { overdue, soon } = deadlineList(events, moment);
+  const oldest = addDays(moment.slice(0, 10), -3);
+  return [
+    ...overdue.filter((event) => event.deadline.slice(0, 10) >= oldest).reverse().map((event) => ({ event, late: true })),
+    ...soon.map((event) => ({ event, late: false })),
+  ];
+}
+
 /** Напоминания, срок которых ещё не вышел: сначала те, что заканчиваются раньше. */
 export function activeNotices(notices, moment) {
   return notices.filter((notice) => notice.until > moment).sort((a, b) => a.until.localeCompare(b.until));

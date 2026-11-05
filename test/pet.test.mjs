@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { healthChange, moodOf, petPixels, petStatus } from '../src/renderer/pet.mjs';
+import { healthChange, moodOf, petChange, petPixels, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -90,6 +90,18 @@ test('история здоровья идёт по парам и обрывае
   assert.ok(s.timeline.every((point, i, all) => i === 0 || point.health < all[i - 1].health));
   assert.equal(s.bornOn, day(1));
   assert.equal(s.timeline.at(-1).date, s.diedOn);
+});
+
+test('смена состояния питомца заметна три дня, а потом забывается', () => {
+  const point = (date, health) => ({ date, title: 'Пара', health });
+  const pet = { timeline: [point('2026-11-01', 72), point('2026-11-02', 50), point('2026-11-03', 45)] };
+  assert.deepEqual(petChange(pet, '2026-11-03'), { from: 'fine', to: 'sad', date: '2026-11-02' });
+  assert.ok(petChange(pet, '2026-11-05'));
+  assert.equal(petChange(pet, '2026-11-06'), null);
+  assert.equal(petChange({ timeline: [point('2026-11-01', 72)] }, '2026-11-02'), null, 'состояние то же, что на старте');
+  assert.equal(petChange({ timeline: [] }, '2026-11-02'), null);
+  assert.deepEqual(petChange({ timeline: [point('2026-11-02', 20), point('2026-11-03', 40)] }, '2026-11-03').to, 'sad', 'выздоровление тоже считается');
+  assert.equal(petChange({ timeline: [point('2026-11-03', 0)] }, '2026-11-03').to, 'dead');
 });
 
 test('спрайты целые: 16 на 16, все пиксели окрашены', () => {

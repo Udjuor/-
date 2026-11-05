@@ -1,9 +1,9 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
-import { petSprite, petStatus } from './pet.mjs';
+import { petChange, petSprite, petStatus } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -1693,6 +1693,7 @@ function refreshPet() {
   const button = $('pet-open');
   const group = currentPetGroup();
   button.hidden = !group;
+  refreshTicker();
   if (!group) return;
   const pet = petOf(group);
   const key = `${group.id}:${group.petName}:${pet.mood}:${pet.health}`;
@@ -1900,9 +1901,37 @@ const moment = () => {
 
 let tickerKey = '';
 
+const MAX_DEADLINE_ALERTS = 5;
+const PET_ALERT_COLORS = { dead: 'red', sick: 'red', sad: 'yellow', fine: 'green', play: 'green' };
+
+function deadlineItems() {
+  const alerts = deadlineAlerts(state.events, moment());
+  const items = alerts.slice(0, MAX_DEADLINE_ALERTS).map(({ event, late }) => ({
+    id: `deadline-${event.id}`,
+    color: late ? 'red' : 'yellow',
+    name: late
+      ? t('Просрочено: {0}, срок был {1}', [event.title, momentText(event.deadline)])
+      : t('{0}: {1}, до {2}', [deadlineLabel(event.type), event.title, momentText(event.deadline)]),
+  }));
+  const rest = alerts.length - items.length;
+  if (rest > 0) items.push({ id: 'deadline-rest', color: 'yellow', name: t('Ещё сроков: {0}', [rest]) });
+  return items;
+}
+
+function petItems() {
+  const clock = now();
+  return refsOf('group').flatMap((group) => {
+    const change = petChange(petOf(group), clock.iso);
+    if (!change) return [];
+    const name = petTitle(group);
+    const text = change.to === 'dead' ? t('{0}: питомец умер', [name]) : MOODS[change.to](name);
+    return [{ id: `pet-${group.id}`, color: PET_ALERT_COLORS[change.to], name: t('Группа {0}: {1}', [group.name, text]) }];
+  });
+}
+
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
-  const notices = activeNotices(refsOf('notice'), moment());
+  const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = !state.settings?.showAll;
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -1960,6 +1989,7 @@ function drawNotices() {
     h('div', { class: 'sheethead' }, h('h2', {}, t('Напоминания')), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('p', { class: 'help noticehelp' }, t('Строка показывается внизу экрана на всех устройствах сети. Управлять ею можно с компьютеров преподавателей.')),
+      h('p', { class: 'help noticehelp' }, t('Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.')),
       h('div', { class: 'field' }, h('label', { for: 'n-text' }, t('Текст')), text),
       h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Цвет')),
         choiceRow(NOTICE_COLORS, color, (id) => { color = id; })),

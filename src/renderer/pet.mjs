@@ -1,8 +1,9 @@
 // Тамагочи группы. Здоровье не хранится, а пересчитывается по отметкам,
 // поэтому на всех устройствах питомец в одном и том же состоянии.
-import { byTime, nameKey, rollCall } from './logic.mjs';
+import { addDays, byTime, nameKey, rollCall } from './logic.mjs';
 
 const START_HEALTH = 70;
+const ALERT_DAYS = 3;
 const COUNTED_TYPES = new Set(['lesson', 'practice', 'task']);
 
 const clamp = (value) => Math.max(0, Math.min(100, value));
@@ -61,6 +62,18 @@ export function petStatus({ group, students, events, attendance, nowISO, nowTime
 
   const bornOn = since.slice(0, 10) || timeline[0]?.date || nowISO;
   return { health, mood: moodOf(health), counted, last, diedOn, timeline, bornOn };
+}
+
+/** Последняя смена состояния питомца, если она случилась за последние три дня. */
+export function petChange(pet, nowISO) {
+  const healths = [START_HEALTH, ...pet.timeline.map((point) => point.health)];
+  for (let i = healths.length - 1; i > 0; i -= 1) {
+    if (moodOf(healths[i]) !== moodOf(healths[i - 1])) {
+      const { date } = pet.timeline[i - 1];
+      return date >= addDays(nowISO, -ALERT_DAYS) ? { from: moodOf(healths[i - 1]), to: moodOf(healths[i]), date } : null;
+    }
+  }
+  return null;
 }
 
 /* Спрайты 16×16 */

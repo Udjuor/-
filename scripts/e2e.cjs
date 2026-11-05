@@ -594,8 +594,8 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pet [aria-label=Закрыть]');
 
   const tiny = ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья', 'Тестов Ученик1'];
-  for (let i = 0; i < 9; i += 1) {
-    const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-20 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
+  for (let i = 0; i < 4; i += 1) {
+    const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-6 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
     await teacherStore.saveMark(lost.id, tiny[0], 'present');
   }
   await teacher.syncWith('127.0.0.1:47800');
@@ -604,10 +604,12 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#pet .mood-dead');
   assert.match(await page.textContent('#pet .petmood'), /Пиксель: питомец умер/);
   assert.equal(await page.locator('#pet .healthchart').count(), 1, 'график здоровья');
+  await page.waitForSelector('#ticker .notice-red:has-text("Пиксель: питомец умер")', { state: 'attached' });
   await shot('pet-dead');
   await page.click('#pet >> text=Завести нового питомца');
   await page.waitForSelector('#pet .mood-fine');
   assert.match(await page.textContent('#pet .petlevel'), /Здоровье 70 из 100/);
+  await page.waitForSelector('#ticker .notice:has-text("Пиксель")', { state: 'detached' });
   assert.match(await page.textContent('#pet .petdeaths'), /Пиксель/);
   await shot('pet-stats');
   await until(async () => (await teacherStore.directory()).some((r) => r.petDeaths?.[0]?.name === 'Пиксель'), 'журнал смертей на другом устройстве');
@@ -744,6 +746,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#form .sheetfoot .primary');
   await page.waitForSelector('.deadlinestrip .deadlinechip.overdue:has-text("Сдача макета афиши")');
   assert.equal(await page.textContent('#deadline-count.late'), '1');
+  await page.waitForSelector('#ticker .notice-red:has-text("Просрочено: Сдача макета афиши")');
   await shot('deadline-day');
   await page.click('[data-view=month]');
   await page.waitForSelector('.cell .deadlinechip.overdue');
@@ -756,6 +759,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#deadlines tr:has-text("Сдача макета афиши") >> text=Отметить сдачу');
   await page.waitForSelector('#deadlines h3:has-text("Сдано: 1")');
   assert.equal(await page.isVisible('#deadline-count'), false, 'сданное не считается');
+  await page.waitForSelector('#ticker .notice:has-text("Сдача макета афиши")', { state: 'detached' });
   assert.equal(await page.locator('.deadlinechip').count(), 0, 'сданное уходит из календаря');
   await page.click('#deadlines tr:has-text("Сдача макета афиши") .linkbutton');
   await page.waitForSelector('#details[open]');

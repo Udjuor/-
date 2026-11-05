@@ -344,7 +344,12 @@ export default {
     "Сдано": "Entregados",
     "Сроки сдачи": "Plazos de entrega",
     "Сроки": "Plazos",
-    "Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.": "Los recordatorios de la cinta se escriben en el ordenador del profesor. Para escribirlos aquí, active «{0}» y guarde."
+    "Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.": "Los recordatorios de la cinta se escriben en el ordenador del profesor. Para escribirlos aquí, active «{0}» y guarde.",
+    "Просрочено: {0}, срок был {1}": "Vencido: {0}, plazo {1}",
+    "{0}: {1}, до {2}": "{0}: {1}, hasta {2}",
+    "Ещё сроков: {0}": "Más plazos: {0}",
+    "Группа {0}: {1}": "Grupo {0}: {1}",
+    "Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Los plazos y los cambios de estado de las mascotas aparecen en la cinta automáticamente y no figuran aquí."
   },
   "plurals": {
     "days": {
