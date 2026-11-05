@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -186,7 +186,33 @@ function renderWeek(board) {
       'aria-label': fmt(iso, { weekday: 'long', day: 'numeric', month: 'long' }),
       onclick: () => openDay(iso),
     }, WEEKDAYS[i], h('span', { class: 'number' }, dayNumber(iso, iso === clock.iso)))));
-  board.append(head, timeGrid(days, false));
+  board.append(head);
+  const strip = deadlineStrip(days);
+  if (strip) board.append(strip);
+  board.append(timeGrid(days, false));
+}
+
+const deadlinesOn = (iso) => state.events
+  .filter((event) => event.deadline.startsWith(iso) && !event.deadlineDone)
+  .sort((a, b) => a.deadline.localeCompare(b.deadline));
+
+function deadlineChip(event) {
+  const late = deadlineState(event, moment()) === 'overdue';
+  return h('button', {
+    class: `chip deadlinechip t-${event.type}${late ? ' overdue' : ''}`,
+    onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
+  }, t('Сдать до {0}: {1}', [event.deadline.slice(11), event.title]));
+}
+
+/** Сроки не привязаны к сетке часов, поэтому идут отдельной полосой над ней. */
+function deadlineStrip(days) {
+  const perDay = days.map(deadlinesOn);
+  if (!perDay.some((items) => items.length)) return null;
+  return h('div', { class: 'deadlinestrip' },
+    h('span', { class: 'deadlinegutter' }),
+    perDay.map((items) => h('div', { class: 'deadlineday' },
+      items.slice(0, 2).map(deadlineChip),
+      items.length > 2 && h('button', { class: 'more', onclick: openDeadlines }, t('ещё {0}', [items.length - 2])))));
 }
 
 function renderMonth(board) {
@@ -205,18 +231,21 @@ function renderMonth(board) {
   const fitsWithMore = Math.max(1, Math.floor((room - 1.58 * rem) / chip));
 
   for (const iso of weeks.flat()) {
-    const events = eventsOn(state.events, iso);
-    const visible = events.length > fits ? events.slice(0, fitsWithMore) : events;
+    const items = [
+      ...deadlinesOn(iso).map((event) => () => deadlineChip(event)),
+      ...eventsOn(state.events, iso).map((e) => () => h('button', {
+        class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
+        onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
+      }, `${e.start} ${e.title}`)),
+    ];
+    const visible = items.length > fits ? items.slice(0, fitsWithMore) : items;
     const classes = ['cell'];
     if (fromISO(iso).getMonth() !== month) classes.push('outside');
     if (iso === clock.iso) classes.push('today');
     grid.append(h('div', { class: classes.join(' '), onclick: () => openDay(iso) },
       h('div', { class: 'date' }, dayNumber(iso, iso === clock.iso)),
-      visible.map((e) => h('button', {
-        class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
-        onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
-      }, `${e.start} ${e.title}`)),
-      events.length > visible.length && h('div', { class: 'more' }, t('ещё {0}', [events.length - visible.length]))));
+      visible.map((make) => make()),
+      items.length > visible.length && h('div', { class: 'more' }, t('ещё {0}', [items.length - visible.length]))));
   }
 }
 
@@ -230,10 +259,13 @@ function render() {
   if (state.view === 'month') renderMonth(board);
   else if (state.view === 'week') renderWeek(board);
   else {
+    const strip = deadlineStrip([state.date]);
+    if (strip) board.append(strip);
     board.append(timeGrid([state.date], true));
   }
   for (const block of board.querySelectorAll('.block')) fitBlock(block);
   state.renderedMinute = now().time;
+  refreshDeadlines();
 }
 
 function move(direction) {
@@ -376,6 +408,15 @@ function showDetails(id) {
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
     h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
+    event.deadline && h('button', {
+      class: 'plain',
+      onclick: async () => {
+        if (await setDeadlineDone(event, !event.deadlineDone)) {
+          dialog.close();
+          showDetails(event.id);
+        }
+      },
+    }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
     memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
     h('div', { class: 'spacer' }),
     h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
@@ -409,6 +450,7 @@ function showDetails(id) {
         fact(t('Дата'), fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })),
         fact(t('Время'), timeRange(event)),
         fact(t('Подготовка'), prepText(event)),
+        event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
         fact(t('Место'), event.place),
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
@@ -564,7 +606,7 @@ async function openForm(source = {}) {
 
   const field = (label, id, attrs, size = '') => {
     const input = h('input', { id, name: id, ...attrs });
-    if (attrs.type === 'date' || attrs.type === 'time') {
+    if (attrs.type === 'date' || attrs.type === 'time' || attrs.type === 'datetime-local') {
       // Палец должен открывать выбор по нажатию на всё поле, а не на значок.
       input.addEventListener('click', () => { try { input.showPicker(); } catch { /* окно уже открыто */ } });
     }
@@ -576,7 +618,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); showPrep(); updateConflicts(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); updateConflicts(); },
   }, t(label))));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, t('Тип')), typeRow);
@@ -598,6 +640,20 @@ async function openForm(source = {}) {
   prep.append(h('p', { class: 'help' }, t('На это время студентов освобождают от занятий. Они и техника уже считаются занятыми.')));
   const showPrep = () => { prep.hidden = draft.type === 'lesson'; };
   showPrep();
+
+  const deadline = field('', 'f-deadline', { type: 'datetime-local', value: source.deadline ?? '' });
+  deadline.append(h('div', { class: 'targets prepchoices' },
+    [1, 3, 7].map((count) => h('button', {
+      type: 'button',
+      onclick: () => { $('f-deadline').value = `${addDays($('f-date').value || state.date, count)}T18:00`; },
+    }, tp('days', count))),
+    h('button', { type: 'button', onclick: () => { $('f-deadline').value = ''; } }, t('Без срока'))));
+  deadline.append(h('p', { class: 'help' }, t('Кнопки считают дни от даты события, срок ставится на 18:00.')));
+  const showDeadline = () => {
+    deadline.hidden = !DEADLINE_TYPES.includes(draft.type);
+    deadline.querySelector('label').textContent = deadlineLabel(draft.type);
+  };
+  showDeadline();
 
   const place = field(t('Место'), 'f-place', { value: source.place ?? '', autocomplete: 'off' }, 'half');
   place.append(attachSuggest(place.querySelector('input'), () => state.allEvents.map((e) => e.place), (value) => {
@@ -650,6 +706,12 @@ async function openForm(source = {}) {
     };
   };
 
+  /** Новый срок снимает отметку о сдаче: сдавать нужно уже к нему. */
+  const readDeadline = () => {
+    const value = DEADLINE_TYPES.includes(draft.type) ? $('f-deadline').value : '';
+    return { deadline: value, deadlineDone: value && value === source.deadline ? source.deadlineDone ?? '' : '' };
+  };
+
   const read = () => ({
     id: draft.id,
     type: draft.type,
@@ -658,6 +720,7 @@ async function openForm(source = {}) {
     start: $('f-start').value,
     end: $('f-end').value,
     prepMinutes: draft.type === 'lesson' ? 0 : Math.max(0, Math.round(Number($('f-prep').value) || 0)),
+    ...readDeadline(),
     place: $('f-place').value.trim(),
     responsible: $('f-responsible').value.trim(),
     participants: draft.participants,
@@ -784,7 +847,7 @@ async function openForm(source = {}) {
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        typeField, title, date, from, to, prep, place, responsible, targets,
+        typeField, title, date, from, to, prep, deadline, place, responsible, targets,
         participants.element, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
@@ -1333,6 +1396,7 @@ function paperSheet(event) {
       fact(t('День'), `${weekday}, ${date}`),
       fact(t('Время'), timeRange(event)),
       fact(t('Подготовка'), prepText(event)),
+      event.deadline ? fact(deadlineLabel(event.type), momentText(event.deadline)) : [],
       fact(t('Место'), event.place),
       fact(t('Ответственный'), event.responsible),
       fact(t('Участников'), event.participants.length ? String(event.participants.length) : '')),
@@ -1924,16 +1988,92 @@ function drawNotices() {
   );
 }
 
-const noticeUntil = (notice) => {
-  const [date, time] = notice.until.split('T');
-  return `${shortDay(date)}, ${time}`;
-};
+const momentText = (value) => `${shortDay(value.slice(0, 10))}, ${value.slice(11)}`;
+const noticeUntil = (notice) => momentText(notice.until);
 
 async function reloadNotices() {
   const fresh = await api.directory();
   if (fresh.ok) state.directory = fresh.value;
   refreshTicker();
   drawNotices();
+}
+
+/* Сроки сдачи */
+
+const DEADLINE_TYPES = ['task', 'event'];
+
+const deadlineLabel = (type) => (type === 'task' ? t('Срок сдачи') : t('Срок сдачи материалов'));
+
+function deadlineFact(event) {
+  const when = momentText(event.deadline);
+  const status = deadlineState(event, moment());
+  if (status === 'done') return t('{0}. Сдано: {1}', [when, momentText(event.deadlineDone)]);
+  return status === 'overdue' ? t('{0}. Просрочено', [when]) : when;
+}
+
+async function setDeadlineDone(event, done) {
+  const result = await api.save({ ...event, deadlineDone: done ? moment() : '' }, event.updatedAt);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return false;
+  }
+  setEvents([...state.allEvents.filter((x) => x.id !== result.value.id), result.value]);
+  render();
+  return true;
+}
+
+function deadlineTable(title, events, late = false) {
+  if (!events.length) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', { class: late ? 'deadlinelate' : '' }, t('{0}: {1}', [title, events.length])),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, [t('Событие'), t('Что сдать'), t('Срок'), t('Ответственный'), t('Участники'), ''].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, events.map((event) => h('tr', {},
+        h('td', {}, h('button', { class: 'linkbutton', onclick: () => { $('deadlines').close(); showDetails(event.id); } }, event.title)),
+        h('td', {}, event.type === 'task' ? t('Задание') : t('Материалы')),
+        h('td', {}, event.deadlineDone ? t('{0}. Сдано: {1}', [momentText(event.deadline), momentText(event.deadlineDone)]) : momentText(event.deadline)),
+        h('td', {}, event.responsible || t('Не указан')),
+        h('td', {}, String(event.participants.length)),
+        h('td', {}, h('button', {
+          class: 'plain',
+          onclick: () => setDeadlineDone(event, !event.deadlineDone),
+        }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу'))))))))); 
+}
+
+function drawDeadlines() {
+  const box = $('deadlines-result');
+  if (!box) return;
+  const list = deadlineList(state.events, moment());
+  const empty = !Object.values(list).some((events) => events.length);
+  const sections = [
+    empty && h('p', { class: 'help' }, t('Сроков пока нет. Укажите срок сдачи в задании или мероприятии.')),
+    deadlineTable(t('Просрочено'), list.overdue, true),
+    deadlineTable(t('Сегодня и завтра'), list.soon),
+    deadlineTable(t('Позже'), list.later),
+    deadlineTable(t('Сдано'), list.done.slice(0, 30)),
+  ];
+  keepScroll(box, () => box.replaceChildren(...sections.filter(Boolean)));
+}
+
+function openDeadlines() {
+  const dialog = $('deadlines');
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Сроки сдачи')), closeButton(dialog)),
+    h('div', { class: 'sheetbody', id: 'deadlines-result' }),
+  );
+  drawDeadlines();
+  dialog.showModal();
+}
+
+/** Счётчик на кнопке и открытый список. На кнопке только то, что требует внимания. */
+function refreshDeadlines() {
+  const list = deadlineList(state.events, moment());
+  const badge = $('deadline-count');
+  const count = list.overdue.length + list.soon.length;
+  badge.hidden = !count;
+  badge.textContent = String(count);
+  badge.classList.toggle('late', list.overdue.length > 0);
+  if ($('deadlines').open) drawDeadlines();
 }
 
 /* Занятость техники */
@@ -2300,6 +2440,9 @@ async function openSettings() {
         h('p', { class: 'help' }, t('Нужны, только если устройства не находят друг друга сами, например 10.0.2.15, 10.0.3.7. Достаточно одного адреса: остальные передадутся автоматически.'))),
       h('div', { class: 'setting' },
         h('label', { class: 'check' }, showAll, t('Показывать мероприятия всех устройств')),
+        current.showAll
+          ? h('button', { type: 'button', class: 'plain', onclick: () => { $('preferences').close(); openNotices(); } }, t('Напоминания'))
+          : h('p', { class: 'help' }, t('Напоминания для бегущей строки пишут на компьютере преподавателя. Чтобы писать их здесь, включите «{0}» и сохраните.', [t('Показывать мероприятия всех устройств')])),
         h('p', { class: 'help' }, t('Включите на компьютерах преподавателей.')),
         h('label', { class: 'check' }, fullscreen, t('Открывать на весь экран'))),
       h('section', { class: 'setting' },
@@ -2367,7 +2510,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2388,6 +2531,7 @@ function wire() {
     $('pet').showModal();
   });
   $('open-gear').addEventListener('click', openGear);
+  $('open-deadlines').addEventListener('click', openDeadlines);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {

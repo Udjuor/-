@@ -66,6 +66,10 @@ function normalizeEvent(raw) {
     updatedAt: String(raw.updatedAt ?? ''),
     updatedBy: String(raw.updatedBy ?? ''),
   };
+  // Срок есть только у заданий и мероприятий; без срока нечего отмечать сданным.
+  const canHaveDeadline = event.type === 'task' || event.type === 'event';
+  event.deadline = canHaveDeadline && MOMENT_RE.test(raw.deadline ?? '') ? raw.deadline : '';
+  event.deadlineDone = event.deadline && MOMENT_RE.test(raw.deadlineDone ?? '') ? raw.deadlineDone : '';
   const valid =
     ID_RE.test(event.id) &&
     event.title &&

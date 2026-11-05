@@ -201,6 +201,29 @@ export function equipmentNow(stock, events, nowISO, nowTime) {
   }).sort((a, b) => Number(b.used > 0) - Number(a.used > 0) || a.name.localeCompare(b.name, 'ru'));
 }
 
+/** Состояние срока сдачи: сдано, просрочено, сегодня-завтра или позже. Без срока null. */
+export function deadlineState(event, moment) {
+  if (!event.deadline) return null;
+  if (event.deadlineDone) return 'done';
+  if (event.deadline <= moment) return 'overdue';
+  return event.deadline.slice(0, 10) <= addDays(moment.slice(0, 10), 1) ? 'soon' : 'later';
+}
+
+/** Сроки по порядку: ближайшие и просроченные первыми, сданные недавние первыми. */
+export function deadlineList(events, moment) {
+  const items = events.filter((event) => event.deadline)
+    .map((event) => ({ event, state: deadlineState(event, moment) }));
+  return {
+    overdue: pickDeadlines(items, 'overdue'),
+    soon: pickDeadlines(items, 'soon'),
+    later: pickDeadlines(items, 'later'),
+    done: pickDeadlines(items, 'done').reverse(),
+  };
+}
+
+const pickDeadlines = (items, state) => items.filter((item) => item.state === state)
+  .map((item) => item.event).sort((a, b) => a.deadline.localeCompare(b.deadline));
+
 /** Напоминания, срок которых ещё не вышел: сначала те, что заканчиваются раньше. */
 export function activeNotices(notices, moment) {
   return notices.filter((notice) => notice.until > moment).sort((a, b) => a.until.localeCompare(b.until));

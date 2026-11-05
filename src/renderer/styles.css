@@ -652,6 +652,7 @@ dialog#welcome { width: min(40rem, 94vw); }
 .notice-green { background: #1a7f37; }
 .notice-yellow { background: #9a6700; }
 .notice-red { background: #cf222e; }
+.petbutton[hidden], .noticesbutton[hidden] { display: none; }
 .noticesbutton { min-height: 2.2rem; padding: 0 .6rem; color: var(--fg); font-size: .95rem; }
 .noticehelp { margin: 0 0 .8rem; }
 .noticeactions { display: flex; gap: .5rem; margin-top: .8rem; }
@@ -686,3 +687,17 @@ dialog#welcome { width: min(40rem, 94vw); }
 .gearstate.busy::before { background: var(--danger-emphasis); }
 .gearstate.part::before { background: var(--attention-emphasis, #9e6a03); }
 #gear td { vertical-align: top; }
+
+/* Сроки сдачи */
+.deadlinestrip { display: flex; flex: none; padding: .2rem 0; border-bottom: .05rem solid var(--border); }
+.deadlinegutter { flex: none; width: 4.5rem; }
+.deadlineday { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 0 .15rem; }
+.deadlineday .more { border: 0; background: none; text-align: left; }
+.chip.deadlinechip { border: .08rem dashed var(--type); background: none; color: var(--fg); }
+.chip.deadlinechip.overdue { border: .08rem solid var(--danger-emphasis); color: var(--danger-fg, var(--fg)); font-weight: 600; }
+.deadlinecount { display: inline-block; min-width: 1.4em; margin-left: .25rem; padding: 0 .3em; border-radius: 1em; background: var(--accent-emphasis); color: #fff; font-size: .85em; line-height: 1.4em; text-align: center; }
+.deadlinecount[hidden] { display: none; }
+.deadlinecount.late { background: var(--danger-emphasis); }
+.deadlinelate { color: var(--danger-fg, var(--fg)); }
+.linkbutton { padding: 0; border: 0; background: none; color: var(--accent, var(--fg)); font: inherit; text-align: left; text-decoration: underline; }
+#deadlines td { vertical-align: middle; }

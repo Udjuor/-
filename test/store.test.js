@@ -242,6 +242,19 @@ test('напоминание хранит цвет и срок, без срок�
   assert.equal((await store.directory()).length, 2);
 });
 
+test('срок сдачи есть только у заданий и мероприятий', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const base = { ...sample, deadline: '2026-11-10T18:00', deadlineDone: '2026-11-09T12:00' };
+  const event = await store.save({ ...base, type: 'event' });
+  assert.equal(event.deadline, '2026-11-10T18:00');
+  assert.equal(event.deadlineDone, '2026-11-09T12:00');
+  assert.equal((await store.save({ ...base, type: 'task' })).deadline, '2026-11-10T18:00');
+  const lesson = await store.save({ ...base, type: 'lesson' });
+  assert.deepEqual([lesson.deadline, lesson.deadlineDone], ['', '']);
+  const broken = await store.save({ ...base, type: 'task', deadline: 'завтра' });
+  assert.deepEqual([broken.deadline, broken.deadlineDone], ['', ''], 'без срока отметка о сдаче не держится');
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });

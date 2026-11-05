@@ -36,10 +36,11 @@ const SPLASH_MS = 4500;
 function revealMain() {
   if (!splashDone || !mainReady || !win) return;
   // Полный экран только здесь: заданный при создании окна, он показал бы его раньше панели.
-  if (config.fullscreen) win.setFullScreen(true);
-  else win.maximize();
+  // И только после показа: на скрытом окне панель задач Windows остаётся поверх нижней строки.
+  if (!config.fullscreen) win.maximize();
   win.show();
   win.focus();
+  if (config.fullscreen) win.setFullScreen(true);
 }
 
 function finishSplash() {

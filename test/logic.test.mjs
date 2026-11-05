@@ -314,6 +314,32 @@ test('напоминания: истёкшие скрываются, ближа�
   assert.deepEqual(L.activeNotices(notices, '2026-11-05T10:00'), []);
 });
 
+test('сроки сдачи: состояние меняется со временем и отметкой о сдаче', () => {
+  const task = (deadline, deadlineDone = '') => ({ id: deadline, deadline, deadlineDone });
+  const moment = '2026-11-03T11:42';
+  assert.equal(L.deadlineState({ deadline: '' }, moment), null);
+  assert.equal(L.deadlineState(task('2026-11-03T11:42'), moment), 'overdue', 'в сам момент срока уже поздно');
+  assert.equal(L.deadlineState(task('2026-11-03T11:43'), moment), 'soon');
+  assert.equal(L.deadlineState(task('2026-11-04T23:59'), moment), 'soon');
+  assert.equal(L.deadlineState(task('2026-11-05T00:00'), moment), 'later');
+  assert.equal(L.deadlineState(task('2026-11-01T10:00', '2026-11-02T10:00'), moment), 'done', 'сданное не просрочено');
+});
+
+test('сроки сдачи раскладываются по группам и по порядку', () => {
+  const list = L.deadlineList([
+    { id: 'нет', deadline: '' },
+    { id: 'позже2', deadline: '2026-11-20T10:00' },
+    { id: 'позже1', deadline: '2026-11-10T10:00' },
+    { id: 'долг', deadline: '2026-11-01T10:00' },
+    { id: 'завтра', deadline: '2026-11-04T10:00' },
+    { id: 'сдано-давно', deadline: '2026-10-01T10:00', deadlineDone: '2026-10-01T09:00' },
+    { id: 'сдано', deadline: '2026-11-02T10:00', deadlineDone: '2026-11-02T09:00' },
+  ], '2026-11-03T11:42');
+  assert.deepEqual(Object.fromEntries(Object.entries(list).map(([key, items]) => [key, items.map((e) => e.id)])), {
+    overdue: ['долг'], soon: ['завтра'], later: ['позже1', 'позже2'], done: ['сдано', 'сдано-давно'],
+  });
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

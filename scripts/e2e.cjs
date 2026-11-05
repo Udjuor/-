@@ -726,6 +726,43 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#gear tbody'), /Камера/);
   await page.click('#gear [aria-label=Закрыть]');
 
+  // Сроки сдачи.
+  await page.click('#today');
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  assert.equal(await page.isVisible('#f-deadline'), false, 'у занятия срока нет');
+  await page.click('#form .targets button.t-event');
+  assert.match(await page.textContent('[data-for=f-deadline] label'), /Срок сдачи материалов/);
+  await page.click('#form .targets button.t-task');
+  assert.equal((await page.textContent('[data-for=f-deadline] label')).trim(), 'Срок сдачи');
+  await page.fill('#f-title', 'Сдача макета афиши');
+  await page.fill('#f-start', '15:00');
+  await page.fill('#f-end', '16:00');
+  await page.click('[data-for=f-deadline] button:has-text("3 дня")');
+  assert.equal(await page.inputValue('#f-deadline'), `${day(3)}T18:00`);
+  await page.fill('#f-deadline', `${day(0)}T08:00`);
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('.deadlinestrip .deadlinechip.overdue:has-text("Сдача макета афиши")');
+  assert.equal(await page.textContent('#deadline-count.late'), '1');
+  await shot('deadline-day');
+  await page.click('[data-view=month]');
+  await page.waitForSelector('.cell .deadlinechip.overdue');
+  await shot('deadline-month');
+  await page.click('[data-view=day]');
+  await page.click('#open-deadlines');
+  await page.waitForSelector('#deadlines[open]');
+  assert.match(await page.textContent('#deadlines'), /Просрочено: 1[\s\S]*Сдача макета афиши[\s\S]*Задание/);
+  await shot('deadlines');
+  await page.click('#deadlines tr:has-text("Сдача макета афиши") >> text=Отметить сдачу');
+  await page.waitForSelector('#deadlines h3:has-text("Сдано: 1")');
+  assert.equal(await page.isVisible('#deadline-count'), false, 'сданное не считается');
+  assert.equal(await page.locator('.deadlinechip').count(), 0, 'сданное уходит из календаря');
+  await page.click('#deadlines tr:has-text("Сдача макета афиши") .linkbutton');
+  await page.waitForSelector('#details[open]');
+  assert.match(await page.textContent('#details'), /Срок сдачи[\s\S]*Сдано:/);
+  await page.click('#details [aria-label=Закрыть]');
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Сдача макета афиши' && e.deadlineDone), 'отметка о сдаче на другом устройстве');
+
   // Нажатие на пустое время открывает форму с этим временем.
   await page.click('[data-view=day]');
   const box = await page.locator('.day').boundingBox();
