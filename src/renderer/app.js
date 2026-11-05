@@ -352,7 +352,11 @@ const storeMessage = (result) => (result.code === 'conflict'
   ? t('Это мероприятие уже изменили или удалили на другом устройстве. Закройте окно и откройте его заново.')
   : result.code === 'invalid'
     ? t('Проверьте название, дату и время')
-    : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
+    : result.code === 'locked'
+      ? t('Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.')
+      : result.code === 'protected'
+        ? t('Сначала снимите PIN этого преподавателя.')
+        : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
 
 /* Карточка мероприятия */
 
@@ -1218,7 +1222,14 @@ function simplePane(kind, placeholder, emptyText) {
   const items = refsOf(kind);
   return h('section', {},
     addForm(`c-add-${kind}`, placeholder, (text) => addRefs(text, kind, items)),
-    refList(items.map((item) => refRow(item)), emptyText));
+    refList(items.map((item) => refRow(item, kind === 'teacher' ? teacherRow(item) : {})), emptyText));
+}
+
+function teacherRow(ref) {
+  return {
+    detail: ref.hasPin ? t('PIN задан') : t('PIN не задан'),
+    extra: h('button', { type: 'button', class: 'plain', onclick: () => openPinSetup(ref) }, ref.hasPin ? t('Сменить PIN') : t('Задать PIN')),
+  };
 }
 
 function equipmentPane() {
@@ -1268,11 +1279,164 @@ const clockTime = (at) => new Date(at).toLocaleTimeString(locale(), { hour: '2-d
 function rowNote(row) {
   if (row.status === 'present') {
     return row.late
-      ? t('Отмечен в {0}, опоздание {1} мин', [clockTime(row.at), row.late])
+      ? t('Пришёл в {0}, опоздание {1} мин', [clockTime(row.at), row.late])
       : t('Отмечен в {0}', [clockTime(row.at)]);
   }
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
+
+/* Вход преподавателя */
+
+const PIN_LENGTH = 6;
+let teacherSession = null;
+
+function endTeacherMode() {
+  if (teacherSession) api.teacherLogout(teacherSession.token);
+  teacherSession = null;
+}
+
+function shuffled(items) {
+  const list = [...items];
+  const random = crypto.getRandomValues(new Uint32Array(list.length));
+  for (let i = list.length - 1; i > 0; i -= 1) {
+    const j = random[i] % (i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+/** Цифры меняются местами после каждого нажатия, а на экране только точки. */
+function pinPad(onComplete) {
+  let digits = '';
+  const dots = h('div', { class: 'pindots', 'aria-live': 'polite' });
+  const keys = h('div', { class: 'pinkeys' });
+  const draw = () => {
+    dots.replaceChildren(...Array.from({ length: PIN_LENGTH }, (_, i) => h('i', { class: i < digits.length ? 'on' : '' })));
+    dots.setAttribute('aria-label', t('Введено цифр: {0}', [digits.length]));
+    keys.replaceChildren(
+      ...shuffled('0123456789').map((digit) => h('button', { type: 'button', class: 'pinkey', onclick: () => press(digit) }, digit)),
+      h('button', { type: 'button', class: 'pinkey pinerase', onclick: () => { digits = digits.slice(0, -1); draw(); } }, t('Стереть')),
+    );
+  };
+  const press = (digit) => {
+    digits += digit;
+    const full = digits.length === PIN_LENGTH;
+    const value = digits;
+    if (full) digits = '';
+    draw();
+    if (full) onComplete(value);
+  };
+  draw();
+  return h('div', { class: 'pinpad' }, dots, keys);
+}
+
+function askTeacher(event, done) {
+  const dialog = $('pinpad');
+  const teachers = refsOf('teacher').filter((ref) => ref.hasPin);
+  const responsible = teachers.find((ref) => nameKey(ref.name) === nameKey(event.responsible));
+  const select = h('select', { id: 'pin-teacher', 'aria-label': t('Преподаватель') },
+    teachers.map((ref) => h('option', { value: ref.id, selected: ref === responsible }, ref.name)));
+  const failure = h('p', { class: 'error' });
+  const pad = pinPad(async (pin) => {
+    const result = await api.teacherLogin(select.value, pin);
+    if (result.ok) {
+      teacherSession = result.value;
+      dialog.close();
+      done();
+    } else {
+      failure.textContent = pinMessage(result);
+    }
+  });
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Вход преподавателя')), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      h('div', { class: 'field' }, select),
+      pad,
+      failure,
+      h('p', { class: 'help' }, t('Если рядом студенты, прикройте экран рукой. Отметки можно зафиксировать и позже со своего компьютера.'))),
+  );
+  dialog.showModal();
+}
+
+const pinMessage = (result) => {
+  if (result.code === 'pin-wait') return t('Слишком много попыток. Подождите 5 минут.');
+  if (result.code === 'wrong-proof') return t('Неверный ключ сети или PIN.');
+  if (result.code === 'wrong-pin') return t('Неверный PIN.');
+  return t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.');
+};
+
+function openPinSetup(ref) {
+  const dialog = $('pinpad');
+  const failure = h('p', { class: 'error' });
+  const needsProof = ref.hasPin || state.settings.hasKey;
+  const proof = h('input', { id: 'pin-proof', type: 'password', autocomplete: 'off', spellcheck: 'false' });
+  const reload = async () => {
+    await loadDirectory();
+    dialog.close();
+    drawCatalog();
+  };
+  const body = h('div', {});
+  let first = '';
+  const askDigits = () => body.replaceChildren(
+    h('p', { class: 'help' }, first ? t('Повторите PIN') : t('Придумайте PIN из шести цифр')),
+    pinPad(async (pin) => {
+      if (!first) {
+        first = pin;
+        failure.textContent = '';
+        askDigits();
+        return;
+      }
+      if (first !== pin) {
+        first = '';
+        failure.textContent = t('PIN не совпал. Введите его заново.');
+        askDigits();
+        return;
+      }
+      const result = await api.teacherSetPin(ref.id, proof.value, pin);
+      if (result.ok) await reload();
+      else {
+        first = '';
+        failure.textContent = pinMessage(result);
+        askDigits();
+      }
+    }),
+  );
+  askDigits();
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, ref.name), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      needsProof && h('div', { class: 'field' }, h('label', { for: 'pin-proof' }, t('Ключ сети или текущий PIN')), proof),
+      body,
+      failure,
+      ref.hasPin && h('button', {
+        type: 'button',
+        class: 'plain pinreset',
+        onclick: async () => {
+          const result = await api.teacherResetPin(ref.id, proof.value);
+          if (result.ok) await reload();
+          else failure.textContent = pinMessage(result);
+        },
+      }, t('Снять PIN ключом сети'))),
+  );
+  dialog.showModal();
+}
+
+/* Отметки на паре */
+
+const pad2 = (value) => String(value).padStart(2, '0');
+
+function inputTime(at) {
+  const date = new Date(at);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+function markText(mark) {
+  if (!mark.status) return t('Нет отметки');
+  if (mark.status !== 'present') return statusLabel(mark.status);
+  return mark.late ? t('Опоздал, {0}', [clockTime(mark.at)]) : t('Присутствовал');
+}
+
+const stampText = (at) => new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 function openRoll(id) {
   const dialog = $('roll');
@@ -1280,20 +1444,98 @@ function openRoll(id) {
   if (!event) return;
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
+  const banner = h('p', { class: 'lockbanner', hidden: true });
   const list = h('ul', { class: 'rolllist' });
   const failure = h('p', { class: 'error' });
+  const log = h('section', { class: 'rollhistory', hidden: true });
+  const footer = h('div', { class: 'sheetfoot' });
+  let confirming = false;
 
-  const setMark = async (name, status) => {
-    const result = await api.mark(event.id, name, status);
-    failure.textContent = result.ok ? '' : t('Отметка не сохранена. Попробуйте ещё раз.');
+  const apply = (doc) => {
+    state.attendance = [...state.attendance.filter((item) => item.eventId !== event.id), doc];
+    draw();
+  };
+
+  const refused = (result) => {
+    if (result.code === 'teacher-only') {
+      endTeacherMode();
+      failure.textContent = t('Это может сделать только преподаватель. Войдите по PIN.');
+    } else if (result.code === 'locked') {
+      failure.textContent = t('Отчёт зафиксирован. Исправить его можно после входа по PIN.');
+    } else {
+      failure.textContent = t('Отметка не сохранена. Попробуйте ещё раз.');
+    }
+    draw();
+  };
+
+  const setMark = async (name, status, options = {}) => {
+    const result = await api.mark(event.id, name, status, { token: teacherSession?.token, ...options });
     if (result.ok) {
-      state.attendance = [...state.attendance.filter((doc) => doc.eventId !== event.id), result.value];
-      draw();
+      failure.textContent = '';
+      apply(result.value);
+    } else {
+      refused(result);
     }
   };
 
+  const lock = async () => {
+    const result = await api.lockReport(event.id, teacherSession?.token);
+    confirming = false;
+    if (result.ok) {
+      failure.textContent = '';
+      apply(result.value);
+      toast(t('Отчёт зафиксирован и отправлен на другие устройства.'));
+    } else {
+      refused(result);
+    }
+  };
+
+  const lateControls = (row) => [
+    h('button', {
+      type: 'button',
+      class: 'reason',
+      'aria-pressed': String(row.late > 0),
+      onclick: () => (row.late ? setMark(row.name, 'present', { late: false, at: row.at }) : setMark(row.name, 'present', { late: true })),
+    }, t('Опоздал')),
+    row.late > 0 && h('input', {
+      type: 'time',
+      class: 'latetime',
+      value: inputTime(row.at),
+      'aria-label': t('Время прихода: {0}', [row.name]),
+      onchange: (e) => {
+        if (e.target.value) setMark(row.name, 'present', { late: true, at: new Date(`${event.date}T${e.target.value}`).toISOString() });
+      },
+    }),
+  ];
+
+  function drawFooter(doc) {
+    if (confirming) {
+      footer.replaceChildren(
+        h('p', { class: 'message' }, t('Отчёт закроется для всех. Кто не отмечен, станет отсутствующим. Исправить можно будет только по PIN.')),
+        h('button', { type: 'button', class: 'plain', onclick: () => { confirming = false; draw(); } }, t('Отмена')),
+        h('button', { type: 'button', class: 'primary', id: 'lock-confirm', onclick: lock }, t('Зафиксировать')),
+      );
+      return;
+    }
+    if (!teacherSession) {
+      const ready = refsOf('teacher').some((ref) => ref.hasPin);
+      footer.replaceChildren(ready
+        ? h('button', { type: 'button', class: 'plain', id: 'teacher-mode', onclick: () => askTeacher(event, draw) }, t('Режим преподавателя'))
+        : h('p', { class: 'message' }, t('Чтобы фиксировать отчёт, задайте PIN преподавателя в разделе «Справочники».')));
+      return;
+    }
+    footer.replaceChildren(
+      h('p', { class: 'message' }, t('Режим преподавателя: {0}', [teacherSession.name])),
+      h('button', { type: 'button', class: 'plain', id: 'teacher-exit', onclick: () => { endTeacherMode(); draw(); } }, t('Выйти')),
+      ...(doc?.lock ? [] : [h('button', { type: 'button', class: 'primary', id: 'lock-report', onclick: () => { confirming = true; draw(); } }, t('Зафиксировать и отправить'))]),
+    );
+  }
+
   function draw() {
     const rows = roll(event);
+    const doc = attendanceOf(event.id);
+    const locked = Boolean(doc?.lock);
+    const teacherMode = Boolean(teacherSession);
     const count = (status) => rows.filter((row) => row.status === status).length;
     const parts = [
       t('Отмечены: {0} из {1}', [count('present'), rows.length]),
@@ -1301,21 +1543,35 @@ function openRoll(id) {
       ...ABSENCE_REASONS.map(([reason, label]) => `${t(label).toLowerCase()}: ${count(reason)}`),
     ];
     summary.textContent = parts.join(', ');
+    banner.hidden = !locked;
+    banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
     const query = nameKey(search.value);
-    keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) =>
-      h('li', { class: 'rollrow' },
+    keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
+      const settled = (row.status !== 'present' && row.status !== 'pending' && row.status !== 'absent') || row.late > 0;
+      return h('li', { class: 'rollrow' },
         h('button', {
           type: 'button',
           class: 'rollname',
           'aria-pressed': String(row.status === 'present'),
+          disabled: !teacherMode && (locked || settled),
           onclick: () => setMark(row.name, row.status === 'present' ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
-        ...ABSENCE_REASONS.map(([reason, label]) => h('button', {
+        teacherMode && lateControls(row),
+        teacherMode && ABSENCE_REASONS.map(([reason, label]) => h('button', {
           type: 'button',
           class: 'reason',
           'aria-pressed': String(row.status === reason),
           onclick: () => setMark(row.name, row.status === reason ? null : reason),
-        }, t(label)))))));
+        }, t(label))));
+    })));
+    const history = doc?.history ?? [];
+    log.hidden = !history.length;
+    log.replaceChildren(
+      h('h3', {}, t('Исправления после фиксации: {0}', [history.length])),
+      h('ul', {}, [...history].reverse().map((entry) => h('li', {},
+        t('{0}, {1}. {2}: {3} на {4}', [stampText(entry.at), entry.teacher, entry.name, markText(entry.before), markText(entry.after)])))),
+    );
+    drawFooter(doc);
   }
 
   search.addEventListener('input', draw);
@@ -1327,7 +1583,8 @@ function openRoll(id) {
         h('h2', {}, event.title),
         h('p', { class: 'help' }, `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
       closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, summary, failure, h('div', { class: 'field' }, search), list),
+    h('div', { class: 'sheetbody' }, banner, summary, failure, h('div', { class: 'field' }, search), list, log),
+    footer,
   );
   dialog.showModal();
 }
@@ -1502,6 +1759,7 @@ const REPORT_TABS = [
     [t('Преподаватель'), (r) => r.event.responsible],
     [t('Группы'), (r) => r.groups.join(', ')],
     [t('Место'), (r) => r.event.place],
+    [t('Зафиксировал'), (r) => r.locked?.teacher ?? ''],
     [t('Всего'), (r) => r.total],
     ...COUNTS,
   ]],
@@ -2254,7 +2512,7 @@ function openWelcome() {
   const draft = {
     deviceName: current.deviceName,
     showAll: current.showAll,
-    syncKey: current.syncKey,
+    syncKey: '',
     memoFrom: current.memoFrom,
     memoSigner: current.memoSigner,
   };
@@ -2308,6 +2566,7 @@ function openWelcome() {
         h('p', { class: 'help' }, t('Преподаватель видит мероприятия всех устройств.'))),
     ],
     () => {
+      if (current.hasKey) return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), h('p', { class: 'help' }, t('Ключ сети уже задан.'))];
       const key = input('w-key', t('Ключ сети'), 'syncKey', t('Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.'));
       const field = key.querySelector('input');
       const row = h('div', { class: 'adder' });
@@ -2367,7 +2626,8 @@ async function openSettings() {
   const dialog = $('preferences');
   const current = await api.getSettings();
   const name = h('input', { id: 's-name', value: current.deviceName, autocomplete: 'off', maxlength: 60 });
-  const key = h('input', { id: 's-key', value: current.syncKey, spellcheck: 'false', autocomplete: 'off' });
+  const key = h('input', { id: 's-key', spellcheck: 'false', autocomplete: 'off', placeholder: current.hasKey ? t('Новый ключ') : '' });
+  const oldKey = h('input', { id: 's-key-old', type: 'password', spellcheck: 'false', autocomplete: 'off', placeholder: t('Текущий ключ') });
   const peers = h('input', { id: 's-peers', value: current.peers.join(', '), spellcheck: 'false', autocomplete: 'off' });
   const memoFrom = h('input', { id: 's-memo-from', value: current.memoFrom, autocomplete: 'off', maxlength: 60 });
   const memoSigner = h('input', { id: 's-memo-signer', value: current.memoSigner, autocomplete: 'off', maxlength: 60 });
@@ -2413,6 +2673,7 @@ async function openSettings() {
       const result = await api.saveSettings({
         deviceName: name.value,
         syncKey: key.value,
+        currentKey: oldKey.value,
         peers: peers.value,
         showAll: showAll.checked,
         fullscreen: fullscreen.checked,
@@ -2421,7 +2682,11 @@ async function openSettings() {
         memoSigner: memoSigner.value,
       });
       if (!result.ok) {
-        message.textContent = result.code === 'short-key' ? t('Ключ сети должен быть не короче 12 символов') : t('Настройки не сохранены: нет доступа к файлу настроек.');
+        message.textContent = result.code === 'short-key'
+          ? t('Ключ сети должен быть не короче 12 символов')
+          : result.code === 'wrong-key'
+            ? t('Текущий ключ сети введён неверно.')
+            : t('Настройки не сохранены: нет доступа к файлу настроек.');
         return;
       }
       state.settings = await api.getSettings();
@@ -2459,6 +2724,8 @@ async function openSettings() {
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
+        current.hasKey && h('p', { class: 'help' }, t('Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.')),
+        current.hasKey && oldKey,
         h('div', { class: 'adder' }, key, h('button', {
           type: 'button',
           onclick: async () => { key.value = await api.generateKey(); },
@@ -2540,7 +2807,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'pinpad'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2561,6 +2828,7 @@ function wire() {
     $('pet').showModal();
   });
   $('open-gear').addEventListener('click', openGear);
+  $('roll').addEventListener('close', endTeacherMode);
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);

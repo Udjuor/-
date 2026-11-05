@@ -352,6 +352,27 @@ test('в строку попадают поджимающие сроки и св
   assert.deepEqual(alerts.map(({ event, late }) => [event.id, late]), [['недавняя', true], ['просрочка', true], ['завтра', false]]);
 });
 
+test('опоздание ставит преподаватель, присутствие его не вызывает', () => {
+  const event = { date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера', 'Гена'] };
+  const at = new Date(2026, 10, 3, 9, 20).toISOString();
+  const doc = { marks: {
+    Аня: { status: 'present', at, late: false },
+    Боря: { status: 'present', at, late: true },
+    Вера: { status: 'present', at },
+  } };
+  const rows = L.rollCall(event, doc, '2026-11-03', '09:30');
+  assert.deepEqual(rows.map((r) => [r.name, r.late]), [['Аня', 0], ['Боря', 20], ['Вера', 20], ['Гена', 0]]);
+  const onTime = { marks: { Боря: { status: 'present', at: new Date(2026, 10, 3, 9, 0).toISOString(), late: true } } };
+  assert.equal(L.rollCall(event, onTime, '2026-11-03', '09:30')[1].late, 1, 'поставленное вручную опоздание не теряется');
+});
+
+test('зафиксированный отчёт держит свой состав и закрывает неотмеченных', () => {
+  const event = { date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Новенький'] };
+  const doc = { marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 9, 0).toISOString(), late: false } }, lock: { at: 'x', teacher: 'Т', participants: ['Аня', 'Боря'] } };
+  const rows = L.rollCall(event, doc, '2026-11-03', '09:30');
+  assert.deepEqual(rows.map((r) => [r.name, r.status]), [['Аня', 'present'], ['Боря', 'absent']]);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

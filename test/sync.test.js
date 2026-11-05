@@ -99,6 +99,44 @@ test('справочники и их удаление расходятся ка�
   assert.deepEqual((await a.store.directory()).map((r) => r.name), ['ИС-21']);
 });
 
+test('отметка с панели без связи не меняет зафиксированный отчёт', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save({ ...sample, participants: ['Иванов', 'Петров'] });
+  await a.node.syncWith(b.node.at);
+  await a.store.saveMark(event.id, 'Иванов', 'present');
+  await a.store.lockReport(event.id, 'Лебедева');
+  await new Promise((r) => setTimeout(r, 5));
+  await b.store.saveMark(event.id, 'Петров', 'present'); // панель b ещё не знает о фиксации
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  await a.node.syncWith(b.node.at);
+  for (const d of [a, b]) {
+    const [doc] = await d.store.attendance();
+    assert.equal(doc.lock.teacher, 'Лебедева');
+    assert.deepEqual(Object.keys(doc.marks), ['Иванов']);
+  }
+});
+
+test('исправления с разных устройств сохраняются в истории', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save({ ...sample, participants: ['Иванов', 'Петров'] });
+  await a.store.lockReport(event.id, 'Лебедева');
+  await a.node.syncWith(b.node.at);
+  await a.store.saveMark(event.id, 'Иванов', 'sick', { teacher: 'Лебедева' });
+  await new Promise((r) => setTimeout(r, 5));
+  await b.store.saveMark(event.id, 'Петров', 'order', { teacher: 'Павлов' });
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  await a.node.syncWith(b.node.at);
+  for (const d of [a, b]) {
+    const [doc] = await d.store.attendance();
+    assert.equal(doc.history.length, 2);
+    assert.deepEqual([doc.marks['Иванов'].status, doc.marks['Петров'].status], ['sick', 'order']);
+  }
+});
+
 test('отметки разных панелей по одной паре объединяются, а не затирают друг друга', async (t) => {
   const a = await device(t, 'a');
   const b = await device(t, 'b');

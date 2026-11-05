@@ -104,6 +104,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.reload();
   await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => {});
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });
+  const enterPin = async (pin) => {
+    for (const digit of pin) await page.click(`#pinpad .pinkey:text-is("${digit}")`);
+  };
+  const teacherLogin = async (pin) => {
+    await page.click('#teacher-mode');
+    await page.waitForSelector('#pinpad[open]');
+    await enterPin(pin);
+  };
 
   await page.locator('.block').first().waitFor();
   assert.equal(await page.locator('.block').count(), 7, 'неделя показывает свои мероприятия');
@@ -244,6 +252,21 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.fill('#c-edit', 'Лебедева Ольга Викторовна');
   await page.click('#catalog .refrow.editing >> text=Сохранить');
   await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна")');
+  await page.click('#catalog li:has-text("Лебедева Ольга Викторовна") >> text=Задать PIN');
+  await page.waitForSelector('#pinpad[open]');
+  await enterPin('123456');
+  await page.waitForSelector('#pinpad .help:has-text("Повторите PIN")');
+  await enterPin('123456');
+  await page.waitForSelector('#pinpad .error:has-text("Неверный ключ")');
+  await page.fill('#pin-proof', NETWORK_KEY);
+  await enterPin('123456');
+  await page.waitForSelector('#pinpad .help:has-text("Повторите PIN")');
+  await shot('pin-setup');
+  await enterPin('123456');
+  await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна"):has-text("PIN задан")');
+  await page.click('#catalog li:has-text("Лебедева Ольга Викторовна") >> text=Удалить');
+  await page.click('#catalog .danger');
+  await page.waitForSelector('#catalog .notice:has-text("снимите PIN")');
   await page.click('#catalog [aria-label=Закрыть]');
 
   await page.click('#add');
@@ -520,12 +543,21 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('.rollrow:has-text("Алексеева Мария")'), /Отмечен в \d\d:\d\d/);
   await page.click('.rollrow:has-text("Борисов Илья") .rollname');
   await page.waitForSelector('.rollrow:has-text("Борисов Илья") .rollname[aria-pressed=true]');
+  assert.equal(await page.locator('.rollrow .reason').count(), 0, 'без входа причин нет');
+  assert.equal((await page.evaluate(() => window.calendar.mark(document.body.dataset.none ?? '00000000-0000-4000-8000-000000000000', 'Кто-то', 'sick', {}))).code, 'teacher-only');
+  await teacherLogin('654321');
+  await page.waitForSelector('#pinpad .error:has-text("Неверный PIN")');
+  await enterPin('123456');
+  await page.waitForSelector('#pinpad', { state: 'hidden' });
+  await page.waitForSelector('.rollrow .reason');
   await page.click('.rollrow:has-text("Васильева Дарья") .reason:has-text("Болезнь")');
   await page.waitForSelector('.rollrow:has-text("Васильева Дарья") .reason[aria-pressed=true]');
   await page.click('.rollrow:has-text("Григорьев Павел") .reason:has-text("По приказу")');
   await page.waitForSelector('.rollrow:has-text("Григорьев Павел") .reason[aria-pressed=true]');
   await page.click('.rollrow:has-text("Данилова София") .reason:has-text("Уважительная")');
   await page.waitForSelector('.rollrow:has-text("Данилова София") .reason[aria-pressed=true]');
+  await page.click('#teacher-exit');
+  await page.waitForSelector('#teacher-mode');
   await page.click('.rollrow:has-text("Борисов Илья") .rollname');
   await page.waitForSelector('.rollrow:has-text("Борисов Илья") .rollname[aria-pressed=false]');
   await page.waitForSelector('.rollsummary:has-text("Отмечены: 1 из 6")');
@@ -546,7 +578,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#open-reports');
   await page.waitForSelector('#reports[open]');
   const row = page.locator('#reports tbody tr:has-text("Подготовка к олимпиаде")');
-  assert.deepEqual((await row.locator('td').allTextContents()).slice(7), ['6', '2', await row.locator('td').nth(9).textContent(), '1', '1', '1', '1', '33%']);
+  assert.deepEqual((await row.locator('td').allTextContents()).slice(8), ['6', '2', await row.locator('td').nth(10).textContent(), '1', '1', '1', '1', '33%']);
   assert.equal(await page.locator('#reports tbody tr:has-text("Волонтёры")').count(), 0, 'мероприятия не считаются парами');
   await shot('report-pairs');
   await page.click('#reports .tabs >> text=Посещаемость студентов');
@@ -766,6 +798,51 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#details'), /Срок сдачи[\s\S]*Сдано:/);
   await page.click('#details [aria-label=Закрыть]');
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'Сдача макета афиши' && e.deadlineDone), 'отметка о сдаче на другом устройстве');
+
+  // Опоздание вручную и фиксация отчёта.
+  const fixedPair = (await page.evaluate((date) => window.calendar.save({
+    title: 'Пара с фиксацией', type: 'lesson', date, start: '14:00', end: '15:00', participants: ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья'], devices: [],
+  }, null), day(0))).value;
+  await page.click('.block:has-text("Пара с фиксацией")', { timeout: 15000 });
+  await page.click('#details >> text=Отметка: 0 из 3');
+  await page.waitForSelector('#roll[open]');
+  await page.click('.rollrow:has-text("Алексеева Мария") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Алексеева Мария") .rollname[aria-pressed=true]');
+  assert.doesNotMatch(await page.textContent('.rollrow:has-text("Алексеева Мария")'), /опоздание/, 'присутствие не считается опозданием');
+  await teacherLogin('123456');
+  await page.waitForSelector('#pinpad', { state: 'hidden' });
+  await page.click('.rollrow:has-text("Борисов Илья") >> text=Опоздал');
+  await page.fill('.rollrow:has-text("Борисов Илья") .latetime', '14:20');
+  await page.locator('.rollrow:has-text("Борисов Илья") .latetime').blur();
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 20 мин")');
+  await shot('roll-teacher');
+  await page.click('#lock-report');
+  await page.waitForSelector('#lock-confirm');
+  await page.click('#lock-confirm');
+  await page.waitForSelector('.lockbanner:has-text("Лебедева Ольга Викторовна")');
+  assert.match(await page.textContent('.rollrow:has-text("Васильева Дарья")'), /Без причины/);
+  await page.click('#teacher-exit');
+  await page.waitForSelector('#teacher-mode');
+  assert.equal(await page.isDisabled('.rollrow:has-text("Алексеева Мария") .rollname'), true, 'зафиксированное не нажимается');
+  const forged = await page.evaluate((id) => window.calendar.mark(id, 'Васильева Дарья', 'present', {}), fixedPair.id);
+  assert.equal(forged.code, 'locked', 'обход кнопки тоже не проходит');
+  await shot('roll-locked');
+  await page.click('#roll [aria-label=Закрыть]');
+  await page.click('.block:has-text("Пара с фиксацией")');
+  await page.click('#details >> text=Удалить');
+  await page.click('#details .danger');
+  await page.waitForSelector('#details .message:has-text("зафиксирован")');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.click('.block:has-text("Пара с фиксацией")');
+  await page.click('#details .primary');
+  await page.waitForSelector('#roll[open]');
+  await teacherLogin('123456');
+  await page.waitForSelector('#pinpad', { state: 'hidden' });
+  await page.click('.rollrow:has-text("Васильева Дарья") .reason:has-text("Болезнь")');
+  await page.waitForSelector('.rollhistory:has-text("Исправления после фиксации: 1")');
+  await shot('roll-corrected');
+  await page.click('#roll [aria-label=Закрыть]');
+  await until(async () => (await teacherStore.attendance()).some((d) => d.eventId === fixedPair.id && d.lock && d.history.length === 1), 'зафиксированный отчёт на другом устройстве');
 
   // Нажатие на пустое время открывает форму с этим временем.
   await page.click('[data-view=day]');

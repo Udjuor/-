@@ -7,6 +7,7 @@ const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
 const { buildMemo } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
+const { TeacherGate, sameText } = require('./teachers');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
 function homeDir() {
@@ -88,6 +89,7 @@ let config = loadConfig(homeDir());
 // Поля даты и времени рисует Chromium: язык ему нужен до запуска окна.
 if (config.lang !== 'auto') app.commandLine.appendSwitch('lang', config.lang);
 let store = null;
+let gate = null;
 let sync = null;
 let syncProblem = null;
 
@@ -195,6 +197,13 @@ async function readUpdateStatus() {
   }
 }
 
+/** Хеши PIN на страницу не попадают. */
+function publicRef(ref) {
+  if (ref.kind !== 'teacher') return ref;
+  const { pin, ...rest } = ref;
+  return { ...rest, hasPin: Boolean(pin) };
+}
+
 function registerHandlers() {
   ipcMain.handle('events:list', () => respond(() => store.list()));
   ipcMain.handle('events:save', (_e, event, base) => respond(async () => {
@@ -207,12 +216,12 @@ function registerHandlers() {
     sync?.nudge();
   }));
 
-  ipcMain.handle('directory:list', () => respond(() => store.directory()));
+  ipcMain.handle('directory:list', () => respond(async () => (await store.directory()).map(publicRef)));
   ipcMain.handle('directory:save', (_e, refs) => respond(async () => {
     const saved = [];
     for (const { ref, base } of refs) saved.push(await store.saveRef(ref, base));
     sync?.nudge();
-    return saved;
+    return saved.map(publicRef);
   }));
   ipcMain.handle('directory:remove', (_e, refs) => respond(async () => {
     for (const { id, base } of refs) await store.remove(id, base);
@@ -220,10 +229,33 @@ function registerHandlers() {
   }));
 
   ipcMain.handle('attendance:list', () => respond(() => store.attendance()));
-  ipcMain.handle('attendance:mark', (_e, eventId, name, status) => respond(async () => {
-    const doc = await store.saveMark(eventId, name, status);
+  ipcMain.handle('attendance:mark', (_e, eventId, name, status, options = {}) => respond(async () => {
+    const teacher = gate.session(options.token);
+    const doc = await store.saveMark(eventId, name, status, {
+      teacher,
+      student: !teacher,
+      late: options.late === true,
+      at: options.at ?? null,
+    });
     sync?.nudge();
     return doc;
+  }));
+  ipcMain.handle('attendance:lock', (_e, eventId, token) => respond(async () => {
+    const teacher = gate.session(token);
+    if (!teacher) throw Object.assign(new Error('teacher only'), { code: 'teacher-only' });
+    const doc = await store.lockReport(eventId, teacher);
+    sync?.nudge();
+    return doc;
+  }));
+  ipcMain.handle('teacher:login', (_e, id, pin) => respond(() => gate.login(id, pin)));
+  ipcMain.handle('teacher:logout', (_e, token) => gate.logout(token));
+  ipcMain.handle('teacher:set-pin', (_e, id, proof, pin) => respond(async () => {
+    await gate.setPin(id, proof, pin);
+    sync?.nudge();
+  }));
+  ipcMain.handle('teacher:reset-pin', (_e, id, key) => respond(async () => {
+    await gate.resetPin(id, key);
+    sync?.nudge();
   }));
 
   ipcMain.handle('report:save', (_e, fileName, text, labels) => respond(async () => {
@@ -268,7 +300,7 @@ function registerHandlers() {
   ipcMain.handle('settings:get', () => ({
     deviceId: config.deviceId,
     deviceName: config.deviceName,
-    syncKey: config.syncKey,
+    hasKey: Boolean(config.syncKey), // сам ключ подтверждает смену PIN, поэтому на экран не выводится
     peers: config.peers,
     showAll: config.showAll,
     theme: config.theme,
@@ -283,8 +315,12 @@ function registerHandlers() {
 
   ipcMain.handle('settings:save', (_e, settings) =>
     respond(async () => {
-      const syncKey = String(settings.syncKey ?? '').trim();
-      if (syncKey && syncKey.length < 12) throw Object.assign(new Error('short key'), { code: 'short-key' });
+      const typedKey = String(settings.syncKey ?? '').trim();
+      if (typedKey && typedKey.length < 12) throw Object.assign(new Error('short key'), { code: 'short-key' });
+      if (typedKey && config.syncKey && typedKey !== config.syncKey && !sameText(settings.currentKey ?? '', config.syncKey)) {
+        throw Object.assign(new Error('wrong key'), { code: 'wrong-key' });
+      }
+      const syncKey = typedKey || config.syncKey;
       const syncChanged = syncKey !== config.syncKey
         || settings.deviceName !== config.deviceName
         || splitPeers(settings.peers).join() !== config.peers.join();
@@ -380,6 +416,7 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(null);
     nativeTheme.themeSource = config.theme;
     store = new EventStore(config.dataDir, config.deviceId);
+    gate = new TeacherGate(store, () => config.syncKey);
     registerHandlers();
     createSplash();
     createWindow();

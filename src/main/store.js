@@ -117,6 +117,12 @@ function normalizeRef(raw) {
     ref.until = MOMENT_RE.test(raw.until ?? '') ? raw.until : '';
     if (!ref.until) return null;
   }
+  if (raw.kind === 'teacher') {
+    delete ref.hasPin;
+    ref.pin = typeof raw.pin?.salt === 'string' && typeof raw.pin?.hash === 'string'
+      ? { salt: raw.pin.salt, hash: raw.pin.hash }
+      : null;
+  }
   if (raw.kind === 'equipment') {
     // Пустое количество означает «без лимита».
     ref.quantity = Number.isInteger(raw.quantity) && raw.quantity >= 0 ? raw.quantity : null;
@@ -146,8 +152,16 @@ function normalizeAttendance(raw) {
     const status = mark?.status ?? null;
     if ((status === null || MARK_STATUSES.has(status)) && STAMP_RE.test(mark?.t ?? '')) {
       doc.marks[name] = { status, at: mark.at ?? null, t: mark.t, by: String(mark.by ?? '') };
+      // У старых отметок поля нет: их опоздание считается по времени, как раньше.
+      if (typeof mark.late === 'boolean') doc.marks[name].late = mark.late;
+      if (mark.teacher) doc.marks[name].teacher = String(mark.teacher);
     }
   }
+  const lock = raw.lock;
+  doc.lock = typeof lock?.at === 'string' && lock.at && typeof lock.teacher === 'string'
+    ? { at: lock.at, teacher: lock.teacher, device: String(lock.device ?? ''), participants: cleanList(lock.participants) }
+    : null;
+  doc.history = doc.lock && Array.isArray(raw.history) ? raw.history.slice(-500) : [];
   return doc;
 }
 
@@ -167,10 +181,32 @@ function mergeMarks(a, b) {
   return merged;
 }
 
-const sameMarks = (a, b) => {
-  const sorted = (marks) => JSON.stringify(Object.keys(marks).sort().map((name) => [name, marks[name]]));
+/**
+ * Зафиксированный отчёт главнее незафиксированной копии: отметки, сделанные
+ * на другой панели без связи, не должны менять его задним числом.
+ */
+function mergeAttendance(a, b) {
+  if (!a.lock && !b.lock) return { marks: mergeMarks(a.marks, b.marks), lock: null, history: [] };
+  if (!a.lock || !b.lock) {
+    const { marks, lock, history } = a.lock ? a : b;
+    return { marks, lock, history };
+  }
+  const entries = new Map([...a.history, ...b.history].map((entry) => [JSON.stringify(entry), entry]));
+  return {
+    marks: mergeMarks(a.marks, b.marks),
+    lock: a.lock.at <= b.lock.at ? a.lock : b.lock,
+    history: [...entries.values()].sort((x, y) => String(x.at).localeCompare(String(y.at))),
+  };
+}
+
+const sameAttendance = (a, b) => {
+  const sorted = (doc) => JSON.stringify([
+    Object.keys(doc.marks).sort().map((name) => [name, doc.marks[name]]), doc.lock ?? null, doc.history ?? [],
+  ]);
   return sorted(a) === sorted(b);
 };
+
+const LOCKED_FIELDS = ['title', 'type', 'date', 'start', 'end', 'participants'];
 
 /** Запись для хранения и обмена: мероприятие, справочник, отметки или отметка об удалении. */
 function normalizeRecord(raw) {
@@ -257,19 +293,66 @@ class EventStore {
     return (await this.records()).filter((record) => record.kind === 'attendance');
   }
 
-  /** Ставит или снимает отметку студента. Время берётся с часов этого компьютера. */
-  saveMark(eventId, name, status) {
+  /**
+   * Ставит или снимает отметку студента.
+   * student: отметка без входа преподавателя, только своё присутствие.
+   * teacher: кто вошёл по PIN; только он может исправить зафиксированный отчёт.
+   */
+  saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null } = {}) {
     return this.exclusive(async () => {
-      if (!ID_RE.test(String(eventId)) || !String(name).trim() || !(status === null || MARK_STATUSES.has(status))) {
+      const validTime = at === null || !Number.isNaN(Date.parse(at));
+      if (!ID_RE.test(String(eventId)) || !String(name).trim() || !(status === null || MARK_STATUSES.has(status)) || !validTime) {
         throw new StoreError('invalid', 'Неверная отметка');
       }
       const id = attendanceId(eventId);
       const current = await this.readCurrent(id);
-      const t = nextStamp(current?.marks?.[name]?.t);
+      const before = current?.marks?.[name];
+      if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
+      if (student) {
+        const settled = before?.status && (before.status !== 'present' || before.late);
+        if (settled || late || at || (status && status !== 'present')) throw new StoreError('teacher-only', 'Нужен вход преподавателя');
+      }
+      const mark = {
+        status,
+        at: status ? at ?? new Date().toISOString() : null,
+        t: nextStamp(before?.t),
+        by: this.deviceId,
+        late: status === 'present' && late,
+      };
+      if (teacher) mark.teacher = teacher;
+      const history = [...(current?.history ?? [])];
+      if (current?.lock) {
+        const brief = (m) => ({ status: m?.status ?? null, at: m?.at ?? null, late: m?.late ?? null });
+        history.push({ at: new Date().toISOString(), teacher, name, before: brief(before), after: brief(mark) });
+      }
       const doc = normalizeAttendance({
         id,
         eventId,
-        marks: { ...(current?.marks ?? {}), [name]: { status, at: status ? new Date().toISOString() : null, t, by: this.deviceId } },
+        marks: { ...(current?.marks ?? {}), [name]: mark },
+        lock: current?.lock,
+        history,
+        updatedAt: nextStamp(current?.updatedAt),
+        updatedBy: this.deviceId,
+      });
+      await this.write(doc);
+      return doc;
+    });
+  }
+
+  /** Фиксирует отчёт: состав пары запоминается, дальше правки только по PIN. */
+  lockReport(eventId, teacher) {
+    return this.exclusive(async () => {
+      if (!ID_RE.test(String(eventId)) || !teacher) throw new StoreError('invalid', 'Неверная фиксация');
+      const event = await this.readCurrent(eventId);
+      if (!event || event.deleted) throw new StoreError('conflict', 'Мероприятие удалено');
+      const id = attendanceId(eventId);
+      const current = await this.readCurrent(id);
+      if (current?.lock) throw new StoreError('locked', 'Отчёт уже зафиксирован');
+      const doc = normalizeAttendance({
+        id,
+        eventId,
+        marks: current?.marks ?? {},
+        lock: { at: new Date().toISOString(), teacher, device: this.deviceId, participants: event.participants },
         updatedAt: nextStamp(current?.updatedAt),
         updatedBy: this.deviceId,
       });
@@ -314,6 +397,9 @@ class EventStore {
     });
     if (!draft) throw new StoreError('invalid', 'Проверьте название, дату и время');
     const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
+    if (current && LOCKED_FIELDS.some((field) => JSON.stringify(current[field]) !== JSON.stringify(draft[field]))) {
+      await this.assertNotLocked(draft.id);
+    }
     const event = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
     await this.write(event);
     return event;
@@ -325,13 +411,28 @@ class EventStore {
     if (!draft) throw new StoreError('invalid', 'Проверьте название');
     const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
     const ref = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
+    // PIN меняется только через setTeacherPin.
+    if (ref.kind === 'teacher') ref.pin = current?.pin ?? null;
     await this.write(ref);
     return ref;
+  }
+
+  setTeacherPin(id, pin) {
+    return this.exclusive(async () => {
+      const current = await this.readCurrent(id);
+      await this.write({ ...current, pin, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+    });
+  }
+
+  async assertNotLocked(eventId) {
+    if ((await this.readCurrent(attendanceId(eventId)))?.lock) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
   }
 
   async remove(id, baseUpdatedAt) {
     if (!ID_RE.test(String(id))) throw new StoreError('invalid', 'Неверный номер мероприятия');
     const current = await this.assertUnchanged(id, baseUpdatedAt);
+    if (current.kind === 'teacher' && current.pin) throw new StoreError('protected', 'Сначала снимите PIN');
+    if (!current.kind) await this.assertNotLocked(id);
     await this.write({ id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
   }
 
@@ -350,12 +451,12 @@ class EventStore {
       let result = record;
       if (mine?.kind === 'attendance' && record.kind === 'attendance') {
         // Разные панели могли отметить разных студентов: сохраняем всех.
-        const marks = mergeMarks(mine.marks, record.marks);
+        const merged = mergeAttendance(mine, record);
         const newest = revision(mine) >= revision(record);
-        if (sameMarks(marks, mine.marks) && newest) continue;
-        if (!sameMarks(marks, record.marks)) {
+        if (sameAttendance(merged, mine) && newest) continue;
+        if (!sameAttendance(merged, record)) {
           const stamp = nextStamp(newest ? mine.updatedAt : record.updatedAt);
-          result = { ...record, marks, updatedAt: stamp, updatedBy: this.deviceId };
+          result = { ...record, ...merged, updatedAt: stamp, updatedBy: this.deviceId };
         }
       } else if (mine && revision(mine) >= revision(record)) {
         continue;

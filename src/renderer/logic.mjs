@@ -307,14 +307,19 @@ const hasEnded = (event, nowISO, nowTime) => eventState(event, nowISO, nowTime) 
  * это пропуск без причины; пока она идёт — просто «нет отметки».
  */
 export function rollCall(event, doc, nowISO, nowTime) {
-  return event.participants.map((name) => {
+  const closed = Boolean(doc?.lock) || hasEnded(event, nowISO, nowTime);
+  return (doc?.lock?.participants ?? event.participants).map((name) => {
     const mark = doc?.marks?.[name];
-    if (mark?.status) {
-      const late = mark.status === 'present' ? lateMinutes(event, mark.at) : 0;
-      return { name, status: mark.status, at: mark.at, late };
-    }
-    return { name, status: hasEnded(event, nowISO, nowTime) ? 'absent' : 'pending', at: null, late: 0 };
+    if (mark?.status) return { name, status: mark.status, at: mark.at, late: markedLate(event, mark) };
+    return { name, status: closed ? 'absent' : 'pending', at: null, late: 0 };
   });
+}
+
+/** Опоздание ставит только преподаватель. Старые отметки считаются по времени, как раньше. */
+function markedLate(event, mark) {
+  if (mark.status !== 'present') return 0;
+  if (mark.late === undefined) return lateMinutes(event, mark.at);
+  return mark.late ? Math.max(1, lateMinutes(event, mark.at)) : 0;
 }
 
 /** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
@@ -357,7 +362,7 @@ export function buildReport({ events, attendance, students, groups, filters, now
     const roster = rollCall(event, docs.get(event.id), nowISO, nowTime).filter((row) => inGroup(row.name));
     if (filters.group && !roster.length) continue;
     const eventGroups = [...new Set(event.participants.map((name) => groupOf.get(nameKey(name))).filter(Boolean))].sort();
-    pairs.push({ event, groups: eventGroups, ...tally(roster) });
+    pairs.push({ event, groups: eventGroups, locked: docs.get(event.id)?.lock ?? null, ...tally(roster) });
     for (const row of roster) {
       const key = nameKey(row.name);
       if (!byStudent.has(key)) byStudent.set(key, { name: row.name, group: groupOf.get(key) ?? '', rows: [] });

@@ -255,6 +255,49 @@ test('срок сдачи есть только у заданий и мероп�
   assert.deepEqual([broken.deadline, broken.deadlineDone], ['', ''], 'без срока отметка о сдаче не держится');
 });
 
+test('без входа можно только отметить своё присутствие', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов', 'Петров'] });
+  const student = { student: true };
+  await store.saveMark(event.id, 'Иванов', 'present', student);
+  await store.saveMark(event.id, 'Иванов', null, student);
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'sick', student), { code: 'teacher-only' });
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'present', { ...student, late: true }), { code: 'teacher-only' });
+  await store.saveMark(event.id, 'Петров', 'present', { teacher: 'Лебедева', late: true, at: '2026-11-10T01:20:00.000Z' });
+  await assert.rejects(store.saveMark(event.id, 'Петров', null, student), { code: 'teacher-only' });
+  await assert.rejects(store.saveMark(event.id, 'Петров', 'present', student), { code: 'teacher-only' });
+  const [doc] = await store.attendance();
+  assert.deepEqual([doc.marks['Петров'].late, doc.marks['Петров'].at], [true, '2026-11-10T01:20:00.000Z']);
+});
+
+test('после фиксации отчёт правится только по PIN и с историей', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов', 'Петров'] });
+  await store.saveMark(event.id, 'Иванов', 'present');
+  await store.lockReport(event.id, 'Лебедева');
+  await assert.rejects(store.lockReport(event.id, 'Павлов'), { code: 'locked' });
+  await assert.rejects(store.saveMark(event.id, 'Петров', 'present', { student: true }), { code: 'locked' });
+  await assert.rejects(store.saveMark(event.id, 'Петров', 'present'), { code: 'locked' });
+  const doc = await store.saveMark(event.id, 'Петров', 'sick', { teacher: 'Павлов' });
+  assert.deepEqual(doc.lock.participants, ['Иванов', 'Петров']);
+  assert.equal(doc.lock.teacher, 'Лебедева', 'исправление не меняет того, кто зафиксировал');
+  assert.equal(doc.history.length, 1);
+  assert.equal(doc.history[0].teacher, 'Павлов');
+  assert.equal(doc.history[0].before.status, null);
+  assert.equal(doc.history[0].after.status, 'sick');
+});
+
+test('зафиксированную пару нельзя удалить или подменить, а срок сдачи можно', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, type: 'task' });
+  await store.lockReport(event.id, 'Лебедева');
+  await assert.rejects(store.remove(event.id, event.updatedAt), { code: 'locked' });
+  await assert.rejects(store.save({ ...event, participants: ['Другой'] }, event.updatedAt), { code: 'locked' });
+  await assert.rejects(store.save({ ...event, start: '09:00' }, event.updatedAt), { code: 'locked' });
+  const saved = await store.save({ ...event, deadline: '2026-11-12T18:00' }, event.updatedAt);
+  assert.equal(saved.deadline, '2026-11-12T18:00');
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });
