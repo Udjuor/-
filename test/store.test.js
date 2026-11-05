@@ -226,6 +226,22 @@ test('имя питомца хранится в группе и проверяе
   assert.equal(bad.petSince, '');
 });
 
+test('журнал смертей питомца хранится в группе', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petDeaths: [{ name: 'Пиксель', bornOn: '2026-10-01', diedOn: '2026-10-20', pairs: 9, лишнее: 1 }, null] });
+  assert.deepEqual(group.petDeaths[0], { name: 'Пиксель', bornOn: '2026-10-01', diedOn: '2026-10-20', pairs: 9 });
+  assert.equal(group.petDeaths.length, 2);
+});
+
+test('напоминание хранит цвет и срок, без срока не принимается', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const notice = await store.saveRef({ kind: 'notice', name: 'Собрание', color: 'red', until: '2026-11-05T18:00' });
+  assert.equal(notice.color, 'red');
+  assert.equal((await store.saveRef({ kind: 'notice', name: 'Б', color: 'розовый', until: '2026-11-05T18:00' })).color, 'blue');
+  await assert.rejects(store.saveRef({ kind: 'notice', name: 'Без срока' }), { code: 'invalid' });
+  assert.equal((await store.directory()).length, 2);
+});
+
 test('неверные данные не записываются', async (t) => {
   const store = new EventStore(tempDir(t));
   await assert.rejects(store.save({ ...sample, title: '  ' }), { code: 'invalid' });

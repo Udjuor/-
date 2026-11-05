@@ -279,6 +279,41 @@ test('время освобождения в записке начинается
   assert.equal(L.needsMemo(e, { ...e, id: '1', prepMinutes: 0 }), true, 'изменение подготовки обновляет записку');
 });
 
+test('занятость техники: сейчас, у кого, с учётом подготовки и количества', () => {
+  const stock = [{ name: 'Камера', quantity: 5 }, { name: 'Штатив', quantity: null }, { name: 'Проектор', quantity: 1 }];
+  const events = [
+    { ...gear('a', '10:00', '11:00', ['камера'], { камера: 2 }), responsible: 'Лебедева' },
+    { ...gear('b', '11:00', '12:00', ['Камера']), prepMinutes: 90 },
+    gear('c', '10:30', '12:00', ['Вне списка']),
+    gear('d', '13:00', '14:00', ['Штатив']),
+    { ...gear('past', '08:00', '09:00', ['Проектор']) },
+    { ...gear('tomorrow', '09:00', '10:00', ['Проектор']), date: '2026-11-04' },
+  ];
+  const rows = L.equipmentNow(stock, events, '2026-11-03', '10:45');
+  const row = (name) => rows.find((r) => r.name === name);
+  assert.equal(row('Камера').used, 3);
+  assert.equal(row('Камера').total, 5);
+  assert.deepEqual(row('Камера').holders.map((h) => h.event.id), ['a', 'b']);
+  assert.equal(row('Камера').holders[0].event.responsible, 'Лебедева');
+  assert.equal(row('Вне списка').used, 1, 'техника, вписанная вручную, тоже видна');
+  assert.equal(row('Штатив').used, 0);
+  assert.equal(row('Штатив').next.id, 'd');
+  assert.equal(row('Проектор').next.id, 'tomorrow', 'ближайшая бронь на другой день');
+  assert.ok(rows.findIndex((r) => r.name === 'Камера') < rows.findIndex((r) => r.name === 'Штатив'), 'занятое выше свободного');
+  assert.equal(L.equipmentNow(stock, events, '2026-11-03', '12:30').find((r) => r.name === 'Камера').used, 0);
+});
+
+test('занятость техники считается по концу события и не показывает свою камеру как запас', () => {
+  const rows = L.equipmentNow([{ name: L.OWN_CAMERA, quantity: null }, { name: 'Камера', quantity: 1 }], [gear('a', '10:00', '11:00', ['Камера'])], '2026-11-03', '11:00');
+  assert.deepEqual(rows.map((r) => [r.name, r.used]), [['Камера', 0]]);
+});
+
+test('напоминания: истёкшие скрываются, ближайшие к сроку идут первыми', () => {
+  const notices = [{ name: 'позже', until: '2026-11-05T10:00' }, { name: 'раньше', until: '2026-11-04T10:00' }, { name: 'истекло', until: '2026-11-03T10:00' }];
+  assert.deepEqual(L.activeNotices(notices, '2026-11-03T10:00').map((n) => n.name), ['раньше', 'позже']);
+  assert.deepEqual(L.activeNotices(notices, '2026-11-05T10:00'), []);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

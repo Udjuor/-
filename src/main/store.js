@@ -78,7 +78,9 @@ function normalizeEvent(raw) {
 
 const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice']);
+const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
+const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 /** Запись справочника: группа, студент, техника или преподаватель. */
 function normalizeRef(raw) {
@@ -97,7 +99,19 @@ function normalizeRef(raw) {
   }
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
-    ref.petSince = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw.petSince ?? '') ? raw.petSince : '';
+    ref.petSince = MOMENT_RE.test(raw.petSince ?? '') ? raw.petSince : '';
+    ref.petDeaths = (Array.isArray(raw.petDeaths) ? raw.petDeaths : []).slice(-200).map((death) => ({
+      name: String(death?.name ?? '').slice(0, 24),
+      bornOn: String(death?.bornOn ?? ''),
+      diedOn: String(death?.diedOn ?? ''),
+      pairs: Number.isInteger(death?.pairs) ? death.pairs : 0,
+    }));
+  }
+  if (raw.kind === 'notice') {
+    ref.name = ref.name.slice(0, 200);
+    ref.color = NOTICE_COLORS.has(raw.color) ? raw.color : 'blue';
+    ref.until = MOMENT_RE.test(raw.until ?? '') ? raw.until : '';
+    if (!ref.until) return null;
   }
   if (raw.kind === 'equipment') {
     // Пустое количество означает «без лимита».

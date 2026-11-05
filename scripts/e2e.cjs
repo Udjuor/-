@@ -603,10 +603,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pet-open');
   await page.waitForSelector('#pet .mood-dead');
   assert.match(await page.textContent('#pet .petmood'), /Пиксель: питомец умер/);
+  assert.equal(await page.locator('#pet .healthchart').count(), 1, 'график здоровья');
   await shot('pet-dead');
   await page.click('#pet >> text=Завести нового питомца');
   await page.waitForSelector('#pet .mood-fine');
   assert.match(await page.textContent('#pet .petlevel'), /Здоровье 70 из 100/);
+  assert.match(await page.textContent('#pet .petdeaths'), /Пиксель/);
+  await shot('pet-stats');
+  await until(async () => (await teacherStore.directory()).some((r) => r.petDeaths?.[0]?.name === 'Пиксель'), 'журнал смертей на другом устройстве');
   await page.click('#pet [aria-label=Закрыть]');
 
   // Служебная записка: сама при назначении на практику, не для занятий.
@@ -668,12 +672,59 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#memo [aria-label=Закрыть]');
   await page.click('#today');
 
+  // На панели нельзя управлять строкой, на компьютере преподавателя можно.
+  assert.equal(await page.isVisible('#notices-open'), false, 'панель не модерирует строку');
+
   // Преподаватель видит всё.
   await page.click('#settings');
   await page.click('label:has-text("Показывать мероприятия всех устройств")');
   await page.click('#preferences button[type=submit]');
   await page.waitForSelector('dialog#preferences', { state: 'hidden' });
   await page.waitForSelector('.block:has-text("На компьютер преподавателя")');
+
+  // Бегущая строка.
+  await page.click('#notices-open');
+  await page.waitForSelector('#notices[open]');
+  await page.click('#notices >> text=Добавить в строку');
+  await page.waitForSelector('#notices .error:has-text("Введите текст")');
+  await page.fill('#n-text', 'Собрание кураторов в 15:00');
+  await page.click('#notices .targets button:has-text("Красный")');
+  await page.click('#notices .prepchoices button:has-text("3 дня")');
+  await page.click('#notices >> text=Добавить в строку');
+  await page.waitForSelector('#notices li:has-text("Собрание кураторов")');
+  await page.click('#notices [aria-label=Закрыть]');
+  await page.waitForSelector('#ticker:not([hidden]) .notice-red:has-text("Собрание кураторов")');
+  const running = await page.evaluate(() => {
+    const track = document.querySelector('.tickertrack');
+    const duration = parseFloat(track.style.animationDuration);
+    return { speed: (track.scrollWidth + document.getElementById('ticker').clientWidth) / duration, name: getComputedStyle(track).animationName };
+  });
+  assert.equal(running.name, 'ticker-run');
+  assert.ok(running.speed > 40 && running.speed < 130, `читаемая скорость: ${running.speed}`);
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'notice' && r.color === 'red'), 'напоминание на другом устройстве');
+  await shot('ticker');
+  const expired = await teacherStore.saveRef({ kind: 'notice', name: 'Вчерашнее', color: 'green', until: `${day(-1)}T10:00` });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.click('#notices-open');
+  await page.waitForSelector('#notices li:has-text("Вчерашнее"):has-text("Срок вышел")', { timeout: 15000 });
+  assert.equal(await page.locator('#ticker .notice:has-text("Вчерашнее")').count(), 0, 'истёкшее не показывается');
+  await shot('notices');
+  await page.click('#notices li:has-text("Вчерашнее") >> text=Удалить');
+  await page.waitForSelector('#notices li:has-text("Вчерашнее")', { state: 'detached' });
+  assert.ok(expired.id);
+  await page.click('#notices [aria-label=Закрыть]');
+
+  // Занятость техники в реальном времени.
+  await page.click('#open-gear');
+  await page.waitForSelector('#gear[open]');
+  const micRow = page.locator('#gear tbody tr:has-text("Микрофон")');
+  assert.match(await micRow.textContent(), /Занято[\s\S]*Павлов С\. Н\.[\s\S]*Волонтёры дня открытых дверей[\s\S]*Актовый зал[\s\S]*12:30/);
+  assert.match(await page.textContent('#gear tbody tr:has-text("Проектор")'), /Свободно/);
+  await shot('gear');
+  await page.fill('#g-search', 'камер');
+  await page.waitForFunction(() => document.querySelectorAll('#gear tbody tr').length === 1);
+  assert.match(await page.textContent('#gear tbody'), /Камера/);
+  await page.click('#gear [aria-label=Закрыть]');
 
   // Нажатие на пустое время открывает форму с этим временем.
   await page.click('[data-view=day]');

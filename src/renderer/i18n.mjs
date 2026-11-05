@@ -22,6 +22,7 @@ const DICTIONARIES = { en, es, zh, ja, ko };
 const RU_PLURALS = {
   people: { one: '{n} участник', few: '{n} участника', many: '{n} участников', other: '{n} участника' },
   students: { one: '{n} студент', few: '{n} студента', many: '{n} студентов', other: '{n} студента' },
+  days: { one: '{n} день', few: '{n} дня', many: '{n} дней', other: '{n} дня' },
   pairsHeld: { one: 'Проведена: {n} пара', few: 'Проведено: {n} пары', many: 'Проведено: {n} пар', other: 'Проведено: {n} пары' },
 };
 

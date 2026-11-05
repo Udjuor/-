@@ -180,6 +180,32 @@ export function shortages(draft, events, stock) {
   return result;
 }
 
+/** Занятость техники на этот момент: сколько занято, у кого и что дальше. */
+export function equipmentNow(stock, events, nowISO, nowTime) {
+  const active = (event) => event.date === nowISO && busyFrom(event) <= nowTime && nowTime < event.end;
+  const upcoming = (event) => event.date > nowISO || (event.date === nowISO && busyFrom(event) > nowTime);
+  const rows = new Map(stock.filter((item) => item.name !== OWN_CAMERA)
+    .map((item) => [nameKey(item.name), { name: item.name, total: item.quantity ?? null, listed: true }]));
+  for (const event of events.filter(active)) {
+    for (const name of event.equipment) {
+      if (!rows.has(nameKey(name))) rows.set(nameKey(name), { name, total: null, listed: false });
+    }
+  }
+  const soon = [...events].filter(upcoming).sort((a, b) => a.date.localeCompare(b.date) || busyFrom(a).localeCompare(busyFrom(b)));
+  return [...rows.entries()].map(([key, row]) => {
+    const uses = (event) => event.equipment.find((name) => nameKey(name) === key);
+    const holders = events.filter((event) => active(event) && uses(event))
+      .map((event) => ({ event, count: equipmentCount(event, uses(event)) }));
+    const used = holders.reduce((sum, holder) => sum + holder.count, 0);
+    return { ...row, used, holders, next: soon.find(uses) ?? null };
+  }).sort((a, b) => Number(b.used > 0) - Number(a.used > 0) || a.name.localeCompare(b.name, 'ru'));
+}
+
+/** Напоминания, срок которых ещё не вышел: сначала те, что заканчиваются раньше. */
+export function activeNotices(notices, moment) {
+  return notices.filter((notice) => notice.until > moment).sort((a, b) => a.until.localeCompare(b.until));
+}
+
 /** Разбирает вставленные строки техники: последний числовой столбец — количество. */
 export function parseEquipment(text) {
   return text.split(/[\r\n;]+/).map((line) => {

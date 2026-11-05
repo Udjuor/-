@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, addDays, addMonths, buildReport, busyFrom, equipmentCount, equipmentLabel, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -268,6 +268,8 @@ async function refresh() {
   await loadAttendance();
   await loadDevices();
   refreshPet();
+  refreshTicker();
+  refreshGear();
 }
 
 let redrawRoll = null;
@@ -1650,6 +1652,90 @@ function petStats(pet) {
   ];
 }
 
+const shortDay = (iso) => fmt(iso, { day: 'numeric', month: 'long' });
+
+/** График здоровья по парам. Одна линия, подробности при наведении и касании. */
+function healthChart(pet) {
+  if (!pet.timeline.length) return null;
+  const levels = pet.timeline.map((point) => point.health);
+  const summary = h('p', { class: 'help' }, t('Питомец с {0}. Учтено пар: {1}. Здоровье от {2} до {3}', [shortDay(pet.bornOn), pet.counted, Math.min(...levels), Math.max(...levels)]));
+  if (pet.timeline.length < 2) return h('section', { class: 'petsection' }, h('h3', {}, t('Здоровье по парам')), summary);
+  const points = pet.timeline.slice(-30);
+  const width = 400;
+  const height = 130;
+  const left = 30;
+  const top = 8;
+  const plot = height - top - 8;
+  const ns = 'http://www.w3.org/2000/svg';
+  const make = (tag, attrs) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    return node;
+  };
+  const x = (i) => left + (i / (points.length - 1)) * (width - left - 10);
+  const y = (health) => top + (1 - health / 100) * plot;
+  const svg = make('svg', { viewBox: `0 0 ${width} ${height}`, class: 'healthchart', role: 'img', 'aria-label': t('Здоровье по парам') });
+  for (const level of [0, 50, 100]) {
+    svg.append(make('line', { x1: left, x2: width - 10, y1: y(level), y2: y(level), class: 'grid' }));
+    const label = make('text', { x: left - 6, y: y(level) + 3.5, class: 'axis' });
+    label.textContent = String(level);
+    svg.append(label);
+  }
+  svg.append(make('polyline', { class: 'healthline', points: points.map((p, i) => `${x(i)},${y(p.health)}`).join(' ') }));
+  const end = points.at(-1);
+  const marker = make('circle', { class: 'healthdot', cx: x(points.length - 1), cy: y(end.health), r: 4.5 });
+  svg.append(marker);
+  const caption = h('p', { class: 'help healthcaption' });
+  const describe = (p) => t('{0}, {1}: здоровье {2}', [shortDay(p.date), p.title, p.health]);
+  caption.textContent = describe(end);
+  const step = (width - left - 10) / (points.length - 1);
+  points.forEach((p, i) => {
+    const target = make('rect', { x: x(i) - step / 2, y: 0, width: step, height, class: 'healthhit' });
+    const show = () => {
+      caption.textContent = describe(p);
+      marker.setAttribute('cx', x(i));
+      marker.setAttribute('cy', y(p.health));
+    };
+    target.addEventListener('pointerenter', show);
+    target.addEventListener('pointerdown', show);
+    svg.append(target);
+  });
+  return h('section', { class: 'petsection' }, h('h3', {}, t('Здоровье по парам')), svg, caption, summary);
+}
+
+/** Записанные смерти и питомец, который умер, но ещё не заменён новым. */
+function deathsOf(group) {
+  const pet = petOf(group);
+  const current = pet.diedOn ? [{ name: group.petName ?? '', bornOn: pet.bornOn, diedOn: pet.diedOn, pairs: pet.counted }] : [];
+  return [...(group.petDeaths ?? []), ...current];
+}
+
+function petGraves(group) {
+  const deaths = deathsOf(group);
+  if (!deaths.length) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Умерло питомцев: {0}', [deaths.length])),
+    h('ul', { class: 'petdeaths' }, [...deaths].reverse().map((death) => h('li', {},
+      h('strong', {}, death.name || t('Безымянный питомец')),
+      h('span', {}, t('{0} – {1}, пар: {2}', [shortDay(death.bornOn), shortDay(death.diedOn), death.pairs]))))));
+}
+
+function petOverview(groups) {
+  if (groups.length < 2) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Все группы')),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, [t('Группа'), t('Питомец'), t('Здоровье'), t('Умерло')].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, groups.map((group) => {
+        const pet = petOf(group);
+        return h('tr', {},
+          h('td', {}, group.name),
+          h('td', {}, group.petName || '–'),
+          h('td', {}, pet.mood === 'dead' ? t('Умер') : String(pet.health)),
+          h('td', {}, String(deathsOf(group).length)));
+      })))));
+}
+
 function drawPet() {
   const dialog = $('pet');
   const groups = refsOf('group');
@@ -1725,14 +1811,201 @@ function drawPet() {
           class: 'primary petnew',
           onclick: () => {
             const clock = now();
-            saveGroup({ petName: '', petSince: `${clock.iso}T${clock.time}` });
+            saveGroup({ petName: '', petSince: `${clock.iso}T${clock.time}`, petDeaths: deathsOf(group) });
           },
         }, t('Завести нового питомца'))
         : h('div', { class: 'field petname' },
           h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать')))),
       failure,
+      healthChart(pet),
+      petGraves(group),
+      petOverview(groups),
       h('p', { class: 'help' }, t('Питомец живёт посещаемостью группы: пропуски без причины и опоздания вредят ему, хорошая посещаемость лечит. Уважительные причины не вредят.'))),
   );
+}
+
+/* Бегущая строка */
+
+const TICKER_REM_PER_SECOND = 5.5; // примерно 9 знаков в секунду: читается на ходу
+const NOTICE_COLORS = [['blue', t('Синий')], ['green', t('Зелёный')], ['yellow', t('Жёлтый')], ['red', t('Красный')]];
+
+const moment = () => {
+  const clock = now();
+  return `${clock.iso}T${clock.time}`;
+};
+
+let tickerKey = '';
+
+/** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
+function refreshTicker() {
+  const notices = activeNotices(refsOf('notice'), moment());
+  const box = $('ticker');
+  $('notices-open').hidden = !state.settings?.showAll;
+  const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
+  if (key === tickerKey) return;
+  tickerKey = key;
+  box.hidden = !notices.length;
+  const track = box.firstElementChild;
+  track.replaceChildren(...notices.map((notice) => h('span', { class: `notice notice-${notice.color}` }, notice.name)));
+  if (!notices.length) return;
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const distance = box.clientWidth + track.scrollWidth;
+  track.style.setProperty('--from', `${box.clientWidth}px`);
+  track.style.setProperty('--to', `${-track.scrollWidth}px`);
+  track.style.animation = 'none';
+  void track.offsetWidth;
+  track.style.animation = '';
+  track.style.animationDuration = `${distance / (TICKER_REM_PER_SECOND * rem)}s`;
+  // Ширина могла измениться, когда строка появилась на экране.
+  tickerKey = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
+}
+
+const noticeEditor = { id: null, base: null };
+
+function openNotices() {
+  noticeEditor.id = null;
+  drawNotices();
+  $('notices').showModal();
+}
+
+function drawNotices() {
+  const dialog = $('notices');
+  const editing = refsOf('notice').find((notice) => notice.id === noticeEditor.id);
+  const clock = now();
+  const text = h('textarea', { id: 'n-text', maxlength: 200, placeholder: t('Текст напоминания') }, editing?.name ?? '');
+  const until = h('input', { id: 'n-until', type: 'datetime-local', value: editing?.until ?? `${addDays(clock.iso, 1)}T18:00` });
+  let color = editing?.color ?? 'blue';
+  const failure = h('p', { class: 'error' });
+  const days = (count) => h('button', {
+    type: 'button',
+    onclick: () => { until.value = `${addDays(clock.iso, count)}T18:00`; },
+  }, tp('days', count));
+  const saveNotice = async () => {
+    const name = text.value.trim();
+    if (!name) { failure.textContent = t('Введите текст напоминания'); return; }
+    if (until.value <= moment()) { failure.textContent = t('Срок должен быть позже текущего времени'); return; }
+    const ref = { ...(editing ?? { kind: 'notice' }), name, color, until: until.value };
+    const result = await api.saveRefs([{ ref, base: editing?.updatedAt ?? null }]);
+    if (!result.ok) { failure.textContent = storeMessage(result); return; }
+    noticeEditor.id = null;
+    await reloadNotices();
+  };
+  const notices = [...refsOf('notice')].sort((a, b) => b.until.localeCompare(a.until));
+
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Напоминания')), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      h('p', { class: 'help noticehelp' }, t('Строка показывается внизу экрана на всех устройствах сети. Управлять ею можно с компьютеров преподавателей.')),
+      h('div', { class: 'field' }, h('label', { for: 'n-text' }, t('Текст')), text),
+      h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Цвет')),
+        choiceRow(NOTICE_COLORS, color, (id) => { color = id; })),
+      h('div', { class: 'field settingnext' }, h('label', { for: 'n-until' }, t('Показывать до')), until,
+        h('div', { class: 'targets prepchoices' }, [1, 3, 7].map(days))),
+      failure,
+      h('div', { class: 'noticeactions' },
+        h('button', { class: 'primary', type: 'button', onclick: saveNotice }, editing ? t('Сохранить') : t('Добавить в строку')),
+        editing && h('button', { class: 'plain', type: 'button', onclick: () => { noticeEditor.id = null; drawNotices(); } }, t('Отмена'))),
+      notices.length > 0 && h('ul', { class: 'reflist noticelist' }, notices.map((notice) => {
+        const expired = notice.until <= moment();
+        return h('li', { class: 'refrow' },
+          h('div', { class: 'refname' },
+            h('p', {}, h('span', { class: `noticemark notice-${notice.color}` }), notice.name),
+            h('span', {}, expired ? t('Срок вышел') : t('До {0}', [noticeUntil(notice)]))),
+          h('button', { type: 'button', class: 'plain', onclick: () => { noticeEditor.id = notice.id; drawNotices(); } }, t('Изменить')),
+          h('button', {
+            type: 'button',
+            class: 'plain',
+            onclick: async () => {
+              await api.removeRefs([{ id: notice.id, base: notice.updatedAt }]);
+              await reloadNotices();
+            },
+          }, t('Удалить')));
+      }))),
+  );
+}
+
+const noticeUntil = (notice) => {
+  const [date, time] = notice.until.split('T');
+  return `${shortDay(date)}, ${time}`;
+};
+
+async function reloadNotices() {
+  const fresh = await api.directory();
+  if (fresh.ok) state.directory = fresh.value;
+  refreshTicker();
+  drawNotices();
+}
+
+/* Занятость техники */
+
+const gearView = { query: '' };
+
+function gearRows() {
+  const clock = now();
+  const query = nameKey(gearView.query);
+  return equipmentNow(refsOf('equipment'), state.allEvents, clock.iso, clock.time)
+    .filter((row) => !query || nameKey(row.name).includes(query));
+}
+
+function drawGearResult(box) {
+  const rows = gearRows();
+  const cell = (...content) => h('td', {}, ...content);
+  const quantity = (row) => (row.total === null ? String(row.used) : t('{0} из {1}', [row.used, row.total]));
+  const nextText = (row) => (row.next ? `${row.next.date === now().iso ? '' : `${shortDay(row.next.date)}, `}${busyFrom(row.next)}, ${row.next.title}` : '–');
+  const lines = rows.flatMap((row) => {
+    const status = row.used === 0
+      ? h('span', { class: 'gearstate free' }, t('Свободно'))
+      : row.total !== null && row.used < row.total
+        ? h('span', { class: 'gearstate part' }, t('Занято частично'))
+        : h('span', { class: 'gearstate busy' }, t('Занято'));
+    const head = (span) => [
+      h('td', { rowspan: span }, h('strong', {}, row.name)),
+      h('td', { rowspan: span }, status),
+      h('td', { rowspan: span }, quantity(row)),
+    ];
+    const tail = h('td', { rowspan: Math.max(row.holders.length, 1) }, nextText(row));
+    if (!row.holders.length) return [h('tr', {}, head(1), cell('–'), cell('–'), cell('–'), cell('–'), tail)];
+    return row.holders.map(({ event, count }, i) => h('tr', {},
+      i === 0 && head(row.holders.length),
+      cell(event.responsible || t('Не указан'), row.holders.length > 1 || count > 1 ? ` × ${count}` : ''),
+      cell(event.title),
+      cell(event.place || '–'),
+      cell(event.end),
+      i === 0 && tail));
+  });
+  const busy = rows.filter((row) => row.used > 0).length;
+  box.replaceChildren(
+    h('p', { class: 'rollsummary' }, t('Сейчас в работе: {0} из {1}. Обновлено в {2}', [busy, rows.length, now().time])),
+    rows.length
+      ? h('div', { class: 'tablewrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, [t('Техника'), t('Состояние'), t('Занято'), t('У кого'), t('Событие'), t('Место'), t('До'), t('Дальше')]
+          .map((name) => h('th', { scope: 'col' }, name)))),
+        h('tbody', {}, lines)))
+      : h('p', { class: 'help' }, gearView.query ? t('Ничего не найдено.') : t('Список техники пуст. Добавьте её в разделе «Справочники».')),
+  );
+}
+
+function openGear() {
+  const dialog = $('gear');
+  gearView.query = '';
+  const search = h('input', { id: 'g-search', type: 'search', placeholder: t('Поиск по названию'), autocomplete: 'off', 'aria-label': t('Поиск по названию') });
+  const result = h('div', { id: 'gear-result' });
+  search.addEventListener('input', () => {
+    gearView.query = search.value;
+    drawGearResult(result);
+  });
+  drawGearResult(result);
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Занятость техники')), closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, h('div', { class: 'field gearsearch' }, search), result),
+  );
+  dialog.showModal();
+}
+
+function refreshGear() {
+  if (!$('gear').open) return;
+  const box = $('gear-result');
+  keepScroll(box, () => drawGearResult(box));
 }
 
 /* Настройки */
@@ -2083,14 +2356,18 @@ function tick() {
     if (state.date === state.today) state.date = clock.iso;
     state.today = clock.iso;
   }
-  if (clock.time !== state.renderedMinute) render();
+  if (clock.time !== state.renderedMinute) {
+    render();
+    refreshTicker();
+    refreshGear();
+  }
   if (Date.now() - state.lastActivity > IDLE_MS) resetIdle();
 }
 
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2110,6 +2387,8 @@ function wire() {
     drawPet();
     $('pet').showModal();
   });
+  $('open-gear').addEventListener('click', openGear);
+  $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';

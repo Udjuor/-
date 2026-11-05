@@ -81,6 +81,17 @@ test('мероприятия и чужие студенты не влияют', 
   assert.equal(s.counted, 0);
 });
 
+test('история здоровья идёт по парам и обрывается смертью', () => {
+  const events = Array.from({ length: 12 }, (_, i) => pair(i + 1));
+  const docs = events.map((_, i) => marks(i + 1, { Аня: 'present' }));
+  const s = status(events, docs);
+  assert.equal(s.timeline.length, s.counted);
+  assert.equal(s.timeline.at(-1).health, 0);
+  assert.ok(s.timeline.every((point, i, all) => i === 0 || point.health < all[i - 1].health));
+  assert.equal(s.bornOn, day(1));
+  assert.equal(s.timeline.at(-1).date, s.diedOn);
+});
+
 test('спрайты целые: 16 на 16, все пиксели окрашены', () => {
   for (const mood of ['play', 'fine', 'sad', 'sick', 'dead']) {
     for (const frame of [0, 1]) {

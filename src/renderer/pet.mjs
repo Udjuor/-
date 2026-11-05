@@ -38,6 +38,7 @@ export function petStatus({ group, students, events, attendance, nowISO, nowTime
   let counted = 0;
   let last = null;
   let diedOn = null;
+  const timeline = [];
 
   for (const event of pairs) {
     const marks = Object.values(docs.get(event.id)?.marks ?? {});
@@ -51,13 +52,15 @@ export function petStatus({ group, students, events, attendance, nowISO, nowTime
     health = clamp(health + healthChange((onTime + late / 2) / rows.length));
     counted += 1;
     last = { title: event.title, date: event.date, total: rows.length, present: onTime + late, late, absent };
+    timeline.push({ date: event.date, title: event.title, health });
     if (health === 0) {
       diedOn = event.date;
       break;
     }
   }
 
-  return { health, mood: moodOf(health), counted, last, diedOn };
+  const bornOn = since.slice(0, 10) || timeline[0]?.date || nowISO;
+  return { health, mood: moodOf(health), counted, last, diedOn, timeline, bornOn };
 }
 
 /* Спрайты 16×16 */

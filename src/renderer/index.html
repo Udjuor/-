@@ -20,6 +20,7 @@
         <button data-view="week">Неделя</button>
         <button data-view="month">Месяц</button>
       </div>
+      <button class="text" id="open-gear">Техника</button>
       <button class="text" id="open-reports">Отчёты</button>
       <button class="text" id="open-catalog">Справочники</button>
       <button class="primary" id="add">Добавить</button>
@@ -36,6 +37,8 @@
     <span class="t-practice">Практика</span>
     <span class="t-task">Задание</span>
     <span class="t-event">Мероприятие</span>
+    <div id="ticker" class="ticker" aria-label="Напоминания" hidden><div class="tickertrack"></div></div>
+    <button id="notices-open" class="noticesbutton" hidden>Напоминания</button>
     <button id="pet-open" class="petbutton" hidden></button>
   </footer>
   <div id="toast" class="toast" role="status" hidden></div>
@@ -49,6 +52,8 @@
   <dialog id="reports" class="sheet full"></dialog>
   <dialog id="paper" class="sheet wide"></dialog>
   <dialog id="pet" class="sheet"></dialog>
+  <dialog id="gear" class="sheet full"></dialog>
+  <dialog id="notices" class="sheet"></dialog>
   <dialog id="memo" class="sheet small"></dialog>
   <dialog id="welcome" class="sheet small"></dialog>
   <div id="printarea"></div>
