@@ -357,6 +357,12 @@ export function excusedBy(event, events) {
 export const LATE_UNTIL_MINUTE = 10;
 export const ABSENT_FROM_MINUTE = 40;
 
+/** Поля шаблона служебной записки, как их пишут в Word. */
+export const TEMPLATE_FIELDS = {
+  ru: { memo: ['Мероприятие', 'Дата и время', 'Освобождение', 'Место', 'Ответственный', 'От кого', 'Подпись', 'День', 'Месяц', 'Год'], row: ['№', 'ФИО', 'Группа'] },
+  en: { memo: ['Event', 'When', 'Release', 'Place', 'Responsible', 'From', 'Signature', 'Day', 'Month', 'Year'], row: ['No', 'Name', 'Group'] },
+};
+
 /** ФВТ-24-1 считается подгруппой, если есть группа ФВТ-24. Отдельная настройка не нужна. */
 export function parentGroup(group, groups) {
   const base = String(group.name ?? '').trim().match(/^(.+)-\d+$/)?.[1];

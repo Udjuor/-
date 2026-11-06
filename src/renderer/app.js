@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -1286,6 +1286,110 @@ function rowNote(row) {
   if (row.excusedFor) return t('По приказу: {0}', [row.excusedFor]);
   if (row.unconfirmed) return t('Болезнь, ждём справку');
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
+}
+
+/* Шаблон служебной записки и резервные копии */
+
+const fieldNames = () => TEMPLATE_FIELDS[locale().startsWith('ru') ? 'ru' : 'en'];
+const braces = (names) => names.map((name) => `{{${name}}}`).join(', ');
+
+function templateSection() {
+  const box = h('section', { class: 'setting', id: 's-template' });
+  const message = h('p', { class: 'help', role: 'status' });
+  const draw = async () => {
+    const { custom } = await api.memoTemplate();
+    box.replaceChildren(
+      h('h3', { class: 'settinghead' }, t('Шаблон служебной записки')),
+      h('p', {}, custom ? t('Загружен свой шаблон.') : t('Используется встроенный шаблон.')),
+      h('div', { class: 'targets' },
+        h('button', { type: 'button', onclick: async () => {
+          const result = await api.downloadTemplate();
+          if (result.ok && result.value) message.textContent = t('Сохранено: {0}', [result.value]);
+        } }, t('Скачать шаблон')),
+        h('button', { type: 'button', id: 's-template-upload', onclick: async () => {
+          const result = await api.uploadTemplate();
+          if (!result.ok) {
+            message.textContent = result.code === 'no-fields'
+              ? t('В файле нет ни одного поля. Добавьте поля в двойных фигурных скобках, например {0}.', [braces(fieldNames().row.slice(1, 2))])
+              : t('Это не документ Word (.docx).');
+          } else if (result.value) {
+            message.textContent = result.value.unknown.length
+              ? t('Шаблон загружен. Не распознаны поля: {0}. Они останутся в записке как есть.', [result.value.unknown.join(', ')])
+              : t('Шаблон загружен, поля распознаны: {0}.', [result.value.known.length]);
+            draw();
+          }
+        } }, t('Загрузить свой')),
+        custom && h('button', { type: 'button', onclick: async () => {
+          await api.resetTemplate();
+          message.textContent = '';
+          draw();
+        } }, t('Вернуть встроенный'))),
+      message,
+      h('p', { class: 'help' }, t('Скачайте шаблон, поменяйте его в Word и загрузите обратно. Поля пишутся в двойных фигурных скобках: {0}. Строка таблицы, где есть {1}, повторяется для каждого студента.', [braces(fieldNames().memo), braces(fieldNames().row)])),
+    );
+  };
+  draw();
+  return box;
+}
+
+function backupSection() {
+  const box = h('section', { class: 'setting', id: 's-backup' });
+  const message = h('p', { class: 'help', role: 'status' });
+  const draw = async () => {
+    const status = await api.backupStatus();
+    const last = status.last
+      ? t('Последняя копия: {0}', [`${shortDay(status.last.slice(0, 10))}, ${status.last.slice(11, 13)}:${status.last.slice(13, 15)}`])
+      : t('Копий ещё нет.');
+    box.replaceChildren(
+      h('h3', { class: 'settinghead' }, t('Резервные копии')),
+      h('p', {}, last),
+      status.problem ? h('p', { class: 'error' }, t('Последняя копия не создана: {0}', [status.problem])) : '',
+      h('p', { class: 'help backupdir' }, t('Папка: {0}', [status.dir])),
+      h('div', { class: 'targets' },
+        h('button', { type: 'button', id: 's-backup-now', onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          const result = await api.backupNow();
+          message.textContent = result.ok ? t('Копия сохранена.') : t('Копия не создана. Проверьте, доступна ли папка.');
+          draw();
+        } }, t('Сделать копию сейчас')),
+        h('button', { type: 'button', onclick: async () => {
+          const result = await api.chooseBackupDir();
+          if (result.ok && result.value) draw();
+        } }, t('Выбрать папку')),
+        h('button', { type: 'button', id: 's-backup-restore', onclick: async () => {
+          const result = await api.restoreBackup();
+          if (!result.ok) message.textContent = t('Не удалось прочитать копию.');
+          else if (result.value !== null) {
+            message.textContent = t('Возвращено записей: {0}', [result.value]);
+            await refresh();
+          }
+        } }, t('Вернуть удалённое из копии'))),
+      message,
+      h('p', { class: 'help' }, t('Копия делается сама раз в день, хранятся последние 30. Лучше выбрать сетевую папку или флешку: копия на этом же диске не спасёт при поломке компьютера. Возврат из копии добавляет только удалённые и пропавшие записи, текущие не меняются.')),
+    );
+  };
+  draw();
+  return box;
+}
+
+/* Окно */
+
+function showWindowButtons(full) {
+  $('minimize').hidden = !full;
+  $('quit').hidden = !full;
+}
+
+/** Палец на доске легко задеть: закрытие подтверждается. */
+function askQuit() {
+  const dialog = $('quitask');
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Закрыть программу?')), closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, h('p', {}, t('Календарь пропадёт с экрана до следующего запуска. Он запустится сам при следующем входе в Windows.'))),
+    h('div', { class: 'sheetfoot' },
+      h('button', { type: 'button', class: 'plain', onclick: () => dialog.close() }, t('Отмена')),
+      h('button', { type: 'button', class: 'primary', id: 'quit-confirm', onclick: () => api.quit() }, t('Закрыть'))),
+  );
+  dialog.showModal();
 }
 
 /* Версии программы */
@@ -2644,6 +2748,8 @@ async function openSettings() {
           h('label', { for: 's-memo-signer' }, t('Подпись')),
           memoSigner,
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
+      templateSection(),
+      backupSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
         h('div', { class: 'adder' }, key, h('button', {
@@ -2726,7 +2832,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'quitask'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2756,6 +2862,8 @@ function wire() {
     $('catalog').showModal();
   });
   $('minimize').addEventListener('click', () => api.minimize());
+  $('quit').addEventListener('click', askQuit);
+  api.onFullscreen(showWindowButtons);
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });
   }
@@ -2776,6 +2884,7 @@ async function start() {
   wire();
   state.settings = await api.getSettings();
   applyEdition();
+  showWindowButtons(state.settings.fullscreen);
   applySize(state.settings.uiSize);
   api.onChanged(refresh);
   render();

@@ -111,6 +111,10 @@ const today = (() => {
   });
   assert.equal((await page.evaluate((id) => window.calendar.mark(id, 'Иванов', 'present', {}), lockedId)).code, 'locked');
 
+  for (const call of [() => window.calendar.backupNow(), () => window.calendar.restoreBackup('C:\\'), () => window.calendar.resetTemplate()]) {
+    assert.equal((await page.evaluate(call)).code, 'teacher-only');
+  }
+
   // В настройках только язык, размер и версия.
   await page.click('#settings');
   await page.waitForSelector('#preferences[open]');

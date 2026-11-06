@@ -426,6 +426,31 @@ class EventStore {
     return ref;
   }
 
+  /**
+   * Возвращает из резервной копии записи, которых сейчас нет или которые удалены.
+   * Существующие записи не трогает: в копии они старее. Восстановленное получает
+   * новое время, иначе удаление с другого устройства снова бы его стёрло.
+   */
+  restoreFrom(folder) {
+    return this.exclusive(async () => {
+      let restored = 0;
+      for (const name of (await fsp.readdir(folder)).filter((file) => file.endsWith('.json'))) {
+        let record;
+        try {
+          record = JSON.parse(await fsp.readFile(path.join(folder, name), 'utf8'));
+        } catch {
+          continue;
+        }
+        if (!record?.id || record.deleted || !ID_RE.test(String(record.id))) continue;
+        const current = await this.readCurrent(record.id);
+        if (current && !current.deleted) continue;
+        await this.write({ ...record, updatedAt: nextStamp(current?.updatedAt), updatedBy: this.deviceId });
+        restored += 1;
+      }
+      return restored;
+    });
+  }
+
   async assertNotLocked(eventId) {
     if ((await this.readCurrent(attendanceId(eventId)))?.lock) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
   }

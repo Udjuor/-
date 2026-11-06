@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildMemo, readZip, writeZip } = require('../src/main/memo');
+const { buildMemo, readZip, templateFields, writeZip } = require('../src/main/memo');
 
 const template = fs.readFileSync(path.join(__dirname, '..', 'src', 'assets', 'memo-template.docx'));
 const memo = {
@@ -13,6 +13,29 @@ const memo = {
 };
 const xmlOf = (buffer) => readZip(buffer).find((e) => e.name === 'word/document.xml').data.toString('utf8');
 const textOf = (xml) => [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('');
+
+const docx = (body) => writeZip([{ name: 'word/document.xml', data: Buffer.from(`<w:document><w:body>${body}</w:body></w:document>`) }]);
+const p = (...runs) => `<w:p>${runs.map((text) => `<w:r><w:t>${text}</w:t></w:r>`).join('')}</w:p>`;
+
+test('свой шаблон: поля в разорванных фрагментах и строка студента', () => {
+  const custom = docx(`${p('Мероприятие: {{Меропр', 'иятие', '}}')}${p('{{ДЕНЬ}} {{месяц}} {{Год}}')}`
+    + `<w:tbl><w:tr><w:tc>${p('№')}</w:tc></w:tr><w:tr><w:tc>${p('{{', '№}}')}</w:tc><w:tc>${p('{{ФИО}}')}</w:tc><w:tc>${p('{{Группа}}')}</w:tc></w:tr></w:tbl>`
+    + p('{{Неизвестно}} {{Подпись}}'));
+  const xml = xmlOf(buildMemo(custom, { ...memo, signer: 'Павлов С. Н.' }));
+  const text = textOf(xml);
+  assert.ok(text.includes('Мероприятие: Концерт &lt;к Дню матери&gt; &amp; репетиция'));
+  assert.ok(text.includes('03 ноября 2026'));
+  assert.ok(text.includes('1Иванова АннаИС-21') && text.includes('2Петров ПётрПИ-22'));
+  assert.equal((xml.match(/<w:tr>/g) ?? []).length, 1 + memo.students.length);
+  assert.ok(text.includes('{{Неизвестно}} Павлов С. Н.'), 'незнакомое поле остаётся как есть');
+});
+
+test('проверка шаблона перед загрузкой', () => {
+  assert.deepEqual(templateFields(docx(p('{{ФИО}} {{Что-то}}'))), { known: ['{{ФИО}}'], unknown: ['{{Что-то}}'] });
+  assert.deepEqual(templateFields(docx(p('без полей'))).known, []);
+  assert.throws(() => templateFields(writeZip([{ name: 'a.txt', data: Buffer.from('x') }])));
+  assert.equal(templateFields(template).known.length, 13, 'встроенный шаблон размечен полностью');
+});
 
 test('архив читается и собирается без потерь', () => {
   const entries = readZip(template);

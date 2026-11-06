@@ -1,6 +1,7 @@
 'use strict';
-// Служебная записка из шаблона Word. Оформление шаблона не меняется:
-// в его XML подставляются только значения полей и строки студентов.
+// Служебная записка из шаблона Word с полями вида {{Мероприятие}}. Оформление
+// шаблона не меняется: подставляются только значения полей и строки студентов.
+// Шаблон может быть любым: учебное заведение делает его в Word и загружает в программу.
 const zlib = require('node:zlib');
 
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
@@ -78,66 +79,99 @@ function writeZip(entries) {
 const escapeXml = (text) => String(text ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const RUN_PROPS = '<w:rPr><w:rStyle w:val="Нет"/><w:rtl w:val="0"/><w:lang w:val="ru-RU"/></w:rPr>';
+// Поля пишутся по-русски или по-английски: шаблон могут делать в любом учебном заведении.
+const ALIASES = {
+  event: 'мероприятие', when: 'дата и время', release: 'освобождение', place: 'место', responsible: 'ответственный',
+  from: 'от кого', signature: 'подпись', day: 'день', month: 'месяц', year: 'год', no: '№', name: 'фио', group: 'группа',
+};
+const keyOf = (text) => {
+  const key = text.replace(/[{}]/g, '').trim().toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ');
+  return ALIASES[key] ?? key;
+};
 
-const paragraph = (text, center = false) => `<w:p><w:pPr><w:pStyle w:val="Normal.0"/><w:spacing w:after="0"/>${center ? '<w:jc w:val="center"/>' : ''}</w:pPr><w:r>${RUN_PROPS}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+/** Поля документа: название в шаблоне и откуда берётся значение. */
+const FIELDS = {
+  'мероприятие': (memo) => memo.title,
+  'дата и время': (memo) => memo.when,
+  'освобождение': (memo) => memo.release,
+  'место': (memo) => memo.place,
+  'ответственный': (memo) => memo.responsible,
+  'от кого': (memo) => memo.from,
+  'подпись': (memo) => memo.signer,
+  'день': (memo) => memo.day,
+  'месяц': (memo) => memo.month,
+  'год': (memo) => memo.year,
+};
 
-/** Заполняет пустые ячейки строки по порядку. */
-function fillRow(row, values) {
-  let index = 0;
-  return row.replace(/<w:p\/>/g, () => {
-    const value = values[index];
-    index += 1;
-    return value === undefined ? '<w:p/>' : value;
-  });
-}
+/** Поля строки студента: строка таблицы с ними повторяется для каждого. */
+const ROW_FIELDS = {
+  '№': (student, i) => i + 1,
+  'фио': (student) => student.name,
+  'группа': (student) => student.group,
+};
 
-/** Заменяет текст абзаца, который проходит проверку. Оформление первого фрагмента остаётся. */
-function setParagraph(xml, test, text) {
-  return xml.replace(/<w:p(?: [^>]*)?>(?:(?!<\/w:p>).)*?<\/w:p>/gs, (paragraphXml) => {
-    const current = [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('');
-    if (!test.test(current)) return paragraphXml;
-    let first = true;
-    return paragraphXml.replace(/<w:t(?: [^>]*)?>[^<]*<\/w:t>/g, () => {
-      const run = first ? `<w:t xml:space="preserve">${escapeXml(text)}</w:t>` : '<w:t></w:t>';
-      first = false;
-      return run;
+const PLACEHOLDER = /\{\{[^{}<>]*\}\}/g;
+const TEXT_RUN = /(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g;
+
+/**
+ * Word делит текст на фрагменты как угодно, и {{ФИО}} может оказаться в трёх кусках.
+ * Собирает каждое поле в один фрагмент, оформление берётся у того, где поле начинается.
+ */
+function joinPlaceholders(xml) {
+  return xml.replace(/<w:p(?: [^>]*)?>(?:(?!<\/w:p>).)*?<\/w:p>/gs, (paragraph) => {
+    const runs = [...paragraph.matchAll(TEXT_RUN)].map((m) => ({ text: m[2] }));
+    if (runs.length < 2 || !runs.map((r) => r.text).join('').includes('{{')) return paragraph;
+    for (;;) {
+      const all = runs.map((r) => r.text).join('');
+      const starts = [];
+      let at = 0;
+      for (const run of runs) {
+        starts.push(at);
+        at += run.text.length;
+      }
+      const runAt = (pos) => starts.findLastIndex((start, i) => start <= pos && (pos < start + runs[i].text.length || i === runs.length - 1));
+      const split = [...all.matchAll(PLACEHOLDER)].find((m) => runAt(m.index) !== runAt(m.index + m[0].length - 1));
+      if (!split) break;
+      const first = runAt(split.index);
+      const last = runAt(split.index + split[0].length - 1);
+      const end = split.index + split[0].length;
+      const tail = runs[last].text.slice(end - starts[last]);
+      runs[first].text = runs[first].text.slice(0, split.index - starts[first]) + split[0];
+      for (let i = first + 1; i <= last; i += 1) runs[i].text = '';
+      runs[last].text = tail;
+    }
+    let index = 0;
+    return paragraph.replace(TEXT_RUN, () => {
+      const run = runs[index];
+      index += 1;
+      return `<w:t xml:space="preserve">${run.text}</w:t>`;
     });
   });
 }
 
+const fill = (text, fields, ...args) => text.replace(PLACEHOLDER, (found) => {
+  const value = fields[keyOf(found)];
+  return value ? escapeXml(value(...args) ?? '') : found;
+});
+
+const TABLE_ROW = /<w:tr(?: [^>]*)?>(?:(?!<\/w:tr>).)*?<\/w:tr>/gs;
+const hasRowField = (row) => (row.match(PLACEHOLDER) ?? []).some((found) => keyOf(found) in ROW_FIELDS);
+
 function fillDocument(xml, memo) {
-  const firstTable = xml.indexOf('</w:tbl>');
-  const start = xml.indexOf('<w:tbl>', firstTable);
-  const end = xml.indexOf('</w:tbl>', start);
-  if (firstTable < 0 || start < 0 || end < 0) throw new Error('В шаблоне нет таблицы записки');
+  const joined = joinPlaceholders(xml);
+  const withStudents = joined.replace(TABLE_ROW, (row) => (hasRowField(row)
+    ? memo.students.map((student, i) => fill(row, ROW_FIELDS, student, i)).join('')
+    : row));
+  return fill(withStudents, FIELDS, memo);
+}
 
-  const table = xml.slice(start, end);
-  const rows = table.match(/<w:tr>.*?<\/w:tr>/gs);
-  if (!rows || rows.length !== 7) throw new Error('Таблица шаблона изменена');
-  const fields = [memo.title, memo.when, memo.release, memo.place, memo.responsible];
-  let filled = table;
-  rows.slice(0, 5).forEach((row, i) => {
-    filled = filled.replace(row, () => fillRow(row, [paragraph(fields[i])]));
-  });
-  // Колонка номера узкая: без уменьшенных полей двузначное число переносится.
-  const studentRow = rows[6]
-    .replace('<w:left w:type="dxa" w:w="80"/>', '<w:left w:type="dxa" w:w="20"/>')
-    .replace('<w:right w:type="dxa" w:w="80"/>', '<w:right w:type="dxa" w:w="20"/>');
-  const studentRows = memo.students.map((student, i) => fillRow(studentRow, [
-    paragraph(i + 1, true),
-    paragraph(student.name),
-    paragraph(student.group),
-  ])).join('');
-  filled = filled.replace(rows[6], () => studentRows);
-
-  const head = xml.slice(0, start)
-    .replace(/(<w:t[^>]*>)__(<\/w:t>)/, `$1${escapeXml(memo.day)}$2`)
-    .replace(/_____\s+\d{4}\s*/, `${escapeXml(memo.month)} ${escapeXml(memo.year)} `);
-  let result = head + filled + xml.slice(end);
-  if (memo.from) result = setParagraph(result, /^\s*От\s/, `От ${memo.from}`);
-  if (memo.signer) result = setParagraph(result, /^\s*Подпись\s/, `Подпись ___________/ ${memo.signer}`);
-  return result;
+/** Какие поля нашлись в шаблоне. Для проверки загруженного файла. */
+function templateFields(template) {
+  const entry = readZip(template).find((item) => item.name === 'word/document.xml');
+  if (!entry) throw new Error('Это не документ Word');
+  const found = [...new Set(joinPlaceholders(entry.data.toString('utf8')).match(PLACEHOLDER) ?? [])];
+  const known = (name) => keyOf(name) in FIELDS || keyOf(name) in ROW_FIELDS;
+  return { known: found.filter(known), unknown: found.filter((name) => !known(name)) };
 }
 
 /** Возвращает готовый docx. */
@@ -148,4 +182,4 @@ function buildMemo(template, memo) {
   return writeZip(entries);
 }
 
-module.exports = { buildMemo, readZip, writeZip };
+module.exports = { buildMemo, readZip, templateFields, writeZip };

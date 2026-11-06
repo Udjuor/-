@@ -311,6 +311,24 @@ test('справку можно принять и после фиксации, �
   assert.deepEqual([doc.history[0].before.confirmed, doc.history[0].after.confirmed], [false, true]);
 });
 
+test('возврат из копии добавляет удалённое и не трогает текущее', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const kept = await store.save({ ...sample, title: 'Осталось' });
+  const gone = await store.save({ ...sample, title: 'Удалили' });
+  const backup = tempDir(t);
+  for (const file of fs.readdirSync(store.dir)) fs.copyFileSync(path.join(store.dir, file), path.join(backup, file));
+  const renamed = await store.save({ ...kept, title: 'Переименовали' }, kept.updatedAt);
+  await store.remove(gone.id, gone.updatedAt);
+  fs.writeFileSync(path.join(backup, 'мусор.json'), '{');
+  assert.equal(await store.restoreFrom(backup), 1);
+  const list = await store.list();
+  assert.deepEqual(list.map((e) => e.title).sort(), ['Переименовали', 'Удалили']);
+  const back = list.find((e) => e.title === 'Удалили');
+  assert.ok(back.updatedAt > gone.updatedAt, 'новое время, чтобы удаление не вернулось');
+  assert.equal(renamed.title, 'Переименовали');
+  assert.equal(await store.restoreFrom(backup), 0, 'второй раз нечего возвращать');
+});
+
 test('PIN из прошлых версий исчезает из данных', async (t) => {
   const store = new EventStore(tempDir(t));
   const ref = await store.saveRef({ kind: 'teacher', name: 'Лебедева', pin: { salt: 'a', hash: 'b' }, hasPin: true });

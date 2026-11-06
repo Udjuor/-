@@ -725,6 +725,50 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#gear tbody'), /Камера/);
   await page.click('#gear [aria-label=Закрыть]');
 
+  // Кнопки окна видны только на весь экран, закрытие подтверждается.
+  const full = (await page.evaluate(() => window.calendar.getSettings())).fullscreen;
+  assert.equal(await page.isVisible('#quit'), full);
+  if (full) {
+    await page.click('#quit');
+    await page.waitForSelector('#quitask[open]');
+    await page.click('#quitask >> text=Отмена');
+  }
+
+  // Резервная копия и возврат удалённого.
+  await page.click('#settings');
+  await page.waitForSelector('#s-backup-now');
+  await page.click('#s-backup-now');
+  await page.waitForSelector('#s-backup:has-text("Копия сохранена")');
+  await shot('backup');
+  const backupDir = (await page.evaluate(() => window.calendar.backupStatus())).dir;
+  const copies = fs.readdirSync(backupDir).filter((name) => name.startsWith('Kerdiis-'));
+  assert.equal(copies.length, 1);
+  await page.click('#preferences [aria-label=Закрыть]');
+  await page.click('#settings');
+  await page.waitForSelector('#s-backup-now');
+  const victim = (await page.evaluate((date) => window.calendar.save({ title: 'Удалённое и возвращённое', type: 'event', date, start: '17:00', end: '18:00', participants: [], devices: [] }, null), day(0))).value;
+  await page.click('#s-backup-now');
+  await page.waitForFunction(() => document.querySelector('#s-backup')?.textContent.includes('Копия сохранена'));
+  await page.click('#preferences [aria-label=Закрыть]');
+  await page.evaluate((e) => window.calendar.remove(e.id, e.updatedAt), victim);
+  await page.waitForSelector('.block:has-text("Удалённое и возвращённое")', { state: 'detached' });
+  const newest = fs.readdirSync(backupDir).filter((name) => name.startsWith('Kerdiis-')).sort().at(-1);
+  assert.equal((await page.evaluate((dir) => window.calendar.restoreBackup(dir), path.join(backupDir, newest))).value, 1);
+  await page.waitForSelector('.block:has-text("Удалённое и возвращённое")');
+
+  // Свой шаблон служебной записки.
+  const templateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kerdiis-tpl-'));
+  const { writeZip } = require('../src/main/memo');
+  const plain = path.join(templateDir, 'plain.docx');
+  fs.writeFileSync(plain, writeZip([{ name: 'word/document.xml', data: Buffer.from('<w:document><w:body><w:p><w:r><w:t>Без полей</w:t></w:r></w:p></w:body></w:document>') }]));
+  assert.equal((await page.evaluate((f) => window.calendar.uploadTemplate(f), plain)).code, 'no-fields');
+  const mine = path.join(templateDir, 'mine.docx');
+  fs.writeFileSync(mine, writeZip([{ name: 'word/document.xml', data: Buffer.from('<w:document><w:body><w:p><w:r><w:t>Записка: {{Мероприятие}}</w:t></w:r></w:p></w:body></w:document>') }]));
+  assert.deepEqual((await page.evaluate((f) => window.calendar.uploadTemplate(f), mine)).value.known, ['{{Мероприятие}}']);
+  assert.equal((await page.evaluate(() => window.calendar.memoTemplate())).custom, true);
+  await page.evaluate(() => window.calendar.resetTemplate());
+  assert.equal((await page.evaluate(() => window.calendar.memoTemplate())).custom, false);
+
   // Сроки сдачи.
   await page.click('#today');
   await page.click('#add');

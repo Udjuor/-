@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
-const { buildMemo } = require('./memo');
+const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
@@ -153,6 +153,9 @@ function createWindow() {
       event.preventDefault();
     }
   });
+  // Свои кнопки «Свернуть» и «Закрыть» нужны только на весь экран: в окне есть обычная рамка.
+  win.on('enter-full-screen', () => win.webContents.send('window:fullscreen', true));
+  win.on('leave-full-screen', () => win.webContents.send('window:fullscreen', false));
   win.on('closed', () => {
     win = null;
   });
@@ -171,8 +174,72 @@ async function respond(work) {
 let lastMemo = null;
 
 /** Пишет записку в «Документы». Если файл открыт в Word, рядом появится копия. */
+const BUILTIN_TEMPLATE = path.join(__dirname, '..', 'assets', 'memo-template.docx');
+const customTemplate = () => path.join(homeDir(), 'memo-template.docx');
+const activeTemplate = () => (existsSync(customTemplate()) ? customTemplate() : BUILTIN_TEMPLATE);
+
+/** Проверяет шаблон до того, как заменить им текущий. */
+async function installTemplate(file) {
+  const data = await fs.readFile(file);
+  let fields;
+  try {
+    fields = templateFields(data);
+  } catch {
+    throw Object.assign(new Error('not docx'), { code: 'not-docx' });
+  }
+  if (!fields.known.length) throw Object.assign(new Error('no fields'), { code: 'no-fields' });
+  await fs.writeFile(customTemplate(), data);
+  return fields;
+}
+
+/* Резервные копии: папка с датой, внутри копия данных и своего шаблона записки. */
+
+const BACKUP_PREFIX = 'Kerdiis-';
+const BACKUPS_KEPT = 30;
+let backupProblem = null;
+
+async function backupList() {
+  try {
+    return (await fs.readdir(config.backupDir)).filter((name) => name.startsWith(BACKUP_PREFIX)).sort();
+  } catch {
+    return [];
+  }
+}
+
+const backupDate = (name) => name.slice(BACKUP_PREFIX.length, BACKUP_PREFIX.length + 10);
+
+async function makeBackup() {
+  const stamp = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const name = `${BACKUP_PREFIX}${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
+  const target = path.join(config.backupDir, name);
+  try {
+    await fs.mkdir(target, { recursive: true });
+    await fs.cp(path.join(config.dataDir, 'events'), path.join(target, 'events'), { recursive: true });
+    if (existsSync(customTemplate())) await fs.copyFile(customTemplate(), path.join(target, 'memo-template.docx'));
+    await fs.writeFile(path.join(target, 'info.txt'), `Kerdi:s ${app.getVersion()}\r\n${config.deviceName}\r\n${stamp.toISOString()}\r\n`);
+    for (const old of (await backupList()).slice(0, -BACKUPS_KEPT)) {
+      await fs.rm(path.join(config.backupDir, old), { recursive: true, force: true });
+    }
+    backupProblem = null;
+    return name;
+  } catch (err) {
+    backupProblem = err.message;
+    throw Object.assign(err, { code: 'backup-failed' });
+  }
+}
+
+/** Компьютер преподавателя делает копию раз в день, при первом запуске или в течение дня. */
+async function dailyBackup() {
+  if (edition !== 'admin') return;
+  const today = new Date().toLocaleDateString('sv');
+  const last = (await backupList()).at(-1);
+  if (last && backupDate(last) === today) return;
+  await makeBackup().catch((err) => console.error('Резервная копия не создана:', err.message));
+}
+
 async function saveMemo(memo, fileName) {
-  const template = await fs.readFile(path.join(__dirname, '..', 'assets', 'memo-template.docx'));
+  const template = await fs.readFile(activeTemplate());
   const folder = path.join(app.getPath('documents'), 'Служебные записки');
   await fs.mkdir(folder, { recursive: true });
   const base = fileName.replace(/[\\/:*?"<>|\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -281,6 +348,52 @@ function registerHandlers() {
   }));
 
   ipcMain.handle('memo:create', (_e, memo, fileName) => managed(() => saveMemo(memo, fileName)));
+  ipcMain.handle('memo:template', () => ({ custom: existsSync(customTemplate()) }));
+  ipcMain.handle('memo:template-upload', (_e, file) => managed(async () => {
+    let source = file;
+    if (!source) {
+      const result = await dialog.showOpenDialog(win, { filters: [{ name: 'Word', extensions: ['docx'] }], properties: ['openFile'] });
+      if (result.canceled) return null;
+      [source] = result.filePaths;
+    }
+    return installTemplate(source);
+  }));
+  ipcMain.handle('memo:template-download', () => respond(async () => {
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(app.getPath('documents'), 'Шаблон служебной записки.docx'),
+      filters: [{ name: 'Word', extensions: ['docx'] }],
+    });
+    if (result.canceled) return null;
+    await fs.copyFile(activeTemplate(), result.filePath);
+    shell.showItemInFolder(result.filePath);
+    return path.basename(result.filePath);
+  }));
+  ipcMain.handle('memo:template-reset', () => managed(() => fs.rm(customTemplate(), { force: true })));
+  ipcMain.handle('backup:status', async () => {
+    const last = (await backupList()).at(-1);
+    return { dir: config.backupDir, last: last ? last.slice(BACKUP_PREFIX.length) : null, problem: backupProblem };
+  });
+  ipcMain.handle('backup:now', () => managed(makeBackup));
+  ipcMain.handle('backup:choose-dir', () => managed(async () => {
+    const result = await dialog.showOpenDialog(win, { defaultPath: config.backupDir, properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled) return null;
+    config = { ...config, backupDir: result.filePaths[0] };
+    saveConfig(homeDir(), config);
+    return config.backupDir;
+  }));
+  ipcMain.handle('backup:restore', (_e, folder) => managed(async () => {
+    let chosen = folder;
+    if (!chosen) {
+      const result = await dialog.showOpenDialog(win, { defaultPath: config.backupDir, properties: ['openDirectory'] });
+      if (result.canceled) return null;
+      [chosen] = result.filePaths;
+    }
+    const events = existsSync(path.join(chosen, 'events')) ? path.join(chosen, 'events') : chosen;
+    const restored = await store.restoreFrom(events);
+    sync?.nudge();
+    win?.webContents.send('events:changed');
+    return restored;
+  }));
   ipcMain.handle('memo:open', async () => {
     const problem = lastMemo ? await shell.openPath(lastMemo) : 'нет файла';
     return { ok: !problem };
@@ -410,6 +523,7 @@ function registerHandlers() {
   ipcMain.handle('window:minimize', () => {
     if (win) win.minimize();
   });
+  ipcMain.handle('window:quit', () => app.quit());
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -431,6 +545,8 @@ if (!app.requestSingleInstanceLock()) {
     createSplash();
     createWindow();
     restartSync();
+    setTimeout(dailyBackup, 60_000);
+    setInterval(dailyBackup, 60 * 60_000);
   });
 
   app.on('before-quit', () => {

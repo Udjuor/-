@@ -38,6 +38,7 @@ function saveConfig(homeDir, config) {
     `setupDone=${config.setupDone ? 1 : 0}`,
     `memoFrom=${config.memoFrom}`,
     `memoSigner=${config.memoSigner}`,
+    `backupDir=${config.backupDir}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -73,6 +74,7 @@ function loadConfig(homeDir) {
     lang: LANGUAGES.includes(values.lang) ? values.lang : (values.deviceId ? 'ru' : 'auto'),
     memoFrom: values.memoFrom || 'Семенова И. А.',
     memoSigner: values.memoSigner || 'Семенов И. А.',
+    backupDir: values.backupDir || path.join(homeDir, 'backups'),
   };
   if (!values.deviceId) {
     try {

@@ -714,3 +714,7 @@ dialog#welcome { width: min(40rem, 94vw); }
 /* Освобождение по приказу */
 .rollrow.excused { border-left: .2rem solid var(--accent); padding-left: .4rem; }
 .blockexcused { display: block; font-size: .8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Резервные копии */
+.backupdir { overflow-wrap: anywhere; }
+#quit[hidden], #minimize[hidden] { display: none; }
