@@ -118,6 +118,24 @@ test('отметка с панели без связи не меняет заф�
   }
 });
 
+test('отчёт, зафиксированный с двух компьютеров без связи, остаётся один', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save({ ...sample, participants: ['Иванов'] });
+  await a.node.syncWith(b.node.at);
+  await a.store.lockReport(event.id, 'Кабинет 1');
+  await new Promise((r) => setTimeout(r, 5));
+  await b.store.lockReport(event.id, 'Кабинет 2');
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  await a.node.syncWith(b.node.at);
+  for (const d of [a, b]) {
+    const docs = await d.store.attendance();
+    assert.equal(docs.length, 1);
+    assert.equal(docs[0].lock.teacher, 'Кабинет 1', 'первая фиксация и остаётся');
+  }
+});
+
 test('исправления с разных устройств сохраняются в истории', async (t) => {
   const a = await device(t, 'a');
   const b = await device(t, 'b');

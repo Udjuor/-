@@ -270,7 +270,7 @@ test('без входа можно только отметить своё при
   assert.deepEqual([doc.marks['Петров'].late, doc.marks['Петров'].at], [true, '2026-11-10T01:20:00.000Z']);
 });
 
-test('после фиксации отчёт правится только по PIN и с историей', async (t) => {
+test('после фиксации отчёт правится только преподавателем и с историей', async (t) => {
   const store = new EventStore(tempDir(t));
   const event = await store.save({ ...sample, participants: ['Иванов', 'Петров'] });
   await store.saveMark(event.id, 'Иванов', 'present');
@@ -285,6 +285,21 @@ test('после фиксации отчёт правится только по 
   assert.equal(doc.history[0].teacher, 'Павлов');
   assert.equal(doc.history[0].before.status, null);
   assert.equal(doc.history[0].after.status, 'sick');
+});
+
+test('PIN из прошлых версий исчезает из данных', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const ref = await store.saveRef({ kind: 'teacher', name: 'Лебедева', pin: { salt: 'a', hash: 'b' }, hasPin: true });
+  assert.equal('pin' in ref, false);
+  assert.equal('hasPin' in ref, false);
+});
+
+test('отчёт нельзя отправить дважды, даже одновременно', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов'] });
+  const results = await Promise.allSettled([store.lockReport(event.id, 'Кабинет'), store.lockReport(event.id, 'Кабинет')]);
+  assert.deepEqual(results.map((x) => x.status).sort(), ['fulfilled', 'rejected']);
+  assert.equal(results.find((x) => x.status === 'rejected').reason.code, 'locked');
 });
 
 test('зафиксированную пару нельзя удалить или подменить, а срок сдачи можно', async (t) => {

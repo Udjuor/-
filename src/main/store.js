@@ -118,10 +118,9 @@ function normalizeRef(raw) {
     if (!ref.until) return null;
   }
   if (raw.kind === 'teacher') {
+    // PIN были в версиях 1.18 и 1.19.
+    delete ref.pin;
     delete ref.hasPin;
-    ref.pin = typeof raw.pin?.salt === 'string' && typeof raw.pin?.hash === 'string'
-      ? { salt: raw.pin.salt, hash: raw.pin.hash }
-      : null;
   }
   if (raw.kind === 'equipment') {
     // Пустое количество означает «без лимита».
@@ -295,8 +294,8 @@ class EventStore {
 
   /**
    * Ставит или снимает отметку студента.
-   * student: отметка без входа преподавателя, только своё присутствие.
-   * teacher: кто вошёл по PIN; только он может исправить зафиксированный отчёт.
+   * student: отметка с клиента на панели, только своё присутствие.
+   * teacher: устройство с версией для преподавателей, только оно может исправить зафиксированный отчёт.
    */
   saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null } = {}) {
     return this.exclusive(async () => {
@@ -339,7 +338,7 @@ class EventStore {
     });
   }
 
-  /** Фиксирует отчёт: состав пары запоминается, дальше правки только по PIN. */
+  /** Фиксирует отчёт: состав пары запоминается, дальше правки только в версии для преподавателей. */
   lockReport(eventId, teacher) {
     return this.exclusive(async () => {
       if (!ID_RE.test(String(eventId)) || !teacher) throw new StoreError('invalid', 'Неверная фиксация');
@@ -411,17 +410,8 @@ class EventStore {
     if (!draft) throw new StoreError('invalid', 'Проверьте название');
     const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
     const ref = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
-    // PIN меняется только через setTeacherPin.
-    if (ref.kind === 'teacher') ref.pin = current?.pin ?? null;
     await this.write(ref);
     return ref;
-  }
-
-  setTeacherPin(id, pin) {
-    return this.exclusive(async () => {
-      const current = await this.readCurrent(id);
-      await this.write({ ...current, pin, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
-    });
   }
 
   async assertNotLocked(eventId) {
@@ -431,7 +421,6 @@ class EventStore {
   async remove(id, baseUpdatedAt) {
     if (!ID_RE.test(String(id))) throw new StoreError('invalid', 'Неверный номер мероприятия');
     const current = await this.assertUnchanged(id, baseUpdatedAt);
-    if (current.kind === 'teacher' && current.pin) throw new StoreError('protected', 'Сначала снимите PIN');
     if (!current.kind) await this.assertNotLocked(id);
     await this.write({ id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
   }

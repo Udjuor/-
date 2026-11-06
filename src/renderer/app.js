@@ -354,11 +354,9 @@ const storeMessage = (result) => (result.code === 'conflict'
     ? t('Проверьте название, дату и время')
     : result.code === 'locked'
       ? t('Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.')
-      : result.code === 'protected'
-        ? t('Сначала снимите PIN этого преподавателя.')
-        : result.code === 'teacher-only'
-          ? t('Это может сделать только преподаватель. Войдите по PIN.')
-          : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
+      : result.code === 'teacher-only'
+        ? t('Это можно сделать только в версии для преподавателей.')
+        : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
 
 /* Карточка мероприятия */
 
@@ -408,24 +406,24 @@ function showDetails(id) {
   const footer = h('div', { class: 'sheetfoot' });
 
   const showActions = () => footer.replaceChildren(
-    h('button', { class: 'plain', onclick: () => whenTeacher(() => { dialog.close(); openForm(event); }) }, t('Изменить')),
+    canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
     event.participants.length > 0 && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
     h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
-    event.deadline && h('button', {
+    canManage() && event.deadline && h('button', {
       class: 'plain',
-      onclick: () => whenTeacher(async () => {
+      onclick: async () => {
         if (await setDeadlineDone(event, !event.deadlineDone)) {
           dialog.close();
           showDetails(event.id);
         }
-      }),
+      },
     }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
     canManage() && memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
     h('div', { class: 'spacer' }),
-    h('button', { class: 'plain', onclick: () => whenTeacher(showConfirm) }, t('Удалить')),
+    canManage() && h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
   );
 
   const showConfirm = () => footer.replaceChildren(
@@ -1224,14 +1222,7 @@ function simplePane(kind, placeholder, emptyText) {
   const items = refsOf(kind);
   return h('section', {},
     addForm(`c-add-${kind}`, placeholder, (text) => addRefs(text, kind, items)),
-    refList(items.map((item) => refRow(item, kind === 'teacher' ? teacherRow(item) : {})), emptyText));
-}
-
-function teacherRow(ref) {
-  return {
-    detail: ref.hasPin ? t('PIN задан') : t('PIN не задан'),
-    extra: h('button', { type: 'button', class: 'plain', onclick: () => openPinSetup(ref) }, ref.hasPin ? t('Сменить PIN') : t('Задать PIN')),
-  };
+    refList(items.map((item) => refRow(item)), emptyText));
 }
 
 function equipmentPane() {
@@ -1287,168 +1278,14 @@ function rowNote(row) {
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
 
-/* Вход преподавателя */
-
-const PIN_LENGTH = 6;
-let teacherSession = null;
-
-function endTeacherMode() {
-  if (teacherSession) api.teacherLogout(teacherSession.token);
-  teacherSession = null;
-}
+/* Версии программы */
 
 const isClient = () => state.settings?.edition === 'client';
-const canManage = () => !isClient() || Boolean(teacherSession);
+const canManage = () => !isClient();
 
-/** На клиенте сначала спрашивает PIN. Вход заканчивается вместе с открытым окном. */
-function whenTeacher(run) {
-  if (canManage()) run();
-  else askTeacher(null, run);
-}
-
-const TEACHER_DIALOGS = ['roll', 'catalog', 'reports', 'preferences', 'notices', 'form', 'details', 'pet', 'deadlines'];
-
-function teacherDialogClosed() {
-  // Окна сменяют друг друга: карточка закрывается, и сразу открывается форма.
-  setTimeout(() => {
-    if (!teacherSession || $('pinpad').open || TEACHER_DIALOGS.some((id) => $(id).open)) return;
-    endTeacherMode();
-    if (isClient()) render();
-  }, 300);
-}
-
-function shuffled(items) {
-  const list = [...items];
-  const random = crypto.getRandomValues(new Uint32Array(list.length));
-  for (let i = list.length - 1; i > 0; i -= 1) {
-    const j = random[i] % (i + 1);
-    [list[i], list[j]] = [list[j], list[i]];
-  }
-  return list;
-}
-
-/** Цифры меняются местами после каждого нажатия, а на экране только точки. */
-function pinPad(onComplete) {
-  let digits = '';
-  const dots = h('div', { class: 'pindots', 'aria-live': 'polite' });
-  const keys = h('div', { class: 'pinkeys' });
-  const draw = () => {
-    dots.replaceChildren(...Array.from({ length: PIN_LENGTH }, (_, i) => h('i', { class: i < digits.length ? 'on' : '' })));
-    dots.setAttribute('aria-label', t('Введено цифр: {0}', [digits.length]));
-    keys.replaceChildren(
-      ...shuffled('0123456789').map((digit) => h('button', { type: 'button', class: 'pinkey', onclick: () => press(digit) }, digit)),
-      h('button', { type: 'button', class: 'pinkey pinerase', onclick: () => { digits = digits.slice(0, -1); draw(); } }, t('Стереть')),
-    );
-  };
-  const press = (digit) => {
-    digits += digit;
-    const full = digits.length === PIN_LENGTH;
-    const value = digits;
-    if (full) digits = '';
-    draw();
-    if (full) onComplete(value);
-  };
-  draw();
-  return h('div', { class: 'pinpad' }, dots, keys);
-}
-
-function askTeacher(event, done) {
-  const dialog = $('pinpad');
-  const teachers = refsOf('teacher').filter((ref) => ref.hasPin);
-  if (!teachers.length) {
-    dialog.replaceChildren(
-      h('div', { class: 'sheethead' }, h('h2', {}, t('Вход преподавателя')), closeButton(dialog)),
-      h('div', { class: 'sheetbody' }, h('p', {}, t('На этом устройстве нет преподавателей с PIN. Задайте PIN в версии для преподавателей и дождитесь обмена данными.'))),
-    );
-    dialog.showModal();
-    return;
-  }
-  const responsible = teachers.find((ref) => nameKey(ref.name) === nameKey(event?.responsible ?? ''));
-  const select = h('select', { id: 'pin-teacher', 'aria-label': t('Преподаватель') },
-    teachers.map((ref) => h('option', { value: ref.id, selected: ref === responsible }, ref.name)));
-  const failure = h('p', { class: 'error' });
-  const pad = pinPad(async (pin) => {
-    const result = await api.teacherLogin(select.value, pin);
-    if (result.ok) {
-      teacherSession = result.value;
-      dialog.close();
-      done();
-    } else {
-      failure.textContent = pinMessage(result);
-    }
-  });
-  dialog.replaceChildren(
-    h('div', { class: 'sheethead' }, h('h2', {}, t('Вход преподавателя')), closeButton(dialog)),
-    h('div', { class: 'sheetbody' },
-      h('div', { class: 'field' }, select),
-      pad,
-      failure,
-      h('p', { class: 'help' }, t('Если рядом студенты, прикройте экран рукой. Отметки можно зафиксировать и позже со своего компьютера.'))),
-  );
-  dialog.showModal();
-}
-
-const pinMessage = (result) => {
-  if (result.code === 'pin-wait') return t('Слишком много попыток. Подождите 5 минут.');
-  if (result.code === 'wrong-proof') return t('Неверный ключ сети или PIN.');
-  if (result.code === 'wrong-pin') return t('Неверный PIN.');
-  return t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.');
-};
-
-function openPinSetup(ref) {
-  const dialog = $('pinpad');
-  const failure = h('p', { class: 'error' });
-  const needsProof = ref.hasPin || state.settings.hasKey;
-  const proof = h('input', { id: 'pin-proof', type: 'password', autocomplete: 'off', spellcheck: 'false' });
-  const reload = async () => {
-    await loadDirectory();
-    dialog.close();
-    drawCatalog();
-  };
-  const body = h('div', {});
-  let first = '';
-  const askDigits = () => body.replaceChildren(
-    h('p', { class: 'help' }, first ? t('Повторите PIN') : t('Придумайте PIN из шести цифр')),
-    pinPad(async (pin) => {
-      if (!first) {
-        first = pin;
-        failure.textContent = '';
-        askDigits();
-        return;
-      }
-      if (first !== pin) {
-        first = '';
-        failure.textContent = t('PIN не совпал. Введите его заново.');
-        askDigits();
-        return;
-      }
-      const result = await api.teacherSetPin(ref.id, proof.value, pin);
-      if (result.ok) await reload();
-      else {
-        first = '';
-        failure.textContent = pinMessage(result);
-        askDigits();
-      }
-    }),
-  );
-  askDigits();
-  dialog.replaceChildren(
-    h('div', { class: 'sheethead' }, h('h2', {}, ref.name), closeButton(dialog)),
-    h('div', { class: 'sheetbody' },
-      needsProof && h('div', { class: 'field' }, h('label', { for: 'pin-proof' }, t('Ключ сети или текущий PIN')), proof),
-      body,
-      failure,
-      ref.hasPin && h('button', {
-        type: 'button',
-        class: 'plain pinreset',
-        onclick: async () => {
-          const result = await api.teacherResetPin(ref.id, proof.value);
-          if (result.ok) await reload();
-          else failure.textContent = pinMessage(result);
-        },
-      }, t('Снять PIN ключом сети'))),
-  );
-  dialog.showModal();
+/** Клиент на панели не показывает разделы преподавателя. Запрет проверяется и в основном процессе. */
+function applyEdition() {
+  for (const id of ['open-catalog', 'open-reports', 'notices-open']) $(id).hidden = isClient();
 }
 
 /* Отметки на паре */
@@ -1488,10 +1325,9 @@ function openRoll(id) {
 
   const refused = (result) => {
     if (result.code === 'teacher-only') {
-      endTeacherMode();
-      failure.textContent = t('Это может сделать только преподаватель. Войдите по PIN.');
+      failure.textContent = t('Это можно сделать только в версии для преподавателей.');
     } else if (result.code === 'locked') {
-      failure.textContent = t('Отчёт зафиксирован. Исправить его можно после входа по PIN.');
+      failure.textContent = t('Отчёт зафиксирован. Исправить его можно в версии для преподавателей.');
     } else {
       failure.textContent = t('Отметка не сохранена. Попробуйте ещё раз.');
     }
@@ -1499,7 +1335,7 @@ function openRoll(id) {
   };
 
   const setMark = async (name, status, options = {}) => {
-    const result = await api.mark(event.id, name, status, { token: teacherSession?.token, ...options });
+    const result = await api.mark(event.id, name, status, options);
     if (result.ok) {
       failure.textContent = '';
       apply(result.value);
@@ -1508,13 +1344,19 @@ function openRoll(id) {
     }
   };
 
-  const lock = async () => {
-    const result = await api.lockReport(event.id, teacherSession?.token);
+  // Отчёт уходит один раз: кнопка гаснет сразу, а повтор отклоняет хранилище.
+  const lock = async (e) => {
+    e.currentTarget.disabled = true;
+    const result = await api.lockReport(event.id);
     confirming = false;
     if (result.ok) {
       failure.textContent = '';
       apply(result.value);
       toast(t('Отчёт зафиксирован и отправлен на другие устройства.'));
+    } else if (result.code === 'locked') {
+      failure.textContent = t('Отчёт по этому занятию уже отправлен.');
+      await refresh();
+      draw();
     } else {
       refused(result);
     }
@@ -1541,31 +1383,26 @@ function openRoll(id) {
   function drawFooter(doc) {
     if (confirming) {
       footer.replaceChildren(
-        h('p', { class: 'message' }, t('Отчёт закроется для всех. Кто не отмечен, станет отсутствующим. Исправить можно будет только по PIN.')),
+        h('p', { class: 'message' }, t('Отчёт закроется для панелей. Кто не отмечен, станет отсутствующим. Исправить его можно будет только в версии для преподавателей.')),
         h('button', { type: 'button', class: 'plain', onclick: () => { confirming = false; draw(); } }, t('Отмена')),
         h('button', { type: 'button', class: 'primary', id: 'lock-confirm', onclick: lock }, t('Зафиксировать')),
       );
       return;
     }
-    if (!teacherSession) {
-      const ready = refsOf('teacher').some((ref) => ref.hasPin);
-      footer.replaceChildren(ready
-        ? h('button', { type: 'button', class: 'plain', id: 'teacher-mode', onclick: () => askTeacher(event, draw) }, t('Режим преподавателя'))
-        : h('p', { class: 'message' }, t('Чтобы фиксировать отчёт, задайте PIN преподавателя в разделе «Справочники».')));
+    if (isClient()) {
+      footer.replaceChildren(h('p', { class: 'message' }, t('Опоздания, причины и фиксацию отчёта ведёт преподаватель со своего компьютера.')));
       return;
     }
-    footer.replaceChildren(
-      h('p', { class: 'message' }, t('Режим преподавателя: {0}', [teacherSession.name])),
-      h('button', { type: 'button', class: 'plain', id: 'teacher-exit', onclick: () => { endTeacherMode(); draw(); } }, t('Выйти')),
-      ...(doc?.lock ? [] : [h('button', { type: 'button', class: 'primary', id: 'lock-report', onclick: () => { confirming = true; draw(); } }, t('Зафиксировать и отправить'))]),
-    );
+    footer.replaceChildren(...(doc?.lock ? [] : [
+      h('button', { type: 'button', class: 'primary', id: 'lock-report', onclick: () => { confirming = true; draw(); } }, t('Зафиксировать и отправить')),
+    ]));
   }
 
   function draw() {
     const rows = roll(event);
     const doc = attendanceOf(event.id);
     const locked = Boolean(doc?.lock);
-    const teacherMode = Boolean(teacherSession);
+    const teacherMode = canManage();
     const count = (status) => rows.filter((row) => row.status === status).length;
     const parts = [
       t('Отмечены: {0} из {1}', [count('present'), rows.length]),
@@ -2100,8 +1937,7 @@ function drawPet() {
   const pet = petOf(group);
   const failure = h('p', { class: 'error' });
 
-  const saveGroup = (changes) => whenTeacher(() => storeGroup(changes));
-  const storeGroup = async (changes) => {
+  const saveGroup = async (changes) => {
     const result = await api.saveRefs([{ ref: { ...group, ...changes }, base: group.updatedAt }]);
     if (!result.ok) {
       failure.textContent = t('Не удалось сохранить. Попробуйте ещё раз.');
@@ -2159,7 +1995,7 @@ function drawPet() {
       h('p', { class: 'petmood' }, titleLine),
       pet.mood !== 'dead' && h('div', { class: 'petlevel' }, meter, h('span', {}, t('Здоровье {0} из 100', [pet.health]))),
       petStats(pet).map((line) => h('p', { class: 'help' }, line)),
-      pet.mood === 'dead'
+      canManage() && (pet.mood === 'dead'
         ? h('button', {
           type: 'button',
           class: 'primary petnew',
@@ -2169,7 +2005,7 @@ function drawPet() {
           },
         }, t('Завести нового питомца'))
         : h('div', { class: 'field petname' },
-          h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать')))),
+          h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать'))))),
       failure,
       healthChart(pet),
       petGraves(group),
@@ -2222,7 +2058,7 @@ function petItems() {
 function refreshTicker() {
   const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...petItems()];
   const box = $('ticker');
-  $('notices-open').hidden = false;
+  $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
   if (key === tickerKey) return;
   tickerKey = key;
@@ -2353,10 +2189,10 @@ function deadlineTable(title, events, late = false) {
         h('td', {}, event.deadlineDone ? t('{0}. Сдано: {1}', [momentText(event.deadline), momentText(event.deadlineDone)]) : momentText(event.deadline)),
         h('td', {}, event.responsible || t('Не указан')),
         h('td', {}, String(event.participants.length)),
-        h('td', {}, h('button', {
+        h('td', {}, canManage() && h('button', {
           class: 'plain',
-          onclick: () => whenTeacher(() => setDeadlineDone(event, !event.deadlineDone)),
-        }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу'))))))))); 
+          onclick: () => setDeadlineDone(event, !event.deadlineDone),
+        }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')))))))));
 }
 
 function drawDeadlines() {
@@ -2657,8 +2493,7 @@ async function openSettings() {
   const dialog = $('preferences');
   const current = await api.getSettings();
   const name = h('input', { id: 's-name', value: current.deviceName, autocomplete: 'off', maxlength: 60 });
-  const key = h('input', { id: 's-key', spellcheck: 'false', autocomplete: 'off', placeholder: current.hasKey ? t('Новый ключ') : '' });
-  const oldKey = h('input', { id: 's-key-old', type: 'password', spellcheck: 'false', autocomplete: 'off', placeholder: t('Текущий ключ') });
+  const key = h('input', { id: 's-key', value: current.syncKey, spellcheck: 'false', autocomplete: 'off' });
   const peers = h('input', { id: 's-peers', value: current.peers.join(', '), spellcheck: 'false', autocomplete: 'off' });
   const memoFrom = h('input', { id: 's-memo-from', value: current.memoFrom, autocomplete: 'off', maxlength: 60 });
   const memoSigner = h('input', { id: 's-memo-signer', value: current.memoSigner, autocomplete: 'off', maxlength: 60 });
@@ -2704,7 +2539,6 @@ async function openSettings() {
       const result = await api.saveSettings({
         deviceName: name.value,
         syncKey: key.value,
-        currentKey: oldKey.value,
         peers: peers.value,
         showAll: showAll.checked,
         fullscreen: fullscreen.checked,
@@ -2713,11 +2547,7 @@ async function openSettings() {
         memoSigner: memoSigner.value,
       });
       if (!result.ok) {
-        message.textContent = result.code === 'short-key'
-          ? t('Ключ сети должен быть не короче 12 символов')
-          : result.code === 'wrong-key'
-            ? t('Текущий ключ сети введён неверно.')
-            : t('Настройки не сохранены: нет доступа к файлу настроек.');
+        message.textContent = result.code === 'short-key' ? t('Ключ сети должен быть не короче 12 символов') : t('Настройки не сохранены: нет доступа к файлу настроек.');
         return;
       }
       state.settings = await api.getSettings();
@@ -2739,6 +2569,7 @@ async function openSettings() {
         h('span', { class: 'label', id: 'l-size' }, t('Размер интерфейса')),
         sizeRow,
         h('p', { class: 'help' }, t('Настраивается отдельно на каждом устройстве. Для большой панели подойдёт «Крупный».'))),
+      ...(isClient() ? [] : [
       h('div', { class: 'setting field' },
         h('label', { for: 's-name' }, t('Название устройства')),
         name,
@@ -2755,8 +2586,6 @@ async function openSettings() {
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
-        current.hasKey && h('p', { class: 'help' }, t('Ключ задан и скрыт: по нему задают PIN преподавателей. Чтобы заменить его, введите текущий и новый.')),
-        current.hasKey && oldKey,
         h('div', { class: 'adder' }, key, h('button', {
           type: 'button',
           onclick: async () => { key.value = await api.generateKey(); },
@@ -2768,7 +2597,6 @@ async function openSettings() {
         h('p', { class: 'help' }, t('Нужны, только если устройства не находят друг друга сами, например 10.0.2.15, 10.0.3.7. Достаточно одного адреса: остальные передадутся автоматически.'))),
       h('div', { class: 'setting' },
         h('label', { class: 'check' }, showAll, t('Показывать мероприятия всех устройств')),
-        h('p', { class: 'help' }, current.edition === 'client' ? t('Версия программы: клиент для панелей.') : t('Версия программы: для преподавателей.')),
         h('p', { class: 'help' }, t('Включите на компьютерах преподавателей.')),
         h('label', { class: 'check' }, fullscreen, t('Открывать на весь экран'))),
       h('section', { class: 'setting' },
@@ -2787,6 +2615,8 @@ async function openSettings() {
             },
           }, t('Обменяться сейчас'))),
         devices),
+      ]),
+      h('p', { class: 'help' }, current.edition === 'client' ? t('Версия программы: клиент для панелей.') : t('Версия программы: для преподавателей.')),
       h('p', { class: 'help' }, t('Версия {0}', [current.version])),
       h('p', { class: 'help', id: 's-update' }, updateText(await api.updateStatus())),
       h('button', {
@@ -2805,7 +2635,7 @@ async function openSettings() {
           else line.textContent = updateText(result.status);
         },
       }, t('Проверить обновления'))),
-    h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'submit' }, t('Сохранить настройки')), message));
+    !isClient() && h('div', { class: 'sheetfoot' }, h('button', { class: 'primary', type: 'submit' }, t('Сохранить настройки')), message));
 
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Настройки')), closeButton(dialog)),
@@ -2836,7 +2666,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'pinpad'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -2848,7 +2678,7 @@ function wire() {
   $('next').addEventListener('click', () => move(1));
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
-  $('settings').addEventListener('click', () => whenTeacher(openSettings));
+  $('settings').addEventListener('click', openSettings);
   $('theme').addEventListener('click', () => {
     api.setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
   });
@@ -2857,15 +2687,14 @@ function wire() {
     $('pet').showModal();
   });
   $('open-gear').addEventListener('click', openGear);
-  for (const id of TEACHER_DIALOGS) $(id).addEventListener('close', teacherDialogClosed);
   $('open-deadlines').addEventListener('click', openDeadlines);
-  $('notices-open').addEventListener('click', () => whenTeacher(openNotices));
-  $('open-reports').addEventListener('click', () => whenTeacher(openReports));
-  $('open-catalog').addEventListener('click', () => whenTeacher(() => {
+  $('notices-open').addEventListener('click', openNotices);
+  $('open-reports').addEventListener('click', openReports);
+  $('open-catalog').addEventListener('click', () => {
     catalog.message = '';
     drawCatalog({ fromTop: true });
     $('catalog').showModal();
-  }));
+  });
   $('minimize').addEventListener('click', () => api.minimize());
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });
@@ -2886,6 +2715,7 @@ async function start() {
   translatePage();
   wire();
   state.settings = await api.getSettings();
+  applyEdition();
   applySize(state.settings.uiSize);
   api.onChanged(refresh);
   render();

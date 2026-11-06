@@ -6,7 +6,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { _electron } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { hashPin } = require('../src/main/teachers');
 
 const pad = (n) => String(n).padStart(2, '0');
 const today = (() => {
@@ -24,9 +23,14 @@ const today = (() => {
     fs.writeFileSync(path.join(events, `${id}.json`), JSON.stringify({ id, updatedAt: '2026-11-01T00:00:00.000Z', ...record }));
     return id;
   };
-  put({ kind: 'teacher', name: 'Лебедева О. В.', pin: await hashPin('123456') });
   put({ kind: 'group', name: 'ИС-21' });
-  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:55', participants: [], devices: [] });
+  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:55', participants: ['Иванов'], devices: [] });
+  const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
+  const hex = crypto.createHash('sha256').update(`attendance:${lockedId}`).digest('hex');
+  const docId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  fs.writeFileSync(path.join(events, `${docId}.json`), JSON.stringify({
+    id: docId, kind: 'attendance', eventId: lockedId, marks: {}, lock: { at: '2026-11-01T00:00:00.000Z', teacher: 'Кабинет', participants: ['Иванов'] }, history: [], updatedAt: '2026-11-01T00:00:00.000Z',
+  }));
 
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
@@ -43,19 +47,12 @@ const today = (() => {
   await page.waitForSelector('.block:has-text("Пара на панели")');
   assert.equal((await page.evaluate(() => window.calendar.getSettings())).edition, 'client');
 
-  const enterPin = async (pin) => {
-    for (const digit of pin) await page.click(`#pinpad .pinkey:text-is("${digit}")`);
-  };
   const refused = async (work) => assert.equal((await page.evaluate(work)).code, 'teacher-only');
 
-  // Без PIN закрыто и на экране, и при прямом обращении к программе.
-  for (const button of ['#open-catalog', '#open-reports', '#settings', '#notices-open']) {
-    await page.click(button);
-    await page.waitForSelector('#pinpad[open]');
-    await page.click('#pinpad [aria-label=Закрыть]');
-    await page.waitForSelector('#pinpad', { state: 'hidden' });
+  // Разделов преподавателя нет ни на экране, ни при прямом обращении к программе.
+  for (const button of ['#open-catalog', '#open-reports', '#notices-open']) {
+    assert.equal(await page.isVisible(button), false, button);
   }
-  assert.equal(await page.locator('#catalog[open], #reports[open], #preferences[open], #notices[open]').count(), 0);
   await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));
   await refused(() => window.calendar.saveSettings({ deviceName: 'Взлом' }));
   await refused(async () => {
@@ -67,7 +64,7 @@ const today = (() => {
     return window.calendar.save({ ...event, title: 'Подмена' }, event.updatedAt);
   });
 
-  // Добавить событие можно без PIN.
+  // Добавить событие можно и на клиенте.
   await page.click('#add');
   await page.waitForSelector('#form[open]');
   await page.fill('#f-title', 'Событие студента');
@@ -75,27 +72,35 @@ const today = (() => {
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await page.waitForSelector('.block:has-text("Событие студента")');
 
-  // Изменить чужое можно только после входа, и вход заканчивается с окном.
+  // В карточке только просмотр, в отметках только своё присутствие.
   await page.click('.block:has-text("Пара на панели")');
   await page.waitForSelector('#details[open]');
-  assert.equal(await page.locator('#details >> text=Служебная записка').count(), 0);
-  await page.click('#details >> text=Изменить');
-  await page.waitForSelector('#pinpad[open]');
-  await enterPin('123456');
-  await page.waitForSelector('#form[open]');
-  await page.fill('#f-title', 'Пара с правкой');
-  await page.click('dialog#form button[type=submit]');
-  await page.waitForSelector('.block:has-text("Пара с правкой")');
-  await page.waitForTimeout(600);
-  await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));
+  for (const text of ['Изменить', 'Удалить', 'Служебная записка']) {
+    assert.equal(await page.locator(`#details .plain:has-text("${text}")`).count(), 0, text);
+  }
+  await page.click('#details .primary');
+  await page.waitForSelector('#roll[open]');
+  assert.equal(await page.locator('.rollrow .reason').count(), 0);
+  assert.equal(await page.locator('#lock-report').count(), 0);
+  await page.click('.rollrow:has-text("Иванов") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Иванов") .rollname[aria-pressed=true]');
+  await page.click('#roll [aria-label=Закрыть]');
+  await refused(async () => {
+    const [event] = (await window.calendar.list()).value;
+    return window.calendar.mark(event.id, 'Иванов', 'sick', {});
+  });
+  await refused(async () => {
+    const [event] = (await window.calendar.list()).value;
+    return window.calendar.lockReport(event.id);
+  });
+  assert.equal((await page.evaluate((id) => window.calendar.mark(id, 'Иванов', 'present', {}), lockedId)).code, 'locked');
 
-  await page.click('#open-catalog');
-  await page.waitForSelector('#pinpad[open]');
-  await enterPin('123456');
-  await page.waitForSelector('#catalog[open]');
-  await page.click('#catalog [aria-label=Закрыть]');
-  await page.waitForTimeout(600);
-  await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));
+  // В настройках только язык, размер и версия.
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  assert.equal(await page.locator('#s-name, #s-key, #s-peers, #s-all').count(), 0);
+  assert.match(await page.textContent('#preferences'), /клиент для панелей/);
+  await page.click('#preferences [aria-label=Закрыть]');
 
   await app.close();
   console.log('Клиент проверен');
