@@ -426,6 +426,31 @@ test('больничный без справки предварительный,
   assert.equal(report.pairs[0].sick, 3);
 });
 
+test('подгруппы МГЗ входят в общую группу, а половина группы не считается отсутствующей', () => {
+  const groups = [{ id: 'g', name: 'ФВТ-24' }, { id: 'a', name: 'ФВТ-24-1' }, { id: 'b', name: 'ФВТ-24-2' }, { id: 'x', name: 'ДИ-3' }, { id: 'y', name: 'ДИ-3-1А' }];
+  const students = [
+    { name: 'Аня', groupId: 'a' }, { name: 'Боря', groupId: 'a' }, { name: 'Вера', groupId: 'b' }, { name: 'Гена', groupId: 'b' },
+    { name: 'Аня', groupId: 'g' }, { name: 'Дина', groupId: 'x' },
+  ];
+  assert.equal(L.parentGroup(groups[1], groups).id, 'g');
+  assert.equal(L.parentGroup(groups[0], groups), null);
+  assert.equal(L.parentGroup(groups[4], groups), null, 'только номер подгруппы');
+  assert.deepEqual(L.groupMembers(groups[0], groups, students).map((s) => s.name), ['Аня', 'Боря', 'Вера', 'Гена']);
+  assert.deepEqual(L.groupMembers(groups[1], groups, students).map((s) => s.name), ['Аня', 'Боря']);
+  const at = new Date(2026, 10, 3, 9, 0).toISOString();
+  const mgz = { id: 'm', type: 'lesson', title: 'МГЗ', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря'] };
+  const common = { ...mgz, id: 'c', title: 'Общая', start: '11:00', end: '12:00', participants: ['Аня', 'Боря', 'Вера', 'Гена'] };
+  const doc = (eventId, names) => ({ eventId, marks: Object.fromEntries(names.map((n) => [n, { status: 'present', at, late: false }])) });
+  const report = L.buildReport({
+    events: [mgz, common], attendance: [doc('m', ['Аня', 'Боря']), doc('c', ['Аня', 'Боря', 'Вера', 'Гена'])], students, groups,
+    filters: { from: '2026-11-01', to: '2026-11-30', group: 'ФВТ-24', teacher: '', types: ['lesson'] }, nowISO: '2026-11-05', nowTime: '10:00',
+  });
+  assert.deepEqual(report.pairs.map((p) => [p.event.title, p.total, p.percent]), [['МГЗ', 2, 100], ['Общая', 4, 100]]);
+  assert.deepEqual(report.students.find((s) => s.name === 'Вера').total, 1, 'Вера не числится на чужом МГЗ');
+  assert.deepEqual(report.groups.map((g) => [g.name, g.total, g.percent]), [['ФВТ-24', 6, 100], ['ФВТ-24-1', 4, 100], ['ФВТ-24-2', 2, 100]]);
+  assert.equal(L.memoData({ ...mgz, responsible: '', place: '' }, students, groups, '2026-11-03').students?.[0]?.group ?? 'ФВТ-24', 'ФВТ-24');
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

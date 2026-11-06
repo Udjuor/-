@@ -380,7 +380,8 @@ export default {
     "Ещё ждём справки: {0}": "Más justificantes pendientes: {0}",
     "Сроки сдачи, ожидаемые справки и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Los plazos, los justificantes pendientes y los cambios de estado de las mascotas aparecen en la cinta automáticamente y no figuran aquí.",
     "Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.": "La confirmación del justificante, otros motivos y el informe se gestionan en la versión para profesores.",
-    "Без справки": "Sin justificante"
+    "Без справки": "Sin justificante",
+    "Подгруппы: {0}. Их студенты входят в эту группу и здесь не повторяются.": "Subgrupos: {0}. Sus estudiantes pertenecen a este grupo y no se repiten aquí."
   },
   "plurals": {
     "days": {

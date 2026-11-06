@@ -380,7 +380,8 @@ export default {
     "Ещё ждём справки: {0}": "More certificates awaited: {0}",
     "Сроки сдачи, ожидаемые справки и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Deadlines, awaited certificates and pet status changes appear in the ticker automatically and are not listed here.",
     "Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.": "Certificate confirmation, other reasons and the report are handled in the teacher version.",
-    "Без справки": "No certificate"
+    "Без справки": "No certificate",
+    "Подгруппы: {0}. Их студенты входят в эту группу и здесь не повторяются.": "Subgroups: {0}. Their students belong to this group and are not listed again here."
   },
   "plurals": {
     "days": {

@@ -1,6 +1,6 @@
 // Тамагочи группы. Здоровье не хранится, а пересчитывается по отметкам,
 // поэтому на всех устройствах питомец в одном и том же состоянии.
-import { addDays, byTime, nameKey, rollCall } from './logic.mjs';
+import { addDays, byTime, groupMembers, nameKey, rollCall } from './logic.mjs';
 
 const START_HEALTH = 70;
 const ALERT_DAYS = 3;
@@ -27,8 +27,8 @@ export function moodOf(health) {
  * Опоздание стоит половину посещения. Причины отсутствия из счёта исключаются.
  * Пара без единой отметки пропускается: посещаемость на ней просто не вели.
  */
-export function petStatus({ group, students, events, attendance, nowISO, nowTime }) {
-  const members = new Set(students.filter((s) => s.groupId === group.id).map((s) => nameKey(s.name)));
+export function petStatus({ group, groups = [group], students, events, attendance, nowISO, nowTime }) {
+  const members = new Set(groupMembers(group, groups, students).map((s) => nameKey(s.name)));
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const since = group.petSince ?? '';
   const pairs = events

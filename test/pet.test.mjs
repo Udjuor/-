@@ -104,6 +104,17 @@ test('смена состояния питомца заметна три дня,
   assert.equal(petChange({ timeline: [point('2026-11-03', 0)] }, '2026-11-03').to, 'dead');
 });
 
+test('питомец группы живёт посещаемостью подгрупп, а МГЗ не считает другую половину', () => {
+  const groups = [{ id: 'g', name: 'ФВТ-24' }, { id: 'a', name: 'ФВТ-24-1' }, { id: 'b', name: 'ФВТ-24-2' }];
+  const students = [{ name: 'Аня', groupId: 'a' }, { name: 'Вера', groupId: 'b' }];
+  const event = { id: 'm', type: 'lesson', title: 'МГЗ', date: '2026-11-03', start: '09:00', end: '10:00', participants: ['Аня'] };
+  const attendance = [{ eventId: 'm', marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 9, 0).toISOString(), late: false } } }];
+  const pet = petStatus({ group: groups[0], groups, students, events: [event], attendance, nowISO: '2026-11-05', nowTime: '10:00' });
+  assert.equal(pet.counted, 1);
+  assert.equal(pet.last.total, 1, 'вторая подгруппа на этой паре не считается');
+  assert.equal(pet.last.present, 1);
+});
+
 test('спрайты целые: 16 на 16, все пиксели окрашены', () => {
   for (const mood of ['play', 'fine', 'sad', 'sick', 'dead']) {
     for (const frame of [0, 1]) {

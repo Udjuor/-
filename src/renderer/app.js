@@ -1,6 +1,6 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petSprite, petStatus } from './pet.mjs';
@@ -780,7 +780,7 @@ async function openForm(source = {}) {
       sections: [
         ...refsOf('group').map((group) => ({
           name: group.name,
-          items: refsOf('student').filter((s) => s.groupId === group.id).map((s) => s.name),
+          items: groupMembers(group, refsOf('group'), refsOf('student')).map((s) => s.name),
         })),
       ],
       busy: busyNames('person'),
@@ -1188,7 +1188,8 @@ function groupsPane() {
   if (!groups.some((g) => g.id === catalog.groupId)) catalog.groupId = groups[0]?.id ?? null;
   const current = groups.find((g) => g.id === catalog.groupId);
   const members = students.filter((s) => s.groupId === catalog.groupId);
-  const count = (group) => students.filter((s) => s.groupId === group.id).length;
+  const count = (group) => groupMembers(group, groups, students).length;
+  const subgroups = groups.filter((group) => current && parentGroup(group, groups)?.id === current.id);
 
   return h('div', { class: 'catalogcols' },
     h('section', {},
@@ -1203,6 +1204,7 @@ function groupsPane() {
       })), t('Добавьте первую группу.'))),
     h('section', {},
       h('h3', {}, current ? t('Студенты группы {0}', [current.name]) : t('Студенты')),
+      subgroups.length > 0 && h('p', { class: 'help' }, t('Подгруппы: {0}. Их студенты входят в эту группу и здесь не повторяются.', [subgroups.map((group) => group.name).join(', ')])),
       current
         ? [
           addForm('c-add-student', t('Фамилия и имя или столбец из таблицы'),
@@ -1811,8 +1813,11 @@ function rememberPetGroup(id) {
   } catch { /* выбор просто не запомнится */ }
 }
 
+/** У подгрупп нет своего питомца: он общий для всей группы. */
+const petGroups = () => refsOf('group').filter((group) => !parentGroup(group, refsOf('group')));
+
 function currentPetGroup() {
-  const groups = refsOf('group');
+  const groups = petGroups();
   return groups.find((group) => group.id === savedPetGroup()) ?? groups[0] ?? null;
 }
 
@@ -1820,6 +1825,7 @@ function petOf(group) {
   const clock = now();
   return petStatus({
     group,
+    groups: refsOf('group'),
     students: refsOf('student'),
     events: state.allEvents,
     attendance: state.attendance,
@@ -1947,7 +1953,7 @@ function petOverview(groups) {
 
 function drawPet() {
   const dialog = $('pet');
-  const groups = refsOf('group');
+  const groups = petGroups();
   const group = currentPetGroup();
   if (!group) {
     dialog.close();
@@ -2076,7 +2082,7 @@ function certificateItems() {
 
 function petItems() {
   const clock = now();
-  return refsOf('group').flatMap((group) => {
+  return petGroups().flatMap((group) => {
     const change = petChange(petOf(group), clock.iso);
     if (!change) return [];
     const name = petTitle(group);

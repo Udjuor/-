@@ -357,6 +357,34 @@ export function excusedBy(event, events) {
 export const LATE_UNTIL_MINUTE = 10;
 export const ABSENT_FROM_MINUTE = 40;
 
+/** ФВТ-24-1 считается подгруппой, если есть группа ФВТ-24. Отдельная настройка не нужна. */
+export function parentGroup(group, groups) {
+  const base = String(group.name ?? '').trim().match(/^(.+)-\d+$/)?.[1];
+  return base ? groups.find((item) => nameKey(item.name) === nameKey(base)) ?? null : null;
+}
+
+/** Студенты группы вместе со студентами её подгрупп, без повторов. */
+export function groupMembers(group, groups, students) {
+  const included = new Set([group.id, ...groups.filter((item) => parentGroup(item, groups)?.id === group.id).map((item) => item.id)]);
+  const people = new Map();
+  for (const student of students) {
+    if (included.has(student.groupId) && !people.has(nameKey(student.name))) people.set(nameKey(student.name), student);
+  }
+  return [...people.values()];
+}
+
+/** Группа каждого студента. Если он записан и в группе, и в подгруппе, важнее подгруппа. */
+function groupsByStudent(students, groups) {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const found = new Map();
+  for (const student of students) {
+    const key = nameKey(student.name);
+    const group = byId.get(student.groupId);
+    if (!found.has(key) || (group && parentGroup(group, groups))) found.set(key, group ?? null);
+  }
+  return found;
+}
+
 /** Опоздание ставят кнопкой. Старые отметки без этого поля считаются, как раньше. */
 function markedRow(event, name, mark) {
   const row = { name, status: mark.status, at: mark.at, late: 0 };
@@ -393,10 +421,15 @@ function tally(rows) {
  * Проведённой считается пара, время окончания которой прошло.
  */
 export function buildReport({ events, attendance, students, groups, filters, nowISO, nowTime }) {
-  const groupName = new Map(groups.map((group) => [group.id, group.name]));
-  const groupOf = new Map(students.map((student) => [nameKey(student.name), groupName.get(student.groupId) ?? '']));
+  const studentGroups = groupsByStudent(students, groups);
+  const groupOf = new Map([...studentGroups].map(([key, group]) => [key, group?.name ?? '']));
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
-  const inGroup = (name) => !filters.group || groupOf.get(nameKey(name)) === filters.group;
+  // Выбранная группа включает свои подгруппы.
+  const inGroup = (name) => {
+    if (!filters.group) return true;
+    const group = studentGroups.get(nameKey(name));
+    return group?.name === filters.group || (group && parentGroup(group, groups)?.name === filters.group);
+  };
 
   const pairs = [];
   const byStudent = new Map();
@@ -426,8 +459,11 @@ export function buildReport({ events, attendance, students, groups, filters, now
   const byGroup = new Map();
   for (const student of byStudent.values()) {
     const name = student.group || 'Без группы';
-    if (!byGroup.has(name)) byGroup.set(name, []);
-    byGroup.get(name).push(...student.rows);
+    const group = groups.find((item) => item.name === name);
+    for (const title of [name, group && parentGroup(group, groups)?.name].filter(Boolean)) {
+      if (!byGroup.has(title)) byGroup.set(title, []);
+      byGroup.get(title).push(...student.rows);
+    }
   }
   const groupRows = [...byGroup].map(([name, rows]) => ({ name, ...tally(rows) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
@@ -459,8 +495,8 @@ export function needsMemo(saved, previous) {
 
 /** Значения для шаблона служебной записки. */
 export function memoData(event, students, groups, todayISO) {
-  const groupName = new Map(groups.map((group) => [group.id, group.name]));
-  const groupOf = new Map(students.map((student) => [nameKey(student.name), groupName.get(student.groupId) ?? '']));
+  // В документе пишется основная группа, а не подгруппа.
+  const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group ? (parentGroup(group, groups) ?? group).name : '']));
   const longDate = (iso, options) => new Intl.DateTimeFormat('ru-RU', options).format(fromISO(iso));
   const eventDate = longDate(event.date, { day: 'numeric', month: 'long', year: 'numeric' }).replace(/ г\.$/, '');
   const [year, , day] = todayISO.split('-');
