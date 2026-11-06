@@ -330,7 +330,7 @@ export function rollCall(event, doc, nowISO, nowTime, events = []) {
   const excused = doc?.lock ? new Map(Object.entries(doc.lock.excused ?? {})) : excusedBy(event, events);
   return (doc?.lock?.participants ?? event.participants).map((name) => {
     const mark = doc?.marks?.[name];
-    if (mark?.status) return markedRow(event, name, mark);
+    if (mark?.status) return markedRow(event, name, mark, doc);
     if (excused.has(name)) return { name, status: 'order', at: null, late: 0, excusedFor: excused.get(name) };
     return { name, status: closed ? 'absent' : 'pending', at: null, late: 0 };
   });
@@ -352,9 +352,9 @@ export function excusedBy(event, events) {
   return excused;
 }
 
-// Опоздание засчитывается, если его зафиксировали до конца 10-й минуты. Позже оно не считается,
-// а с 40-й минуты это пропуск.
-export const LATE_UNTIL_MINUTE = 10;
+// Время прихода считается от фактического начала занятия. Первые 10 минут опозданием не считаются,
+// с 10-й по 39-ю это опоздание, с 40-й пропуск.
+export const LATE_FROM_MINUTE = 10;
 export const ABSENT_FROM_MINUTE = 40;
 
 /** Поля шаблона служебной записки, как их пишут в Word. */
@@ -392,17 +392,39 @@ function groupsByStudent(students, groups) {
 }
 
 /** Опоздание ставят кнопкой. Старые отметки без этого поля считаются, как раньше. */
-function markedRow(event, name, mark) {
+function markedRow(event, name, mark, doc) {
   const row = { name, status: mark.status, at: mark.at, late: 0 };
   // Болезнь без справки предварительная. У старых отметок поля нет: они считаются подтверждёнными.
   if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
-  const minutes = lateMinutes(event, mark.at);
-  if (mark.late === undefined) return { ...row, late: minutes };
-  if (!mark.late) return row;
+  const minutes = minutesAfterStart(event, doc, mark.at);
+  const lateMark = mark.late === true;
+  row.marked = true;
   if (minutes >= ABSENT_FROM_MINUTE) return { ...row, status: 'absent', lateMark: true };
-  return { ...row, late: minutes <= LATE_UNTIL_MINUTE ? Math.max(1, minutes) : 0, lateMark: true };
+  if (minutes >= LATE_FROM_MINUTE) return { ...row, late: minutes, lateMark };
+  return { ...row, lateMark };
 }
+
+/** Начало занятия по расписанию как дата. */
+function scheduledStart(event) {
+  const [y, m, d] = event.date.split('-').map(Number);
+  return new Date(y, m - 1, d, ...event.start.split(':').map(Number));
+}
+
+/**
+ * Фактическое начало: когда нажали «Начать занятие». Раньше расписания занятие не начинается:
+ * пришедший к началу по расписанию не опоздал, даже если преподаватель начал раньше.
+ */
+export function actualStart(event, doc) {
+  const scheduled = scheduledStart(event);
+  const pressed = doc?.start?.at ? new Date(doc.start.at) : null;
+  return pressed && pressed > scheduled ? pressed : scheduled;
+}
+
+/** Задержка начала занятия в минутах. */
+export const startDelay = (event, doc) => Math.floor((actualStart(event, doc) - scheduledStart(event)) / 60000);
+
+const minutesAfterStart = (event, doc, at) => Math.max(0, Math.floor((new Date(at) - actualStart(event, doc)) / 60000));
 
 /** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
 function tally(rows) {
@@ -450,7 +472,8 @@ export function buildReport({ events, attendance, students, groups, filters, now
     const roster = rollCall(event, docs.get(event.id), nowISO, nowTime, events).filter((row) => inGroup(row.name));
     if (filters.group && !roster.length) continue;
     const eventGroups = [...new Set(event.participants.map((name) => groupOf.get(nameKey(name))).filter(Boolean))].sort();
-    pairs.push({ event, groups: eventGroups, locked: docs.get(event.id)?.lock ?? null, ...tally(roster) });
+    const doc = docs.get(event.id);
+    pairs.push({ event, groups: eventGroups, locked: doc?.lock ?? null, startedAt: doc?.start?.at ?? null, delay: startDelay(event, doc), ...tally(roster) });
     for (const row of roster) {
       const key = nameKey(row.name);
       if (!byStudent.has(key)) byStudent.set(key, { name: row.name, group: groupOf.get(key) ?? '', rows: [] });

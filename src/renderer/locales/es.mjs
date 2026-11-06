@@ -371,7 +371,6 @@ export default {
     "По приказу: {0}": "Por orden: {0}",
     "Освобождены по приказу": "Exentos por orden",
     "Пришёл в {0}, с {1}-й минуты это пропуск": "Llegó a las {0}, desde el minuto {1} cuenta como ausencia",
-    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Llegó a las {0}, después del minuto {1} no cuenta como retraso",
     "Болезнь, ждём справку": "Enfermedad, en espera de justificante",
     "Справка принята": "Justificante aceptado",
     "Ждём справку: {0}": "Justificantes pendientes: {0}",
@@ -409,7 +408,15 @@ export default {
     "Вернуть удалённое из копии": "Recuperar lo eliminado desde una copia",
     "Копия делается сама раз в день, хранятся последние 30. Лучше выбрать сетевую папку или флешку: копия на этом же диске не спасёт при поломке компьютера. Возврат из копии добавляет только удалённые и пропавшие записи, текущие не меняются.": "La copia se hace sola una vez al día y se guardan las 30 últimas. Es mejor una carpeta de red o una memoria USB: una copia en el mismo disco no sirve si el ordenador se avería. La recuperación solo añade registros eliminados o perdidos; los actuales no cambian.",
     "Закрыть программу": "Cerrar el programa",
-    "В файле нет ни одного поля. Добавьте поля в двойных фигурных скобках, например {0}.": "El archivo no tiene campos. Añada campos entre llaves dobles, por ejemplo {0}."
+    "В файле нет ни одного поля. Добавьте поля в двойных фигурных скобках, например {0}.": "El archivo no tiene campos. Añada campos entre llaves dobles, por ejemplo {0}.",
+    "Пришёл в {0}, меньше {1} минут от начала не считается опозданием": "Llegó a las {0}, menos de {1} minutos tras el inicio no cuenta como retraso",
+    "Начать занятие можно за 30 минут до начала и до 40-й минуты по расписанию.": "La clase se puede iniciar desde 30 minutos antes del horario hasta el minuto 40.",
+    "Занятие уже начато.": "La clase ya se ha iniciado.",
+    "Занятие началось в {0}, по расписанию {1}. Задержка {2} мин, опоздание считается от фактического начала.": "La clase empezó a las {0}, prevista a las {1}. Retraso de {2} min; los retrasos se cuentan desde el inicio real.",
+    "Занятие началось вовремя, в {0}.": "La clase empezó puntual, a las {0}.",
+    "Начать занятие": "Iniciar clase",
+    "Фактическое начало": "Inicio real",
+    "Нажмите, когда занятие фактически началось. Опоздание будет считаться от этого времени: до {0} минут не опоздание, с {0}-й по {1}-ю опоздание, с {2}-й пропуск.": "Pulse cuando la clase empiece de verdad. Los retrasos se cuentan desde ese momento: menos de {0} minutos no es retraso, del {0} al {1} es retraso y desde el {2} es ausencia."
   },
   "plurals": {
     "days": {

@@ -118,6 +118,27 @@ test('отметка с панели без связи не меняет заф�
   }
 });
 
+test('начало занятия расходится по сети, последнее исправление побеждает', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  const event = await a.store.save({ ...sample, participants: ['Иванов'] });
+  await a.node.syncWith(b.node.at);
+  await a.store.startLesson(event.id, { admin: true, at: '2026-11-10T01:30:00.000Z' });
+  await b.store.saveMark(event.id, 'Иванов', 'present', { student: true });
+  await new Promise((r) => setTimeout(r, 5));
+  await a.node.syncWith(b.node.at);
+  await b.node.syncWith(a.node.at);
+  await new Promise((r) => setTimeout(r, 5));
+  await b.store.startLesson(event.id, { admin: true, at: '2026-11-10T01:35:00.000Z' });
+  await b.node.syncWith(a.node.at);
+  await a.node.syncWith(b.node.at);
+  for (const d of [a, b]) {
+    const [doc] = await d.store.attendance();
+    assert.equal(doc.start.at, '2026-11-10T01:35:00.000Z');
+    assert.equal(doc.marks['Иванов'].status, 'present');
+  }
+});
+
 test('отчёт, зафиксированный с двух компьютеров без связи, остаётся один', async (t) => {
   const a = await device(t, 'a');
   const b = await device(t, 'b');

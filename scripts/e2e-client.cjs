@@ -36,7 +36,7 @@ const today = (() => {
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS ?? '').split(' ').filter(Boolean),
-    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_EDITION: 'client' },
+    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_EDITION: 'client', KERDIIS_CLOCK: new Date(`${today}T00:20`).toISOString() },
   });
   await app.firstWindow();
   let page = null;
@@ -48,6 +48,7 @@ const today = (() => {
   await page.waitForSelector('.block:has-text("Пара на панели")');
   assert.equal((await page.evaluate(() => window.calendar.getSettings())).edition, 'client');
 
+  const shot = (name) => (process.env.SHOTS ? page.screenshot({ path: path.join(process.env.SHOTS, `${name}.png`) }) : null);
   const refused = async (work) => assert.equal((await page.evaluate(work)).code, 'teacher-only');
 
   // Разделов преподавателя нет ни на экране, ни при прямом обращении к программе.
@@ -87,16 +88,20 @@ const today = (() => {
   await page.waitForSelector('.rollrow:has-text("Иванов") .rollname[aria-pressed=true]');
   // Опоздание ставится на панели, а внесённый в мероприятие сразу освобождён.
   await page.click('.rollrow:has-text("Петров") >> text=Опоздал');
-  await page.fill('.rollrow:has-text("Петров") .latetime', '00:12');
+  await page.fill('.rollrow:has-text("Петров") .latetime', '00:25');
   await page.locator('.rollrow:has-text("Петров") .latetime').blur();
-  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("опоздание 7 мин")');
-  await page.fill('.rollrow:has-text("Петров") .latetime', '00:50');
-  await page.locator('.rollrow:has-text("Петров") .latetime').blur();
-  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("это пропуск")');
+  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("опоздание 20 мин")');
   // Предварительная болезнь с панели сразу идёт напоминанием в строку.
   await page.click('.rollrow:has-text("Козлов") .reason:has-text("Болезнь")');
   await page.waitForSelector('.rollrow:has-text("Козлов"):has-text("Болезнь, ждём справку")');
   await page.waitForSelector('#ticker .notice-yellow:has-text("Козлов: предъявите справку")', { state: 'attached', timeout: 15000 });
+  // Преподаватель пришёл позже: после «Начать занятие» пришедший до него уже не опоздал.
+  await page.click('#start-lesson');
+  await page.waitForSelector('.startinfo:has-text("Занятие началось")');
+  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("не считается опозданием")');
+  assert.equal(await page.locator('#start-lesson').count(), 0, 'начать можно один раз');
+  assert.doesNotMatch(await page.textContent('.startline'), /false/);
+  await shot('client-started');
   await page.waitForSelector('.rollrow.excused:has-text("Сидоров"):has-text("По приказу: Концерт на панели")');
   assert.match(await page.textContent('.rollsummary'), /по приказу: 1/);
   await page.click('#roll [aria-label=Закрыть]');

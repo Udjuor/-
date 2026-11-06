@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('calendar', {
   removeRefs: (refs) => ipcRenderer.invoke('directory:remove', refs),
   attendance: () => ipcRenderer.invoke('attendance:list'),
   mark: (eventId, name, status, options) => ipcRenderer.invoke('attendance:mark', eventId, name, status, options),
+  startLesson: (eventId, at) => ipcRenderer.invoke('attendance:start', eventId, at),
   lockReport: (eventId, excused) => ipcRenderer.invoke('attendance:lock', eventId, excused),
   saveReport: (fileName, text, labels) => ipcRenderer.invoke('report:save', fileName, text, labels),
   updateStatus: () => ipcRenderer.invoke('update:status'),

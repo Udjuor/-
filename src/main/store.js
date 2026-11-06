@@ -168,6 +168,10 @@ function normalizeAttendance(raw) {
     }
     : null;
   doc.history = doc.lock && Array.isArray(raw.history) ? raw.history.slice(-500) : [];
+  const start = raw.start;
+  doc.start = typeof start?.at === 'string' && !Number.isNaN(Date.parse(start.at)) && STAMP_RE.test(start.t ?? '')
+    ? { at: start.at, t: start.t, by: String(start.by ?? '') }
+    : null;
   return doc;
 }
 
@@ -192,22 +196,24 @@ function mergeMarks(a, b) {
  * на другой панели без связи, не должны менять его задним числом.
  */
 function mergeAttendance(a, b) {
-  if (!a.lock && !b.lock) return { marks: mergeMarks(a.marks, b.marks), lock: null, history: [] };
+  const start = [a.start, b.start].filter(Boolean).sort((x, y) => x.t.localeCompare(y.t)).at(-1) ?? null;
+  if (!a.lock && !b.lock) return { marks: mergeMarks(a.marks, b.marks), lock: null, history: [], start };
   if (!a.lock || !b.lock) {
-    const { marks, lock, history } = a.lock ? a : b;
-    return { marks, lock, history };
+    const { marks, lock, history, start: lockedStart } = a.lock ? a : b;
+    return { marks, lock, history, start: lockedStart ?? null };
   }
   const entries = new Map([...a.history, ...b.history].map((entry) => [JSON.stringify(entry), entry]));
   return {
     marks: mergeMarks(a.marks, b.marks),
     lock: a.lock.at <= b.lock.at ? a.lock : b.lock,
+    start: (a.lock.at <= b.lock.at ? a : b).start ?? null,
     history: [...entries.values()].sort((x, y) => String(x.at).localeCompare(String(y.at))),
   };
 }
 
 const sameAttendance = (a, b) => {
   const sorted = (doc) => JSON.stringify([
-    Object.keys(doc.marks).sort().map((name) => [name, doc.marks[name]]), doc.lock ?? null, doc.history ?? [],
+    Object.keys(doc.marks).sort().map((name) => [name, doc.marks[name]]), doc.lock ?? null, doc.history ?? [], doc.start ?? null,
   ]);
   return sorted(a) === sorted(b);
 };
@@ -237,7 +243,9 @@ function nextStamp(previous) {
 }
 
 class EventStore {
-  constructor(dataDir, deviceId = '') {
+  /** clock: часы для времени отметок; в проверках их ставят на день сценария. */
+  constructor(dataDir, deviceId = '', { clock = () => Date.now() } = {}) {
+    this.clock = clock;
     this.dir = path.join(dataDir, 'events');
     this.deviceId = deviceId;
     this.cache = new Map(); // имя файла → { stamp, record }
@@ -324,7 +332,7 @@ class EventStore {
       }
       const mark = {
         status,
-        at: status ? at ?? new Date().toISOString() : null,
+        at: status ? at ?? new Date(this.clock()).toISOString() : null,
         t: nextStamp(before?.t),
         by: this.deviceId,
         late: status === 'present' && late,
@@ -334,14 +342,48 @@ class EventStore {
       const history = [...(current?.history ?? [])];
       if (current?.lock) {
         const brief = (m) => ({ status: m?.status ?? null, at: m?.at ?? null, late: m?.late ?? null, confirmed: m?.confirmed ?? null });
-        history.push({ at: new Date().toISOString(), teacher, name, before: brief(before), after: brief(mark) });
+        history.push({ at: new Date(this.clock()).toISOString(), teacher, name, before: brief(before), after: brief(mark) });
       }
       const doc = normalizeAttendance({
         id,
         eventId,
         marks: { ...(current?.marks ?? {}), [name]: mark },
         lock: current?.lock,
+        start: current?.start,
         history,
+        updatedAt: nextStamp(current?.updatedAt),
+        updatedBy: this.deviceId,
+      });
+      await this.write(doc);
+      return doc;
+    });
+  }
+
+  /**
+   * «Начать занятие». С панели нажимается один раз, время берётся с часов, не позже 40-й минуты
+   * по расписанию: иначе опоздавший мог бы начать занятие за себя. В версии для преподавателей
+   * время можно поправить, пока отчёт не зафиксирован.
+   */
+  startLesson(eventId, { admin = false, at = null, now = this.clock() } = {}) {
+    return this.exclusive(async () => {
+      const event = await this.readCurrent(String(eventId));
+      if (!event || event.deleted || event.kind) throw new StoreError('invalid', 'Занятие не найдено');
+      if ((at !== null && !admin) || (at !== null && Number.isNaN(Date.parse(at)))) throw new StoreError('teacher-only', 'Время меняет преподаватель');
+      const id = attendanceId(eventId);
+      const current = await this.readCurrent(id);
+      if (current?.lock) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
+      if (!admin) {
+        if (current?.start) throw new StoreError('started', 'Занятие уже начато');
+        const [y, m, d] = event.date.split('-').map(Number);
+        const scheduled = new Date(y, m - 1, d, ...event.start.split(':').map(Number)).getTime();
+        if (now < scheduled - 30 * 60_000 || now > scheduled + 40 * 60_000) throw new StoreError('not-now', 'Сейчас занятие начать нельзя');
+      }
+      const doc = normalizeAttendance({
+        id,
+        eventId,
+        marks: current?.marks ?? {},
+        history: current?.history ?? [],
+        start: { at: at ?? new Date(now).toISOString(), t: nextStamp(current?.start?.t), by: this.deviceId },
         updatedAt: nextStamp(current?.updatedAt),
         updatedBy: this.deviceId,
       });
@@ -363,7 +405,8 @@ class EventStore {
         id,
         eventId,
         marks: current?.marks ?? {},
-        lock: { at: new Date().toISOString(), teacher, device: this.deviceId, participants: event.participants, excused },
+        start: current?.start,
+        lock: { at: new Date(this.clock()).toISOString(), teacher, device: this.deviceId, participants: event.participants, excused },
         updatedAt: nextStamp(current?.updatedAt),
         updatedBy: this.deviceId,
       });

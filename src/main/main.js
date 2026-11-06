@@ -281,6 +281,17 @@ function readEdition() {
   }
 }
 
+/**
+ * Часы для отметок. Для проверок их можно сдвинуть, но только вместе со своей папкой данных:
+ * на рабочих данных панели время всегда настоящее.
+ */
+function storeClock() {
+  const fake = Date.parse(process.env.KERDIIS_CLOCK ?? '');
+  if (!process.env.KERDIIS_HOME || Number.isNaN(fake)) return () => Date.now();
+  const offset = fake - Date.now();
+  return () => Date.now() + offset;
+}
+
 /** Действия преподавателя: клиент на панели их не выполняет, даже если обойти кнопки. */
 function managed(work) {
   return respond(async () => {
@@ -327,6 +338,12 @@ function registerHandlers() {
       at: options.at ?? null,
       confirmed: options.confirmed === true,
     });
+    sync?.nudge();
+    return doc;
+  }));
+  ipcMain.handle('attendance:start', (_e, eventId, at) => respond(async () => {
+    const admin = edition === 'admin';
+    const doc = await store.startLesson(eventId, { admin, at: admin ? at ?? null : null });
     sync?.nudge();
     return doc;
   }));
@@ -539,7 +556,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     nativeTheme.themeSource = config.theme;
-    store = new EventStore(config.dataDir, config.deviceId);
+    store = new EventStore(config.dataDir, config.deviceId, { clock: storeClock() });
     edition = readEdition();
     registerHandlers();
     createSplash();

@@ -361,17 +361,27 @@ test('опоздание ставит преподаватель, присутс
     Вера: { status: 'present', at },
   } };
   const rows = L.rollCall(event, doc, '2026-11-03', '09:30');
-  assert.deepEqual(rows.map((r) => [r.name, r.late]), [['Аня', 0], ['Боря', 0], ['Вера', 20], ['Гена', 0]]);
+  assert.deepEqual(rows.map((r) => [r.name, r.late]), [['Аня', 20], ['Боря', 20], ['Вера', 20], ['Гена', 0]]);
 });
 
-test('опоздание засчитывается до конца 10-й минуты, позже нет, с 40-й это пропуск', () => {
-  const event = { date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Боря'] };
-  const row = (minute) => L.rollCall(event, { marks: { Боря: { status: 'present', at: new Date(2026, 10, 3, 9, minute).toISOString(), late: true } } }, '2026-11-03', '09:50')[0];
-  assert.deepEqual([row(0).status, row(0).late], ['present', 1]);
-  assert.deepEqual([row(10).status, row(10).late], ['present', 10]);
-  assert.deepEqual([row(11).status, row(11).late, row(11).lateMark], ['present', 0, true]);
-  assert.deepEqual([row(39).status, row(39).late], ['present', 0]);
-  assert.deepEqual([row(40).status, row(40).late, row(40).lateMark], ['absent', 0, true]);
+test('случай из колледжа: преподаватель задержался, опоздание считается от фактического начала', () => {
+  const names = ['С1', 'С2', 'С3', 'С4', 'С5', 'С6', 'С7', 'В1017', 'В1027', 'В1032', 'В1055', 'Нет'];
+  const event = { date: '2026-11-03', start: '10:15', end: '11:45', participants: names };
+  const at = (time) => new Date(2026, 10, 3, ...time.split(':').map(Number)).toISOString();
+  const marks = Object.fromEntries([
+    ...names.slice(0, 7).map((name) => [name, { status: 'present', at: at('10:10'), late: false }]),
+    ['В1017', { status: 'present', at: at('10:17'), late: false }],
+    ['В1027', { status: 'present', at: at('10:27'), late: false }],
+    ['В1032', { status: 'present', at: at('10:32'), late: false }],
+    ['В1055', { status: 'present', at: at('10:55'), late: true }],
+  ]);
+  const view = (doc) => L.rollCall(event, doc, '2026-11-03', '12:00').map((row) => `${row.status}${row.late ? row.late : ''}`);
+  const started = { marks, start: { at: at('10:30') } };
+  assert.deepEqual(view(started), [...Array(7).fill('present'), 'present', 'present', 'present', 'present25', 'absent']);
+  assert.equal(L.startDelay(event, started), 15);
+  assert.deepEqual(view({ marks }).slice(7), ['present', 'present12', 'present17', 'absent', 'absent'], 'без кнопки отсчёт от расписания');
+  assert.deepEqual(view({ marks, start: { at: at('10:00') } }).slice(7, 8), ['present'], 'раньше расписания занятие не начинается');
+  assert.equal(L.startDelay(event, { start: { at: at('10:00') } }), 0);
 });
 
 test('зафиксированный отчёт держит свой состав и закрывает неотмеченных', () => {

@@ -718,3 +718,10 @@ dialog#welcome { width: min(40rem, 94vw); }
 /* Резервные копии */
 .backupdir { overflow-wrap: anywhere; }
 #quit[hidden], #minimize[hidden] { display: none; }
+
+/* Начало занятия */
+.startline { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; margin-bottom: .7rem; }
+.startline .help { flex-basis: 100%; margin: 0; }
+.startinfo { margin: 0; font-weight: 600; }
+.startinfo.delayed { color: var(--attention-fg, var(--fg)); }
+#start-lesson { min-height: 3rem; padding: 0 1.4rem; font-size: 1.15rem; }

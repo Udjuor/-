@@ -371,7 +371,6 @@ export default {
     "По приказу: {0}": "By order: {0}",
     "Освобождены по приказу": "Excused by order",
     "Пришёл в {0}, с {1}-й минуты это пропуск": "Arrived at {0}, from minute {1} this counts as an absence",
-    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Arrived at {0}, after minute {1} lateness is not counted",
     "Болезнь, ждём справку": "Illness, awaiting a certificate",
     "Справка принята": "Certificate accepted",
     "Ждём справку: {0}": "Awaiting certificates: {0}",
@@ -409,7 +408,15 @@ export default {
     "Вернуть удалённое из копии": "Restore deleted from backup",
     "Копия делается сама раз в день, хранятся последние 30. Лучше выбрать сетевую папку или флешку: копия на этом же диске не спасёт при поломке компьютера. Возврат из копии добавляет только удалённые и пропавшие записи, текущие не меняются.": "A backup is made automatically once a day and the last 30 are kept. A network folder or a USB drive is best: a copy on the same disk won't help if the computer breaks. Restoring adds only deleted and missing records; current ones stay unchanged.",
     "Закрыть программу": "Close the program",
-    "В файле нет ни одного поля. Добавьте поля в двойных фигурных скобках, например {0}.": "The file has no fields. Add fields in double curly braces, for example {0}."
+    "В файле нет ни одного поля. Добавьте поля в двойных фигурных скобках, например {0}.": "The file has no fields. Add fields in double curly braces, for example {0}.",
+    "Пришёл в {0}, меньше {1} минут от начала не считается опозданием": "Arrived at {0}, under {1} minutes after the start is not counted as late",
+    "Начать занятие можно за 30 минут до начала и до 40-й минуты по расписанию.": "A class can be started from 30 minutes before its scheduled start until minute 40.",
+    "Занятие уже начато.": "The class has already been started.",
+    "Занятие началось в {0}, по расписанию {1}. Задержка {2} мин, опоздание считается от фактического начала.": "The class started at {0}, scheduled for {1}. Delay {2} min; lateness counts from the actual start.",
+    "Занятие началось вовремя, в {0}.": "The class started on time, at {0}.",
+    "Начать занятие": "Start class",
+    "Фактическое начало": "Actual start",
+    "Нажмите, когда занятие фактически началось. Опоздание будет считаться от этого времени: до {0} минут не опоздание, с {0}-й по {1}-ю опоздание, с {2}-й пропуск.": "Press when the class actually starts. Lateness counts from that moment: under {0} minutes is not late, minutes {0}–{1} are late, from minute {2} it is an absence."
   },
   "plurals": {
     "days": {

@@ -329,6 +329,27 @@ test('возврат из копии добавляет удалённое и н
   assert.equal(await store.restoreFrom(backup), 0, 'второй раз нечего возвращать');
 });
 
+test('«Начать занятие»: с панели один раз и только около начала, преподаватель может поправить', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов'] });
+  const at = (time) => new Date(2026, 10, 10, ...time.split(':').map(Number)).getTime();
+  await assert.rejects(store.startLesson(event.id, { now: at('09:20') }), { code: 'not-now' });
+  await assert.rejects(store.startLesson(event.id, { now: at('10:41') }), { code: 'not-now' });
+  await assert.rejects(store.startLesson(event.id, { now: at('10:15'), at: new Date(at('10:00')).toISOString() }), { code: 'teacher-only' });
+  await store.saveMark(event.id, 'Иванов', 'present', { student: true });
+  const doc = await store.startLesson(event.id, { now: at('10:15') });
+  assert.equal(doc.start.at, new Date(at('10:15')).toISOString());
+  assert.equal(doc.marks['Иванов'].status, 'present', 'отметки сохраняются');
+  await assert.rejects(store.startLesson(event.id, { now: at('10:16') }), { code: 'started' });
+  const fixed = await store.startLesson(event.id, { admin: true, at: new Date(at('10:20')).toISOString() });
+  assert.equal(fixed.start.at, new Date(at('10:20')).toISOString());
+  const marked = await store.saveMark(event.id, 'Иванов', 'present', { student: true });
+  assert.ok(marked.start, 'отметка не стирает начало');
+  const locked = await store.lockReport(event.id, 'Кабинет');
+  assert.ok(locked.start, 'фиксация сохраняет начало');
+  await assert.rejects(store.startLesson(event.id, { admin: true, at: new Date(at('10:25')).toISOString() }), { code: 'locked' });
+});
+
 test('PIN из прошлых версий исчезает из данных', async (t) => {
   const store = new EventStore(tempDir(t));
   const ref = await store.saveRef({ kind: 'teacher', name: 'Лебедева', pin: { salt: 'a', hash: 'b' }, hasPin: true });

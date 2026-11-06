@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_FROM_MINUTE, actualStart, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -1277,7 +1277,7 @@ const clockTime = (at) => new Date(at).toLocaleTimeString(locale(), { hour: '2-d
 
 function rowNote(row) {
   if (row.lateMark && row.status === 'absent') return t('Пришёл в {0}, с {1}-й минуты это пропуск', [clockTime(row.at), ABSENT_FROM_MINUTE]);
-  if (row.lateMark && !row.late) return t('Пришёл в {0}, после {1}-й минуты опоздание не считается', [clockTime(row.at), LATE_UNTIL_MINUTE]);
+  if (row.lateMark && !row.late) return t('Пришёл в {0}, меньше {1} минут от начала не считается опозданием', [clockTime(row.at), LATE_FROM_MINUTE]);
   if (row.status === 'present') {
     return row.late
       ? t('Пришёл в {0}, опоздание {1} мин', [clockTime(row.at), row.late])
@@ -1427,6 +1427,7 @@ function openRoll(id) {
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
   const banner = h('p', { class: 'lockbanner', hidden: true });
+  const startBox = h('div', { class: 'startline' });
   const list = h('ul', { class: 'rolllist' });
   const failure = h('p', { class: 'error' });
   const log = h('section', { class: 'rollhistory', hidden: true });
@@ -1478,6 +1479,39 @@ function openRoll(id) {
     }
   };
 
+  const start = async (at) => {
+    const result = await api.startLesson(event.id, at);
+    if (result.ok) {
+      failure.textContent = '';
+      apply(result.value);
+    } else {
+      failure.textContent = result.code === 'not-now'
+        ? t('Начать занятие можно за 30 минут до начала и до 40-й минуты по расписанию.')
+        : result.code === 'started' ? t('Занятие уже начато.') : t('Отметка не сохранена. Попробуйте ещё раз.');
+      draw();
+    }
+  };
+
+  function drawStart(doc, locked, teacherMode) {
+    const delay = startDelay(event, doc);
+    const began = doc?.start ? clockTime(actualStart(event, doc).toISOString()) : null;
+    startBox.replaceChildren(...[
+      began
+        ? h('p', { class: `startinfo${delay ? ' delayed' : ''}` }, delay
+          ? t('Занятие началось в {0}, по расписанию {1}. Задержка {2} мин, опоздание считается от фактического начала.', [began, event.start, delay])
+          : t('Занятие началось вовремя, в {0}.', [event.start]))
+        : !locked && h('button', { type: 'button', class: 'primary', id: 'start-lesson', onclick: () => start() }, t('Начать занятие')),
+      teacherMode && !locked && doc?.start && h('input', {
+        type: 'time',
+        class: 'latetime',
+        value: began,
+        'aria-label': t('Фактическое начало'),
+        onchange: (e) => { if (e.target.value) start(new Date(`${event.date}T${e.target.value}`).toISOString()); },
+      }),
+      !began && !locked && h('p', { class: 'help' }, t('Нажмите, когда занятие фактически началось. Опоздание будет считаться от этого времени: до {0} минут не опоздание, с {0}-й по {1}-ю опоздание, с {2}-й пропуск.', [LATE_FROM_MINUTE, ABSENT_FROM_MINUTE - 1, ABSENT_FROM_MINUTE])),
+    ].filter(Boolean));
+  }
+
   const lateControls = (row) => [
     h('button', {
       type: 'button',
@@ -1526,6 +1560,7 @@ function openRoll(id) {
       ...ABSENCE_REASONS.map(([reason, label]) => `${t(label).toLowerCase()}: ${count(reason)}`),
     ];
     summary.textContent = parts.join(', ');
+    drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
     banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
     const query = nameKey(search.value);
@@ -1535,9 +1570,9 @@ function openRoll(id) {
         h('button', {
           type: 'button',
           class: 'rollname',
-          'aria-pressed': String(row.status === 'present'),
+          'aria-pressed': String(Boolean(row.marked)),
           disabled: !teacherMode && (locked || settled),
-          onclick: () => setMark(row.name, row.status === 'present' ? null : 'present'),
+          onclick: () => setMark(row.name, row.marked ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
         (!locked || teacherMode) && !row.excusedFor && lateControls(row),
         !row.excusedFor && (!locked || teacherMode) && ABSENCE_REASONS
@@ -1574,7 +1609,7 @@ function openRoll(id) {
         h('h2', {}, event.title),
         h('p', { class: 'help' }, `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
       closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, banner, summary, failure, h('div', { class: 'field' }, search), list, log),
+    h('div', { class: 'sheetbody' }, banner, startBox, summary, failure, h('div', { class: 'field' }, search), list, log),
     footer,
   );
   dialog.showModal();
@@ -1751,6 +1786,7 @@ const REPORT_TABS = [
     [t('Преподаватель'), (r) => r.event.responsible],
     [t('Группы'), (r) => r.groups.join(', ')],
     [t('Место'), (r) => r.event.place],
+    [t('Начало'), (r) => (r.delay ? `${clockTime(r.startedAt)} (+${r.delay})` : '')],
     [t('Зафиксировал'), (r) => r.locked?.teacher ?? ''],
     [t('Всего'), (r) => r.total],
     ...COUNTS,

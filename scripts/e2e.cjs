@@ -24,7 +24,7 @@ fs.writeFileSync(path.join(home, 'config.ini'), [
 ].join('\r\n'));
 const teacherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-teacher-'));
 const teacherId = crypto.randomUUID();
-const teacherStore = new EventStore(teacherDir, teacherId);
+const teacherStore = new EventStore(teacherDir, teacherId, { clock: () => new Date(2026, 10, 3, 9, 5).getTime() });
 const teacher = new SyncNode({
   store: teacherStore,
   device: { id: teacherId, name: 'Кабинет преподавателя' },
@@ -74,7 +74,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-    env: { ...process.env, KERDIIS_HOME: home },
+    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString() },
   });
   const errors = [];
   // Панель-визитка: отдельное небольшое окно, потом главное.
@@ -546,7 +546,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#open-reports');
   await page.waitForSelector('#reports[open]');
   const row = page.locator('#reports tbody tr:has-text("Подготовка к олимпиаде")');
-  assert.deepEqual((await row.locator('td').allTextContents()).slice(8), ['6', '2', await row.locator('td').nth(10).textContent(), '1', '1', '1', '1', '33%', '1']);
+  assert.deepEqual((await row.locator('td').allTextContents()).slice(9), ['6', '2', await row.locator('td').nth(11).textContent(), '1', '1', '1', '1', '33%', '1']);
   assert.equal(await page.locator('#reports tbody tr:has-text("Волонтёры")').count(), 0, 'мероприятия не считаются парами');
   await shot('report-pairs');
   await page.click('#reports .tabs >> text=Посещаемость студентов');
@@ -596,7 +596,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const tiny = ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья', 'Тестов Ученик1'];
   for (let i = 0; i < 4; i += 1) {
     const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-6 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
-    await teacherStore.saveMark(lost.id, tiny[0], 'present');
+    await teacherStore.saveMark(lost.id, tiny[0], 'present', { at: new Date(`${day(-6 + i)}T09:00`).toISOString() });
   }
   await teacher.syncWith('127.0.0.1:47800');
   await page.waitForSelector('#pet-open .mood-dead', { timeout: 20000 });
@@ -819,9 +819,9 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('.rollrow:has-text("Алексеева Мария") .rollname[aria-pressed=true]');
   assert.doesNotMatch(await page.textContent('.rollrow:has-text("Алексеева Мария")'), /опоздание/, 'присутствие не считается опозданием');
   await page.click('.rollrow:has-text("Борисов Илья") >> text=Опоздал');
-  await page.fill('.rollrow:has-text("Борисов Илья") .latetime', '14:05');
+  await page.fill('.rollrow:has-text("Борисов Илья") .latetime', '14:20');
   await page.locator('.rollrow:has-text("Борисов Илья") .latetime').blur();
-  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 5 мин")');
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 20 мин")');
   await shot('roll-teacher');
   await page.click('#lock-report');
   await page.waitForSelector('#lock-confirm');
