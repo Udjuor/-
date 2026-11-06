@@ -234,6 +234,24 @@ export function deadlineAlerts(events, moment) {
   ];
 }
 
+/** Кто должен принести справку: по студенту, с занятиями в порядке дат. */
+export function pendingCertificates(attendance, events) {
+  const byId = new Map(events.map((event) => [event.id, event]));
+  const people = new Map();
+  for (const doc of attendance) {
+    const event = byId.get(doc.eventId);
+    if (!event) continue;
+    for (const [name, mark] of Object.entries(doc.marks ?? {})) {
+      if (mark.status !== 'sick' || mark.confirmed !== false) continue;
+      if (!people.has(name)) people.set(name, { name, classes: [] });
+      people.get(name).classes.push({ event, at: mark.at });
+    }
+  }
+  const list = [...people.values()];
+  for (const person of list) person.classes.sort((a, b) => a.event.date.localeCompare(b.event.date) || byTime(a.event, b.event));
+  return list.sort((a, b) => a.classes[0].event.date.localeCompare(b.classes[0].event.date) || a.name.localeCompare(b.name, 'ru'));
+}
+
 /** Напоминания, срок которых ещё не вышел: сначала те, что заканчиваются раньше. */
 export function activeNotices(notices, moment) {
   return notices.filter((notice) => notice.until > moment).sort((a, b) => a.until.localeCompare(b.until));
@@ -342,6 +360,8 @@ export const ABSENT_FROM_MINUTE = 40;
 /** Опоздание ставят кнопкой. Старые отметки без этого поля считаются, как раньше. */
 function markedRow(event, name, mark) {
   const row = { name, status: mark.status, at: mark.at, late: 0 };
+  // Болезнь без справки предварительная. У старых отметок поля нет: они считаются подтверждёнными.
+  if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
   const minutes = lateMinutes(event, mark.at);
   if (mark.late === undefined) return { ...row, late: minutes };
@@ -359,6 +379,7 @@ function tally(rows) {
     present,
     late: rows.filter((row) => row.late > 0).length,
     sick: count('sick'),
+    noCertificate: rows.filter((row) => row.unconfirmed).length,
     order: count('order'),
     excused: count('excused'),
     absent: count('absent'),

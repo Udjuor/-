@@ -153,6 +153,7 @@ function normalizeAttendance(raw) {
       doc.marks[name] = { status, at: mark.at ?? null, t: mark.t, by: String(mark.by ?? '') };
       // У старых отметок поля нет: их опоздание считается по времени, как раньше.
       if (typeof mark.late === 'boolean') doc.marks[name].late = mark.late;
+      if (typeof mark.confirmed === 'boolean') doc.marks[name].confirmed = mark.confirmed;
       if (mark.teacher) doc.marks[name].teacher = String(mark.teacher);
     }
   }
@@ -300,10 +301,10 @@ class EventStore {
 
   /**
    * Ставит или снимает отметку студента.
-   * student: отметка с клиента на панели: присутствие и опоздание.
+   * student: отметка с клиента на панели: присутствие, опоздание и предварительная болезнь.
    * teacher: устройство с версией для преподавателей, только оно может исправить зафиксированный отчёт.
    */
-  saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null } = {}) {
+  saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null, confirmed = false } = {}) {
     return this.exclusive(async () => {
       const validTime = at === null || !Number.isNaN(Date.parse(at));
       if (!ID_RE.test(String(eventId)) || !String(name).trim() || !(status === null || MARK_STATUSES.has(status)) || !validTime) {
@@ -314,9 +315,12 @@ class EventStore {
       const before = current?.marks?.[name];
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
       if (student) {
-        // На панели отмечают приход и опоздание. Причины отсутствия остаются за преподавателем.
-        const reason = before?.status && before.status !== 'present';
-        if (reason || (status && status !== 'present')) throw new StoreError('teacher-only', 'Только в версии для преподавателей');
+        // На панели отмечают приход, опоздание и предварительную болезнь. Остальное делает преподаватель.
+        const preliminary = before?.status === 'sick' && before.confirmed === false && !before.teacher;
+        const fixed = before?.status && before.status !== 'present' && !preliminary;
+        if (fixed || (status && status !== 'present' && status !== 'sick') || confirmed) {
+          throw new StoreError('teacher-only', 'Только в версии для преподавателей');
+        }
       }
       const mark = {
         status,
@@ -325,10 +329,11 @@ class EventStore {
         by: this.deviceId,
         late: status === 'present' && late,
       };
+      if (status === 'sick') mark.confirmed = Boolean(confirmed);
       if (teacher) mark.teacher = teacher;
       const history = [...(current?.history ?? [])];
       if (current?.lock) {
-        const brief = (m) => ({ status: m?.status ?? null, at: m?.at ?? null, late: m?.late ?? null });
+        const brief = (m) => ({ status: m?.status ?? null, at: m?.at ?? null, late: m?.late ?? null, confirmed: m?.confirmed ?? null });
         history.push({ at: new Date().toISOString(), teacher, name, before: brief(before), after: brief(mark) });
       }
       const doc = normalizeAttendance({

@@ -349,7 +349,6 @@ export default {
     "{0}: {1}, до {2}": "{0}: {1}, by {2}",
     "Ещё сроков: {0}": "More deadlines: {0}",
     "Группа {0}: {1}": "Group {0}: {1}",
-    "Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Deadlines and pet status changes appear in the ticker automatically and are not listed here.",
     "Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.": "The report for this class is locked: title, time, participants and deletion are closed.",
     "Пришёл в {0}, опоздание {1} мин": "Arrived at {0}, {1} min late",
     "Опоздал, {0}": "Late, {0}",
@@ -371,9 +370,17 @@ export default {
     "Отчёт по этому занятию уже отправлен.": "The report for this class has already been sent.",
     "По приказу: {0}": "By order: {0}",
     "Освобождены по приказу": "Excused by order",
-    "Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.": "Absence reasons and report confirmation are handled in the teacher version.",
     "Пришёл в {0}, с {1}-й минуты это пропуск": "Arrived at {0}, from minute {1} this counts as an absence",
-    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Arrived at {0}, after minute {1} lateness is not counted"
+    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Arrived at {0}, after minute {1} lateness is not counted",
+    "Болезнь, ждём справку": "Illness, awaiting a certificate",
+    "Справка принята": "Certificate accepted",
+    "Ждём справку: {0}": "Awaiting certificates: {0}",
+    "Занятия": "Classes",
+    "{0}: предъявите справку для подтверждения больничного": "{0}: please present a certificate to confirm sick leave",
+    "Ещё ждём справки: {0}": "More certificates awaited: {0}",
+    "Сроки сдачи, ожидаемые справки и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Deadlines, awaited certificates and pet status changes appear in the ticker automatically and are not listed here.",
+    "Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.": "Certificate confirmation, other reasons and the report are handled in the teacher version.",
+    "Без справки": "No certificate"
   },
   "plurals": {
     "days": {

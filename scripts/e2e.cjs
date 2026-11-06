@@ -546,7 +546,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#open-reports');
   await page.waitForSelector('#reports[open]');
   const row = page.locator('#reports tbody tr:has-text("Подготовка к олимпиаде")');
-  assert.deepEqual((await row.locator('td').allTextContents()).slice(8), ['6', '2', await row.locator('td').nth(10).textContent(), '1', '1', '1', '1', '33%']);
+  assert.deepEqual((await row.locator('td').allTextContents()).slice(8), ['6', '2', await row.locator('td').nth(10).textContent(), '1', '1', '1', '1', '33%', '1']);
   assert.equal(await page.locator('#reports tbody tr:has-text("Волонтёры")').count(), 0, 'мероприятия не считаются парами');
   await shot('report-pairs');
   await page.click('#reports .tabs >> text=Посещаемость студентов');
@@ -798,9 +798,18 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#roll[open]');
   await page.click('.rollrow:has-text("Васильева Дарья") .reason:has-text("Болезнь")');
   await page.waitForSelector('.rollhistory:has-text("Исправления после фиксации: 1")');
+  await page.waitForSelector('.rollrow:has-text("Васильева Дарья"):has-text("Болезнь, ждём справку")');
+  await page.waitForSelector('#ticker .notice:has-text("Васильева Дарья: предъявите справку")', { state: 'attached', timeout: 15000 });
   await shot('roll-corrected');
   await page.click('#roll [aria-label=Закрыть]');
-  await until(async () => (await teacherStore.attendance()).some((d) => d.eventId === fixedPair.id && d.lock && d.history.length === 1), 'зафиксированный отчёт на другом устройстве');
+  await page.click('#open-deadlines');
+  await page.waitForSelector('#deadlines tr:has-text("Васильева Дарья"):has-text("Пара с фиксацией")');
+  await shot('certificates');
+  await page.click('#deadlines tr:has-text("Васильева Дарья") >> text=Справка принята');
+  await page.waitForSelector('#deadlines tr:has-text("Васильева Дарья")', { state: 'detached' });
+  await page.waitForSelector('#ticker .notice:has-text("Васильева Дарья")', { state: 'detached' });
+  await page.click('#deadlines [aria-label=Закрыть]');
+  await until(async () => (await teacherStore.attendance()).some((d) => d.eventId === fixedPair.id && d.lock && d.history.length === 2), 'зафиксированный отчёт на другом устройстве');
 
   // Нажатие на пустое время открывает форму с этим временем.
   await page.click('[data-view=day]');

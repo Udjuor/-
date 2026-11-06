@@ -410,6 +410,22 @@ test('после фиксации освобождения не зависят �
   assert.deepEqual(rows.map((row) => row.status), ['order', 'absent']);
 });
 
+test('больничный без справки предварительный, старые отметки считаются подтверждёнными', () => {
+  const event = { id: 'e', title: 'Пара', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера'] };
+  const doc = { eventId: 'e', marks: {
+    Аня: { status: 'sick', at: 'x', confirmed: false },
+    Боря: { status: 'sick', at: 'x', confirmed: true },
+    Вера: { status: 'sick', at: 'x' },
+  } };
+  assert.deepEqual(L.rollCall(event, doc, '2026-11-03', '09:30').map((row) => Boolean(row.unconfirmed)), [true, false, false]);
+  const later = { ...event, id: 'f', title: 'Вторая', date: '2026-11-04' };
+  const list = L.pendingCertificates([{ eventId: 'f', marks: { Аня: { status: 'sick', at: 'y', confirmed: false } } }, doc, { eventId: 'нет', marks: { Гена: { status: 'sick', confirmed: false } } }], [event, later]);
+  assert.deepEqual(list.map((p) => [p.name, p.classes.map((c) => c.event.title)]), [['Аня', ['Пара', 'Вторая']]]);
+  const report = L.buildReport({ events: [event], attendance: [doc], students: [], groups: [], filters: { from: '2026-11-01', to: '2026-11-30', group: '', teacher: '', types: ['lesson', undefined] }, nowISO: '2026-11-05', nowTime: '10:00' });
+  assert.equal(report.pairs[0].noCertificate, 1);
+  assert.equal(report.pairs[0].sick, 3);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

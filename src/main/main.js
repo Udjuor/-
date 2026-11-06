@@ -258,6 +258,7 @@ function registerHandlers() {
       student: !admin,
       late: options.late === true,
       at: options.at ?? null,
+      confirmed: options.confirmed === true,
     });
     sync?.nudge();
     return doc;

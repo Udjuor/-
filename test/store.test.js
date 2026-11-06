@@ -261,7 +261,7 @@ test('на панели отмечают присутствие и опозда�
   const student = { student: true };
   await store.saveMark(event.id, 'Иванов', 'present', student);
   await store.saveMark(event.id, 'Иванов', null, student);
-  await assert.rejects(store.saveMark(event.id, 'Иванов', 'sick', student), { code: 'teacher-only' });
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'order', student), { code: 'teacher-only' });
   await store.saveMark(event.id, 'Петров', 'present', { ...student, late: true, at: '2026-11-10T01:20:00.000Z' });
   const [doc] = await store.attendance();
   assert.deepEqual([doc.marks['Петров'].late, doc.marks['Петров'].at], [true, '2026-11-10T01:20:00.000Z']);
@@ -285,6 +285,30 @@ test('после фиксации отчёт правится только пр�
   assert.equal(doc.history[0].teacher, 'Павлов');
   assert.equal(doc.history[0].before.status, null);
   assert.equal(doc.history[0].after.status, 'sick');
+});
+
+test('панель ставит предварительную болезнь, подтверждает только преподаватель', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов'] });
+  const student = { student: true };
+  const first = await store.saveMark(event.id, 'Иванов', 'sick', student);
+  assert.equal(first.marks['Иванов'].confirmed, false);
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'sick', { ...student, confirmed: true }), { code: 'teacher-only' });
+  await store.saveMark(event.id, 'Иванов', null, student);
+  await store.saveMark(event.id, 'Иванов', 'sick', student);
+  const done = await store.saveMark(event.id, 'Иванов', 'sick', { teacher: 'Кабинет', confirmed: true });
+  assert.equal(done.marks['Иванов'].confirmed, true);
+  await assert.rejects(store.saveMark(event.id, 'Иванов', null, student), { code: 'teacher-only' });
+});
+
+test('справку можно принять и после фиксации, запись остаётся в истории', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, participants: ['Иванов'] });
+  await store.saveMark(event.id, 'Иванов', 'sick', { teacher: 'Кабинет' });
+  await store.lockReport(event.id, 'Кабинет');
+  const doc = await store.saveMark(event.id, 'Иванов', 'sick', { teacher: 'Кабинет', confirmed: true });
+  assert.equal(doc.history.length, 1);
+  assert.deepEqual([doc.history[0].before.confirmed, doc.history[0].after.confirmed], [false, true]);
 });
 
 test('PIN из прошлых версий исчезает из данных', async (t) => {

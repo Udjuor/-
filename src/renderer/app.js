@@ -1,6 +1,6 @@
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petSprite, petStatus } from './pet.mjs';
@@ -1282,6 +1282,7 @@ function rowNote(row) {
       : t('Отмечен в {0}', [clockTime(row.at)]);
   }
   if (row.excusedFor) return t('По приказу: {0}', [row.excusedFor]);
+  if (row.unconfirmed) return t('Болезнь, ждём справку');
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
 
@@ -1306,6 +1307,7 @@ function inputTime(at) {
 
 function markText(mark) {
   if (!mark.status) return t('Нет отметки');
+  if (mark.status === 'sick' && mark.confirmed === false) return t('Болезнь, ждём справку');
   if (mark.status !== 'present') return statusLabel(mark.status);
   return mark.late ? t('Опоздал, {0}', [clockTime(mark.at)]) : t('Присутствовал');
 }
@@ -1398,7 +1400,7 @@ function openRoll(id) {
       return;
     }
     if (isClient()) {
-      footer.replaceChildren(h('p', { class: 'message' }, t('Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.')));
+      footer.replaceChildren(h('p', { class: 'message' }, t('Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.')));
       return;
     }
     footer.replaceChildren(...(doc?.lock ? [] : [
@@ -1422,7 +1424,7 @@ function openRoll(id) {
     banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
     const query = nameKey(search.value);
     keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
-      const settled = !row.excusedFor && !['present', 'pending', 'absent'].includes(row.status);
+      const settled = !row.excusedFor && !row.unconfirmed && !['present', 'pending', 'absent'].includes(row.status);
       return h('li', { class: `rollrow${row.excusedFor ? ' excused' : ''}` },
         h('button', {
           type: 'button',
@@ -1432,13 +1434,20 @@ function openRoll(id) {
           onclick: () => setMark(row.name, row.status === 'present' ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
         (!locked || teacherMode) && !row.excusedFor && lateControls(row),
-        teacherMode && ABSENCE_REASONS.map(([reason, label]) => h('button', {
+        !row.excusedFor && (!locked || teacherMode) && ABSENCE_REASONS
+          .filter(([reason]) => teacherMode || (reason === 'sick' && !settled))
+          .map(([reason, label]) => h('button', {
+            type: 'button',
+            class: 'reason',
+            'aria-pressed': String(row.status === reason && !row.lateMark),
+            onclick: () => setMark(row.name, row.status === reason ? null : reason),
+          }, t(label))),
+        teacherMode && row.status === 'sick' && h('button', {
           type: 'button',
-          class: 'reason',
-          'aria-pressed': String(row.status === reason && !row.lateMark),
-          disabled: Boolean(row.excusedFor),
-          onclick: () => setMark(row.name, row.status === reason ? null : reason),
-        }, t(label))));
+          class: 'reason certificate',
+          'aria-pressed': String(!row.unconfirmed),
+          onclick: () => setMark(row.name, 'sick', { confirmed: Boolean(row.unconfirmed), at: row.at }),
+        }, t('Справка принята')));
     })));
     const history = doc?.history ?? [];
     log.hidden = !history.length;
@@ -1624,6 +1633,7 @@ const COUNTS = [
   [t('Уважительная'), (r) => r.excused],
   [t('Без причины'), (r) => r.absent],
   ['%', (r) => shownPercent(r.percent)],
+  [t('Без справки'), (r) => r.noCertificate],
 ];
 
 const REPORT_TABS = [
@@ -2052,6 +2062,18 @@ function deadlineItems() {
   return items;
 }
 
+function certificateItems() {
+  const people = pendingCertificates(state.attendance, state.allEvents);
+  const items = people.slice(0, MAX_DEADLINE_ALERTS).map((person) => ({
+    id: `certificate-${person.name}`,
+    color: 'yellow',
+    name: t('{0}: предъявите справку для подтверждения больничного', [person.name]),
+  }));
+  const rest = people.length - items.length;
+  if (rest > 0) items.push({ id: 'certificate-rest', color: 'yellow', name: t('Ещё ждём справки: {0}', [rest]) });
+  return items;
+}
+
 function petItems() {
   const clock = now();
   return refsOf('group').flatMap((group) => {
@@ -2065,7 +2087,7 @@ function petItems() {
 
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
-  const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...petItems()];
+  const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -2123,7 +2145,7 @@ function drawNotices() {
     h('div', { class: 'sheethead' }, h('h2', {}, t('Напоминания')), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('p', { class: 'help noticehelp' }, t('Строка показывается внизу экрана на всех устройствах сети. Управлять ею могут только преподаватели.')),
-      h('p', { class: 'help noticehelp' }, t('Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.')),
+      h('p', { class: 'help noticehelp' }, t('Сроки сдачи, ожидаемые справки и изменения состояния питомцев попадают в строку сами, здесь их нет.')),
       h('div', { class: 'field' }, h('label', { for: 'n-text' }, t('Текст')), text),
       h('div', { class: 'field settingnext' }, h('span', { class: 'label' }, t('Цвет')),
         choiceRow(NOTICE_COLORS, color, (id) => { color = id; })),
@@ -2204,12 +2226,35 @@ function deadlineTable(title, events, late = false) {
         }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')))))))));
 }
 
+/** Одна справка закрывает все занятия, на которых студент числится больным. */
+async function acceptCertificate(person) {
+  for (const { event, at } of person.classes) await api.mark(event.id, person.name, 'sick', { confirmed: true, at });
+  await refresh();
+  refreshTicker();
+  drawDeadlines();
+}
+
+function certificateTable() {
+  const people = pendingCertificates(state.attendance, state.allEvents);
+  if (!people.length) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Ждём справку: {0}', [people.length])),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, [t('Студент'), t('Занятия'), ''].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, people.map((person) => h('tr', {},
+        h('td', {}, person.name),
+        h('td', {}, person.classes.map(({ event }) => `${shortDay(event.date)}, ${event.title}`).join('; ')),
+        h('td', {}, canManage() && h('button', { class: 'plain', onclick: () => acceptCertificate(person) }, t('Справка принята')))))))));
+}
+
 function drawDeadlines() {
   const box = $('deadlines-result');
   if (!box) return;
   const list = deadlineList(state.events, moment());
-  const empty = !Object.values(list).some((events) => events.length);
+  const certificates = certificateTable();
+  const empty = !certificates && !Object.values(list).some((events) => events.length);
   const sections = [
+    certificates,
     empty && h('p', { class: 'help' }, t('Сроков пока нет. Укажите срок сдачи в задании или мероприятии.')),
     deadlineTable(t('Просрочено'), list.overdue, true),
     deadlineTable(t('Сегодня и завтра'), list.soon),

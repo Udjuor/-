@@ -349,7 +349,6 @@ export default {
     "{0}: {1}, до {2}": "{0}: {1}, hasta {2}",
     "Ещё сроков: {0}": "Más plazos: {0}",
     "Группа {0}: {1}": "Grupo {0}: {1}",
-    "Сроки сдачи и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Los plazos y los cambios de estado de las mascotas aparecen en la cinta automáticamente y no figuran aquí.",
     "Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.": "El informe de esta clase está fijado: el título, la hora, los participantes y la eliminación están bloqueados.",
     "Пришёл в {0}, опоздание {1} мин": "Llegó a las {0}, {1} min tarde",
     "Опоздал, {0}": "Tarde, {0}",
@@ -371,9 +370,17 @@ export default {
     "Отчёт по этому занятию уже отправлен.": "El informe de esta clase ya se ha enviado.",
     "По приказу: {0}": "Por orden: {0}",
     "Освобождены по приказу": "Exentos por orden",
-    "Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.": "Los motivos de ausencia y la confirmación del informe se gestionan en la versión para profesores.",
     "Пришёл в {0}, с {1}-й минуты это пропуск": "Llegó a las {0}, desde el minuto {1} cuenta como ausencia",
-    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Llegó a las {0}, después del minuto {1} no cuenta como retraso"
+    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Llegó a las {0}, después del minuto {1} no cuenta como retraso",
+    "Болезнь, ждём справку": "Enfermedad, en espera de justificante",
+    "Справка принята": "Justificante aceptado",
+    "Ждём справку: {0}": "Justificantes pendientes: {0}",
+    "Занятия": "Clases",
+    "{0}: предъявите справку для подтверждения больничного": "{0}: presente el justificante para confirmar la baja",
+    "Ещё ждём справки: {0}": "Más justificantes pendientes: {0}",
+    "Сроки сдачи, ожидаемые справки и изменения состояния питомцев попадают в строку сами, здесь их нет.": "Los plazos, los justificantes pendientes y los cambios de estado de las mascotas aparecen en la cinta automáticamente y no figuran aquí.",
+    "Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.": "La confirmación del justificante, otros motivos y el informe se gestionan en la versión para profesores.",
+    "Без справки": "Sin justificante"
   },
   "plurals": {
     "days": {
