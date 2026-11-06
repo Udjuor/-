@@ -343,6 +343,8 @@ test('«Начать занятие»: с панели один раз и тол
   await assert.rejects(store.startLesson(event.id, { now: at('10:16') }), { code: 'started' });
   const fixed = await store.startLesson(event.id, { admin: true, at: new Date(at('10:20')).toISOString() });
   assert.equal(fixed.start.at, new Date(at('10:20')).toISOString());
+  const task = await store.save({ ...sample, type: 'task', participants: ['Иванов'] });
+  await assert.rejects(store.startLesson(task.id, { now: at('10:15') }), { code: 'invalid' }, 'у задания нет начала: был или не был');
   const marked = await store.saveMark(event.id, 'Иванов', 'present', { student: true });
   assert.ok(marked.start, 'отметка не стирает начало');
   const locked = await store.lockReport(event.id, 'Кабинет');

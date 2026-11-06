@@ -374,7 +374,7 @@ class EventStore {
   startLesson(eventId, { admin = false, at = null, now = this.clock() } = {}) {
     return this.exclusive(async () => {
       const event = await this.readCurrent(String(eventId));
-      if (!event || event.deleted || event.kind || event.type === 'event' || event.type === 'practice') throw new StoreError('invalid', 'Занятие не найдено');
+      if (!event || event.deleted || event.kind || event.type !== 'lesson') throw new StoreError('invalid', 'Занятие не найдено');
       if ((at !== null && !admin) || (at !== null && Number.isNaN(Date.parse(at)))) throw new StoreError('teacher-only', 'Время меняет преподаватель');
       const id = attendanceId(eventId);
       const current = await this.readCurrent(id);

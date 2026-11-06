@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -57,7 +57,7 @@ const fmt = (iso, options) => new Intl.DateTimeFormat(locale(), options).format(
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 // 1 января 2024 — понедельник: неделя всегда начинается с него.
 const WEEKDAYS = Array.from({ length: 7 }, (_, i) => capitalize(fmt(`2024-01-0${i + 1}`, { weekday: 'short' })));
-const timeRange = (e) => (isAllDay(e) ? t('Весь день') : `${e.start}–${e.end}`);
+const timeRange = (e) => (isAllDay(e) ? t('Весь день, {0}–{1}', [e.start, e.end]) : `${e.start}–${e.end}`);
 const peopleCount = (n) => tp('people', n);
 
 function periodTitle() {
@@ -662,8 +662,8 @@ async function openForm(source = {}) {
     from.hidden = allDayBox.checked;
     to.hidden = allDayBox.checked;
     if (allDayBox.checked) {
-      $('f-start').value = '00:00';
-      $('f-end').value = '23:59';
+      $('f-start').value = STUDY_DAY.start;
+      $('f-end').value = STUDY_DAY.end;
     }
   };
   allDayBox.addEventListener('change', () => {

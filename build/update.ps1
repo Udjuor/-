@@ -27,10 +27,14 @@ function Save-Status([string]$Result, [string]$Detail = '') {
 
 try {
   # Tasks of the old name stay until the update that ran inside them has finished.
+  # Touched only when present: on a current install this check changes nothing.
   foreach ($name in 'StudentCalendarUpdate', 'StudentCalendarLaunch') {
-    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+    if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+      Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+    }
   }
-  Remove-Item -LiteralPath (Join-Path $env:ProgramFiles 'StudentCalendarUpdate') -Recurse -Force -ErrorAction SilentlyContinue
+  $oldDir = Join-Path $env:ProgramFiles 'StudentCalendarUpdate'
+  if (Test-Path -LiteralPath $oldDir) { Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue }
 
   $run = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis
   $exe = $run.Trim('"')

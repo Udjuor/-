@@ -836,7 +836,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.equal(await page.locator('.hours span:text-is("0:00")').count(), 0, 'сетка не растянута до полуночи');
   await shot('allday');
   await page.click('.alldaychip:has-text("День открытых дверей")');
-  await page.waitForSelector('#details:has-text("Весь день")');
+  await page.waitForSelector('#details:has-text("Весь день, 08:30–20:00")');
   await page.click('#details [aria-label=Закрыть]');
 
   // Сроки сдачи.

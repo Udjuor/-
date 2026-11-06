@@ -57,11 +57,14 @@ export const fromMinutes = (total) => `${pad(Math.floor(total / 60))}:${pad(tota
 
 export const byTime = (a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end) || a.title.localeCompare(b.title, 'ru');
 
+/** Учебный день студентов. */
+export const STUDY_DAY = { start: '08:30', end: '20:00' };
+
 /**
- * Событие на весь день: отмечено так или занимает сутки целиком (с полуночи до ночи).
- * Такие события идут полосой над сеткой часов и не растягивают её.
+ * Событие на весь день: отмечено так или вместе с подготовкой и завозом техники
+ * перекрывает весь учебный день. Такие события идут полосой над сеткой часов.
  */
-export const isAllDay = (event) => event.allDay === true || (event.start <= '00:30' && event.end >= '23:30');
+export const isAllDay = (event) => event.allDay === true || (busyFrom(event) <= STUDY_DAY.start && event.end >= STUDY_DAY.end);
 
 export const eventsOn = (events, iso) => events.filter((e) => e.date === iso).sort(byTime);
 
@@ -412,8 +415,8 @@ function markedRow(event, name, mark, doc) {
   return { ...row, lateMark };
 }
 
-// На мероприятии и практике важно только, был ли студент.
-export const countsLateness = (event) => event.type !== 'event' && event.type !== 'practice';
+// Only lessons record lateness; events, practice and tasks are present or absent.
+export const countsLateness = (event) => event.type === 'lesson';
 
 /** Как часто повторяется событие. */
 export const REPEATS = [

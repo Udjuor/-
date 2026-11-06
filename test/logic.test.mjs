@@ -353,7 +353,7 @@ test('в строку попадают поджимающие сроки и св
 });
 
 test('опоздание ставит преподаватель, присутствие его не вызывает', () => {
-  const event = { date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера', 'Гена'] };
+  const event = { type: 'lesson', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера', 'Гена'] };
   const at = new Date(2026, 10, 3, 9, 20).toISOString();
   const doc = { marks: {
     Аня: { status: 'present', at, late: false },
@@ -366,7 +366,7 @@ test('опоздание ставит преподаватель, присутс
 
 test('случай из колледжа: преподаватель задержался, опоздание считается от фактического начала', () => {
   const names = ['С1', 'С2', 'С3', 'С4', 'С5', 'С6', 'С7', 'В1017', 'В1027', 'В1032', 'В1055', 'Нет'];
-  const event = { date: '2026-11-03', start: '10:15', end: '11:45', participants: names };
+  const event = { type: 'lesson', date: '2026-11-03', start: '10:15', end: '11:45', participants: names };
   const at = (time) => new Date(2026, 10, 3, ...time.split(':').map(Number)).toISOString();
   const marks = Object.fromEntries([
     ...names.slice(0, 7).map((name) => [name, { status: 'present', at: at('10:10'), late: false }]),
@@ -468,6 +468,8 @@ test('на мероприятии только был или не был, без
   const rows = L.rollCall(event, doc, '2026-11-03', '12:30');
   assert.deepEqual(rows.map((row) => [row.status, row.late]), [['present', 0], ['present', 0], ['absent', 0]]);
   assert.equal(L.countsLateness({ type: 'lesson' }), true);
+  assert.equal(L.countsLateness({ type: 'task' }), false, 'задание: был или не был');
+  assert.equal(L.countsLateness({ type: 'practice' }), false);
 });
 
 test('цепочка событий: даты по каждому виду повтора до последнего дня', () => {
@@ -489,11 +491,13 @@ test('на практике тоже только был или не был', ()
   assert.deepEqual(L.rollCall(event, doc, '2026-11-03', '12:30').map((row) => [row.status, row.late]), [['present', 0]]);
 });
 
-test('событие на весь день узнаётся по отметке и по времени с полуночи до ночи', () => {
+test('весь день для студентов: учебный день с 8:30 до 20:00 целиком, с учётом подготовки', () => {
   assert.equal(L.isAllDay({ start: '09:00', end: '10:00', allDay: true }), true);
+  assert.equal(L.isAllDay({ start: '08:30', end: '20:00' }), true);
   assert.equal(L.isAllDay({ start: '00:00', end: '23:59' }), true);
-  assert.equal(L.isAllDay({ start: '00:05', end: '23:20' }), false);
-  assert.equal(L.isAllDay({ start: '08:00', end: '20:00' }), false);
+  assert.equal(L.isAllDay({ start: '10:00', end: '20:30', prepMinutes: 120 }), true, 'с подготовкой и завозом с 8:00');
+  assert.equal(L.isAllDay({ start: '10:00', end: '20:30', prepMinutes: 60 }), false);
+  assert.equal(L.isAllDay({ start: '08:30', end: '19:55' }), false);
 });
 
 test('склонение', () => {

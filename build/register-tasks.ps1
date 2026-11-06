@@ -55,44 +55,14 @@ if ($oldUpdate -and $oldUpdate.State -eq 'Running') {
     Set-ScheduledTask -TaskName 'StudentCalendarLaunch' -Action (New-ScheduledTaskAction -Execute $exe) | Out-Null
   }
 } else {
+  # Touched only when present, so a normal install changes no other tasks or folders.
   foreach ($name in 'StudentCalendarUpdate', 'StudentCalendarLaunch') {
-    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-  }
-  Remove-Item -LiteralPath (Join-Path (Split-Path $root) 'StudentCalendarUpdate') -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-# Shortcuts of old names can live in personal folders the installer does not manage.
-# They are found by target, so no old name has to be listed here.
-try {
-  $shell = New-Object -ComObject WScript.Shell
-  $oldTarget = '\\StudentCalendar\.exe$'
-  $folders = @(Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
-  $pinned = @()
-  foreach ($user in Get-ChildItem (Split-Path $env:PUBLIC) -Directory -Force -ErrorAction SilentlyContinue) {
-    $folders += Join-Path $user.FullName 'Desktop'
-    $folders += Join-Path $user.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs'
-    $pinned += Join-Path $user.FullName 'AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
-    foreach ($cloud in Get-ChildItem $user.FullName -Directory -Filter 'OneDrive*' -ErrorAction SilentlyContinue) {
-      $folders += (Get-ChildItem $cloud.FullName -Directory -ErrorAction SilentlyContinue).FullName
+    if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+      Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
     }
   }
-  foreach ($folder in $folders) {
-    foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -Recurse -Depth 1 -ErrorAction SilentlyContinue) {
-      if ($shell.CreateShortcut($file.FullName).TargetPath -match $oldTarget) { Remove-Item -LiteralPath $file.FullName -Force }
-    }
-  }
-  # A taskbar pin stays in place and starts the new program.
-  foreach ($folder in $pinned) {
-    foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -ErrorAction SilentlyContinue) {
-      $link = $shell.CreateShortcut($file.FullName)
-      if ($link.TargetPath -match $oldTarget) {
-        $link.TargetPath = $exe
-        $link.Save()
-      }
-    }
-  }
-} catch {
-  "$(Get-Date -Format s) shortcuts: $($_.Exception.Message)" | Add-Content -LiteralPath $log
+  $oldDir = Join-Path (Split-Path $root) 'StudentCalendarUpdate'
+  if (Test-Path -LiteralPath $oldDir) { Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 "$(Get-Date -Format s) ok" | Add-Content -LiteralPath $log

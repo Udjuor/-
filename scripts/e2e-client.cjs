@@ -24,8 +24,8 @@ const today = (() => {
     return id;
   };
   put({ kind: 'group', name: 'ИС-21' });
-  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:20', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
-  put({ title: 'Концерт на панели', type: 'event', date: today, start: '23:00', end: '23:30', participants: ['Сидоров'], devices: [] });
+  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '19:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
+  put({ title: 'Концерт на панели', type: 'event', date: today, start: '19:00', end: '19:30', participants: ['Сидоров'], devices: [] });
   const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
   const hex = crypto.createHash('sha256').update(`attendance:${lockedId}`).digest('hex');
   const docId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;

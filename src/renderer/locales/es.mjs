@@ -451,7 +451,8 @@ export default {
     "Удаление событий за период": "Eliminar eventos de un periodo",
     "по": "a",
     "Например, чтобы очистить календарь после окончания семестра. Если удалили лишнее, его можно вернуть кнопкой «Вернуть удалённое из копии».": "Por ejemplo, para vaciar el calendario al terminar el semestre. Si se eliminó de más, use «Recuperar lo eliminado desde una copia».",
-    "Весь день": "Todo el día"
+    "Весь день": "Todo el día",
+    "Весь день, {0}–{1}": "Todo el día, {0}–{1}"
   },
   "plurals": {
     "events": {
