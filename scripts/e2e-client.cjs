@@ -56,11 +56,11 @@ const today = (() => {
   await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));
   await refused(() => window.calendar.saveSettings({ deviceName: 'Взлом' }));
   await refused(async () => {
-    const list = (await window.calendar.list()).value;
-    return window.calendar.remove(list[0].id, list[0].updatedAt);
+    const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
+    return window.calendar.remove(event.id, event.updatedAt);
   });
   await refused(async () => {
-    const [event] = (await window.calendar.list()).value;
+    const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
     return window.calendar.save({ ...event, title: 'Подмена' }, event.updatedAt);
   });
 
@@ -86,11 +86,11 @@ const today = (() => {
   await page.waitForSelector('.rollrow:has-text("Иванов") .rollname[aria-pressed=true]');
   await page.click('#roll [aria-label=Закрыть]');
   await refused(async () => {
-    const [event] = (await window.calendar.list()).value;
+    const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
     return window.calendar.mark(event.id, 'Иванов', 'sick', {});
   });
   await refused(async () => {
-    const [event] = (await window.calendar.list()).value;
+    const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
     return window.calendar.lockReport(event.id);
   });
   assert.equal((await page.evaluate((id) => window.calendar.mark(id, 'Иванов', 'present', {}), lockedId)).code, 'locked');
