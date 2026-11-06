@@ -255,26 +255,26 @@ test('срок сдачи есть только у заданий и мероп�
   assert.deepEqual([broken.deadline, broken.deadlineDone], ['', ''], 'без срока отметка о сдаче не держится');
 });
 
-test('без входа можно только отметить своё присутствие', async (t) => {
+test('на панели отмечают присутствие и опоздание, а причины нет', async (t) => {
   const store = new EventStore(tempDir(t));
   const event = await store.save({ ...sample, participants: ['Иванов', 'Петров'] });
   const student = { student: true };
   await store.saveMark(event.id, 'Иванов', 'present', student);
   await store.saveMark(event.id, 'Иванов', null, student);
   await assert.rejects(store.saveMark(event.id, 'Иванов', 'sick', student), { code: 'teacher-only' });
-  await assert.rejects(store.saveMark(event.id, 'Иванов', 'present', { ...student, late: true }), { code: 'teacher-only' });
-  await store.saveMark(event.id, 'Петров', 'present', { teacher: 'Лебедева', late: true, at: '2026-11-10T01:20:00.000Z' });
-  await assert.rejects(store.saveMark(event.id, 'Петров', null, student), { code: 'teacher-only' });
-  await assert.rejects(store.saveMark(event.id, 'Петров', 'present', student), { code: 'teacher-only' });
+  await store.saveMark(event.id, 'Петров', 'present', { ...student, late: true, at: '2026-11-10T01:20:00.000Z' });
   const [doc] = await store.attendance();
   assert.deepEqual([doc.marks['Петров'].late, doc.marks['Петров'].at], [true, '2026-11-10T01:20:00.000Z']);
+  await store.saveMark(event.id, 'Иванов', 'sick', { teacher: 'Кабинет' });
+  await assert.rejects(store.saveMark(event.id, 'Иванов', 'present', student), { code: 'teacher-only' });
 });
 
 test('после фиксации отчёт правится только преподавателем и с историей', async (t) => {
   const store = new EventStore(tempDir(t));
   const event = await store.save({ ...sample, participants: ['Иванов', 'Петров'] });
   await store.saveMark(event.id, 'Иванов', 'present');
-  await store.lockReport(event.id, 'Лебедева');
+  const locked = await store.lockReport(event.id, 'Лебедева', { Петров: 'Концерт' });
+  assert.deepEqual(locked.lock.excused, { Петров: 'Концерт' });
   await assert.rejects(store.lockReport(event.id, 'Павлов'), { code: 'locked' });
   await assert.rejects(store.saveMark(event.id, 'Петров', 'present', { student: true }), { code: 'locked' });
   await assert.rejects(store.saveMark(event.id, 'Петров', 'present'), { code: 'locked' });

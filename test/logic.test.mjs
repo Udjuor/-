@@ -361,9 +361,17 @@ test('опоздание ставит преподаватель, присутс
     Вера: { status: 'present', at },
   } };
   const rows = L.rollCall(event, doc, '2026-11-03', '09:30');
-  assert.deepEqual(rows.map((r) => [r.name, r.late]), [['Аня', 0], ['Боря', 20], ['Вера', 20], ['Гена', 0]]);
-  const onTime = { marks: { Боря: { status: 'present', at: new Date(2026, 10, 3, 9, 0).toISOString(), late: true } } };
-  assert.equal(L.rollCall(event, onTime, '2026-11-03', '09:30')[1].late, 1, 'поставленное вручную опоздание не теряется');
+  assert.deepEqual(rows.map((r) => [r.name, r.late]), [['Аня', 0], ['Боря', 0], ['Вера', 20], ['Гена', 0]]);
+});
+
+test('опоздание засчитывается до конца 10-й минуты, позже нет, с 40-й это пропуск', () => {
+  const event = { date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Боря'] };
+  const row = (minute) => L.rollCall(event, { marks: { Боря: { status: 'present', at: new Date(2026, 10, 3, 9, minute).toISOString(), late: true } } }, '2026-11-03', '09:50')[0];
+  assert.deepEqual([row(0).status, row(0).late], ['present', 1]);
+  assert.deepEqual([row(10).status, row(10).late], ['present', 10]);
+  assert.deepEqual([row(11).status, row(11).late, row(11).lateMark], ['present', 0, true]);
+  assert.deepEqual([row(39).status, row(39).late], ['present', 0]);
+  assert.deepEqual([row(40).status, row(40).late, row(40).lateMark], ['absent', 0, true]);
 });
 
 test('зафиксированный отчёт держит свой состав и закрывает неотмеченных', () => {
@@ -371,6 +379,35 @@ test('зафиксированный отчёт держит свой соста
   const doc = { marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 9, 0).toISOString(), late: false } }, lock: { at: 'x', teacher: 'Т', participants: ['Аня', 'Боря'] } };
   const rows = L.rollCall(event, doc, '2026-11-03', '09:30');
   assert.deepEqual(rows.map((r) => [r.name, r.status]), [['Аня', 'present'], ['Боря', 'absent']]);
+});
+
+test('внесённые в задание, практику или мероприятие сразу освобождены от занятия', () => {
+  const lesson = { id: 'l', type: 'lesson', date: '2026-11-03', start: '10:00', end: '11:30', participants: ['Аня', 'Боря', 'Вера', 'Гена', 'Дина'] };
+  const events = [
+    lesson,
+    { id: 'm', type: 'event', title: 'Концерт', date: '2026-11-03', start: '11:00', end: '12:00', participants: ['аня'] },
+    { id: 't', type: 'task', title: 'Съёмка', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Боря'] },
+    { id: 'p', type: 'practice', title: 'Практика', date: '2026-11-03', start: '12:00', end: '13:00', prepMinutes: 60, participants: ['Вера'] },
+    { id: 'другая пара', type: 'lesson', title: 'Пара', date: '2026-11-03', start: '10:00', end: '11:30', participants: ['Гена'] },
+    { id: 'позже', type: 'event', title: 'Вечер', date: '2026-11-03', start: '11:30', end: '12:00', participants: ['Дина'] },
+    { id: 'завтра', type: 'event', title: 'Завтра', date: '2026-11-04', start: '10:00', end: '11:00', participants: ['Дина'] },
+  ];
+  assert.deepEqual([...L.excusedBy(lesson, events)], [['Аня', 'Концерт'], ['Боря', 'Съёмка'], ['Вера', 'Практика']]);
+  const rows = L.rollCall(lesson, null, '2026-11-03', '10:05', events);
+  assert.deepEqual(rows.map((row) => row.status), ['order', 'order', 'order', 'pending', 'pending']);
+  assert.equal(rows[0].excusedFor, 'Концерт');
+  assert.equal(L.rollCall(lesson, null, '2026-11-03', '12:00', events)[3].status, 'absent');
+  const came = { marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 10, 0).toISOString(), late: false } } };
+  assert.equal(L.rollCall(lesson, came, '2026-11-03', '10:05', events)[0].status, 'present', 'пришедший отмечается как пришедший');
+  assert.equal(L.excusedBy({ ...events[1] }, events).size, 0, 'мероприятие само не освобождается');
+});
+
+test('после фиксации освобождения не зависят от расписания', () => {
+  const lesson = { id: 'l', type: 'lesson', date: '2026-11-03', start: '10:00', end: '11:30', participants: ['Аня', 'Боря'] };
+  const later = [{ id: 'm', type: 'event', title: 'Новое', date: '2026-11-03', start: '10:00', end: '11:00', participants: ['Боря'] }];
+  const doc = { marks: {}, lock: { at: 'x', teacher: 'Т', participants: ['Аня', 'Боря'], excused: { Аня: 'Концерт' } } };
+  const rows = L.rollCall(lesson, doc, '2026-11-03', '10:05', later);
+  assert.deepEqual(rows.map((row) => row.status), ['order', 'absent']);
 });
 
 test('склонение', () => {

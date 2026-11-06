@@ -306,20 +306,48 @@ const hasEnded = (event, nowISO, nowTime) => eventState(event, nowISO, nowTime) 
  * Положение каждого участника пары. Если пара закончилась, а отметки нет,
  * это пропуск без причины; пока она идёт — просто «нет отметки».
  */
-export function rollCall(event, doc, nowISO, nowTime) {
+export function rollCall(event, doc, nowISO, nowTime, events = []) {
   const closed = Boolean(doc?.lock) || hasEnded(event, nowISO, nowTime);
+  // После фиксации освобождения берутся из отчёта: изменения расписания его не трогают.
+  const excused = doc?.lock ? new Map(Object.entries(doc.lock.excused ?? {})) : excusedBy(event, events);
   return (doc?.lock?.participants ?? event.participants).map((name) => {
     const mark = doc?.marks?.[name];
-    if (mark?.status) return { name, status: mark.status, at: mark.at, late: markedLate(event, mark) };
+    if (mark?.status) return markedRow(event, name, mark);
+    if (excused.has(name)) return { name, status: 'order', at: null, late: 0, excusedFor: excused.get(name) };
     return { name, status: closed ? 'absent' : 'pending', at: null, late: 0 };
   });
 }
 
-/** Опоздание ставит только преподаватель. Старые отметки считаются по времени, как раньше. */
-function markedLate(event, mark) {
-  if (mark.status !== 'present') return 0;
-  if (mark.late === undefined) return lateMinutes(event, mark.at);
-  return mark.late ? Math.max(1, lateMinutes(event, mark.at)) : 0;
+const EXCUSING_TYPES = new Set(['task', 'event', 'practice']);
+const EXCUSED_TYPES = new Set(['lesson', 'practice']);
+
+/** Кто освобождён от занятия по приказу: внесён в задание, практику или мероприятие в это же время. */
+export function excusedBy(event, events) {
+  const excused = new Map();
+  if (!EXCUSED_TYPES.has(event.type)) return excused;
+  const others = events.filter((other) => other.id !== event.id && other.date === event.date && EXCUSING_TYPES.has(other.type)
+    && busyFrom(other) < event.end && event.start < other.end);
+  for (const name of event.participants) {
+    const other = others.find((item) => item.participants.some((person) => nameKey(person) === nameKey(name)));
+    if (other) excused.set(name, other.title);
+  }
+  return excused;
+}
+
+// Опоздание засчитывается, если его зафиксировали до конца 10-й минуты. Позже оно не считается,
+// а с 40-й минуты это пропуск.
+export const LATE_UNTIL_MINUTE = 10;
+export const ABSENT_FROM_MINUTE = 40;
+
+/** Опоздание ставят кнопкой. Старые отметки без этого поля считаются, как раньше. */
+function markedRow(event, name, mark) {
+  const row = { name, status: mark.status, at: mark.at, late: 0 };
+  if (mark.status !== 'present') return row;
+  const minutes = lateMinutes(event, mark.at);
+  if (mark.late === undefined) return { ...row, late: minutes };
+  if (!mark.late) return row;
+  if (minutes >= ABSENT_FROM_MINUTE) return { ...row, status: 'absent', lateMark: true };
+  return { ...row, late: minutes <= LATE_UNTIL_MINUTE ? Math.max(1, minutes) : 0, lateMark: true };
 }
 
 /** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
@@ -359,7 +387,7 @@ export function buildReport({ events, attendance, students, groups, filters, now
     .sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b));
 
   for (const event of held) {
-    const roster = rollCall(event, docs.get(event.id), nowISO, nowTime).filter((row) => inGroup(row.name));
+    const roster = rollCall(event, docs.get(event.id), nowISO, nowTime, events).filter((row) => inGroup(row.name));
     if (filters.group && !roster.length) continue;
     const eventGroups = [...new Set(event.participants.map((name) => groupOf.get(nameKey(name))).filter(Boolean))].sort();
     pairs.push({ event, groups: eventGroups, locked: docs.get(event.id)?.lock ?? null, ...tally(roster) });

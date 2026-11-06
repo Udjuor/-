@@ -262,8 +262,8 @@ function registerHandlers() {
     sync?.nudge();
     return doc;
   }));
-  ipcMain.handle('attendance:lock', (_e, eventId) => managed(async () => {
-    const doc = await store.lockReport(eventId, config.deviceName);
+  ipcMain.handle('attendance:lock', (_e, eventId, excused) => managed(async () => {
+    const doc = await store.lockReport(eventId, config.deviceName, excused);
     sync?.nudge();
     return doc;
   }));

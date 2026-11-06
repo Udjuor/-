@@ -368,7 +368,12 @@ export default {
     "Отчёт зафиксирован. Исправить его можно в версии для преподавателей.": "El informe está fijado. Se puede corregir en la versión para profesores.",
     "Отчёт закроется для панелей. Кто не отмечен, станет отсутствующим. Исправить его можно будет только в версии для преподавателей.": "El informe se cerrará en los paneles. Quien no esté marcado quedará ausente. Solo se podrá corregir en la versión para profesores.",
     "Опоздания, причины и фиксацию отчёта ведёт преподаватель со своего компьютера.": "Los retrasos, los motivos y la fijación del informe los gestiona el profesor desde su ordenador.",
-    "Отчёт по этому занятию уже отправлен.": "El informe de esta clase ya se ha enviado."
+    "Отчёт по этому занятию уже отправлен.": "El informe de esta clase ya se ha enviado.",
+    "По приказу: {0}": "Por orden: {0}",
+    "Освобождены по приказу": "Exentos por orden",
+    "Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.": "Los motivos de ausencia y la confirmación del informe se gestionan en la versión para profesores.",
+    "Пришёл в {0}, с {1}-й минуты это пропуск": "Llegó a las {0}, desde el minuto {1} cuenta como ausencia",
+    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Llegó a las {0}, después del minuto {1} no cuenta como retraso"
   },
   "plurals": {
     "days": {

@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, EVENT_TYPES, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_UNTIL_MINUTE, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -101,6 +101,8 @@ function eventBlock(item, range, dayView) {
   } else if (event.participants.length) {
     details.push(h('span', {}, peopleCount(event.participants.length)));
   }
+  const excusedCount = roll(event).filter((row) => row.excusedFor).length;
+  if (excusedCount) details.splice(2, 0, h('span', { class: 'blockexcused' }, t('По приказу: {0}', [excusedCount])));
   const block = h('button', {
     class: `block t-${event.type} ${status}${!dayView && columns > 1 ? ' narrow' : ''}`,
     'aria-label': eventLabel(event),
@@ -394,7 +396,7 @@ const attendanceOf = (eventId) => state.attendance.find((doc) => doc.eventId ===
 
 const roll = (event) => {
   const clock = now();
-  return rollCall(event, attendanceOf(event.id), clock.iso, clock.time);
+  return rollCall(event, attendanceOf(event.id), clock.iso, clock.time, state.allEvents);
 };
 
 const countPresent = (event) => roll(event).filter((row) => row.status === 'present').length;
@@ -404,6 +406,7 @@ function showDetails(id) {
   if (!event) return;
   const dialog = $('details');
   const footer = h('div', { class: 'sheetfoot' });
+  const excused = roll(event).filter((row) => row.excusedFor);
 
   const showActions = () => footer.replaceChildren(
     canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
@@ -455,6 +458,7 @@ function showDetails(id) {
         fact(t('Время'), timeRange(event)),
         fact(t('Подготовка'), prepText(event)),
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
+        excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
         fact(t('Место'), event.place),
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
@@ -1270,11 +1274,14 @@ function drawCatalog({ fromTop = false } = {}) {
 const clockTime = (at) => new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 
 function rowNote(row) {
+  if (row.lateMark && row.status === 'absent') return t('Пришёл в {0}, с {1}-й минуты это пропуск', [clockTime(row.at), ABSENT_FROM_MINUTE]);
+  if (row.lateMark && !row.late) return t('Пришёл в {0}, после {1}-й минуты опоздание не считается', [clockTime(row.at), LATE_UNTIL_MINUTE]);
   if (row.status === 'present') {
     return row.late
       ? t('Пришёл в {0}, опоздание {1} мин', [clockTime(row.at), row.late])
       : t('Отмечен в {0}', [clockTime(row.at)]);
   }
+  if (row.excusedFor) return t('По приказу: {0}', [row.excusedFor]);
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
 
@@ -1347,7 +1354,8 @@ function openRoll(id) {
   // Отчёт уходит один раз: кнопка гаснет сразу, а повтор отклоняет хранилище.
   const lock = async (e) => {
     e.currentTarget.disabled = true;
-    const result = await api.lockReport(event.id);
+    const excused = Object.fromEntries(roll(event).filter((row) => row.excusedFor).map((row) => [row.name, row.excusedFor]));
+    const result = await api.lockReport(event.id, excused);
     confirming = false;
     if (result.ok) {
       failure.textContent = '';
@@ -1366,10 +1374,10 @@ function openRoll(id) {
     h('button', {
       type: 'button',
       class: 'reason',
-      'aria-pressed': String(row.late > 0),
-      onclick: () => (row.late ? setMark(row.name, 'present', { late: false, at: row.at }) : setMark(row.name, 'present', { late: true })),
+      'aria-pressed': String(Boolean(row.lateMark || row.late)),
+      onclick: () => (row.lateMark || row.late ? setMark(row.name, 'present', { late: false, at: row.at }) : setMark(row.name, 'present', { late: true })),
     }, t('Опоздал')),
-    row.late > 0 && h('input', {
+    (row.lateMark || row.late > 0) && h('input', {
       type: 'time',
       class: 'latetime',
       value: inputTime(row.at),
@@ -1390,7 +1398,7 @@ function openRoll(id) {
       return;
     }
     if (isClient()) {
-      footer.replaceChildren(h('p', { class: 'message' }, t('Опоздания, причины и фиксацию отчёта ведёт преподаватель со своего компьютера.')));
+      footer.replaceChildren(h('p', { class: 'message' }, t('Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.')));
       return;
     }
     footer.replaceChildren(...(doc?.lock ? [] : [
@@ -1414,8 +1422,8 @@ function openRoll(id) {
     banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
     const query = nameKey(search.value);
     keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
-      const settled = (row.status !== 'present' && row.status !== 'pending' && row.status !== 'absent') || row.late > 0;
-      return h('li', { class: 'rollrow' },
+      const settled = !row.excusedFor && !['present', 'pending', 'absent'].includes(row.status);
+      return h('li', { class: `rollrow${row.excusedFor ? ' excused' : ''}` },
         h('button', {
           type: 'button',
           class: 'rollname',
@@ -1423,11 +1431,12 @@ function openRoll(id) {
           disabled: !teacherMode && (locked || settled),
           onclick: () => setMark(row.name, row.status === 'present' ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
-        teacherMode && lateControls(row),
+        (!locked || teacherMode) && !row.excusedFor && lateControls(row),
         teacherMode && ABSENCE_REASONS.map(([reason, label]) => h('button', {
           type: 'button',
           class: 'reason',
-          'aria-pressed': String(row.status === reason),
+          'aria-pressed': String(row.status === reason && !row.lateMark),
+          disabled: Boolean(row.excusedFor),
           onclick: () => setMark(row.name, row.status === reason ? null : reason),
         }, t(label))));
     })));

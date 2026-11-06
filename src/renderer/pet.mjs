@@ -44,7 +44,7 @@ export function petStatus({ group, students, events, attendance, nowISO, nowTime
   for (const event of pairs) {
     const marks = Object.values(docs.get(event.id)?.marks ?? {});
     if (!marks.some((mark) => mark.status)) continue;
-    const rows = rollCall(event, docs.get(event.id), nowISO, nowTime)
+    const rows = rollCall(event, docs.get(event.id), nowISO, nowTime, events)
       .filter((row) => members.has(nameKey(row.name)) && ['present', 'absent'].includes(row.status));
     if (!rows.length) continue;
     const onTime = rows.filter((row) => row.status === 'present' && !row.late).length;

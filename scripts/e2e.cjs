@@ -775,9 +775,9 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('.rollrow:has-text("Алексеева Мария") .rollname[aria-pressed=true]');
   assert.doesNotMatch(await page.textContent('.rollrow:has-text("Алексеева Мария")'), /опоздание/, 'присутствие не считается опозданием');
   await page.click('.rollrow:has-text("Борисов Илья") >> text=Опоздал');
-  await page.fill('.rollrow:has-text("Борисов Илья") .latetime', '14:20');
+  await page.fill('.rollrow:has-text("Борисов Илья") .latetime', '14:05');
   await page.locator('.rollrow:has-text("Борисов Илья") .latetime').blur();
-  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 20 мин")');
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 5 мин")');
   await shot('roll-teacher');
   await page.click('#lock-report');
   await page.waitForSelector('#lock-confirm');

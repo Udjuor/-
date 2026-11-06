@@ -368,7 +368,12 @@ export default {
     "Отчёт зафиксирован. Исправить его можно в версии для преподавателей.": "The report is locked. It can be corrected in the teacher version.",
     "Отчёт закроется для панелей. Кто не отмечен, станет отсутствующим. Исправить его можно будет только в версии для преподавателей.": "The report will close on panels. Anyone unmarked becomes absent. It can then be corrected only in the teacher version.",
     "Опоздания, причины и фиксацию отчёта ведёт преподаватель со своего компьютера.": "Lateness, absence reasons and report locking are handled by the teacher on their own computer.",
-    "Отчёт по этому занятию уже отправлен.": "The report for this class has already been sent."
+    "Отчёт по этому занятию уже отправлен.": "The report for this class has already been sent.",
+    "По приказу: {0}": "By order: {0}",
+    "Освобождены по приказу": "Excused by order",
+    "Причины отсутствия и подтверждение отчёта ведутся в версии для преподавателей.": "Absence reasons and report confirmation are handled in the teacher version.",
+    "Пришёл в {0}, с {1}-й минуты это пропуск": "Arrived at {0}, from minute {1} this counts as an absence",
+    "Пришёл в {0}, после {1}-й минуты опоздание не считается": "Arrived at {0}, after minute {1} lateness is not counted"
   },
   "plurals": {
     "days": {

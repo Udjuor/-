@@ -158,7 +158,13 @@ function normalizeAttendance(raw) {
   }
   const lock = raw.lock;
   doc.lock = typeof lock?.at === 'string' && lock.at && typeof lock.teacher === 'string'
-    ? { at: lock.at, teacher: lock.teacher, device: String(lock.device ?? ''), participants: cleanList(lock.participants) }
+    ? {
+      at: lock.at,
+      teacher: lock.teacher,
+      device: String(lock.device ?? ''),
+      participants: cleanList(lock.participants),
+      excused: Object.fromEntries(Object.entries(lock.excused ?? {}).map(([name, title]) => [String(name), String(title)])),
+    }
     : null;
   doc.history = doc.lock && Array.isArray(raw.history) ? raw.history.slice(-500) : [];
   return doc;
@@ -294,7 +300,7 @@ class EventStore {
 
   /**
    * Ставит или снимает отметку студента.
-   * student: отметка с клиента на панели, только своё присутствие.
+   * student: отметка с клиента на панели: присутствие и опоздание.
    * teacher: устройство с версией для преподавателей, только оно может исправить зафиксированный отчёт.
    */
   saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null } = {}) {
@@ -308,8 +314,9 @@ class EventStore {
       const before = current?.marks?.[name];
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
       if (student) {
-        const settled = before?.status && (before.status !== 'present' || before.late);
-        if (settled || late || at || (status && status !== 'present')) throw new StoreError('teacher-only', 'Нужен вход преподавателя');
+        // На панели отмечают приход и опоздание. Причины отсутствия остаются за преподавателем.
+        const reason = before?.status && before.status !== 'present';
+        if (reason || (status && status !== 'present')) throw new StoreError('teacher-only', 'Только в версии для преподавателей');
       }
       const mark = {
         status,
@@ -339,7 +346,7 @@ class EventStore {
   }
 
   /** Фиксирует отчёт: состав пары запоминается, дальше правки только в версии для преподавателей. */
-  lockReport(eventId, teacher) {
+  lockReport(eventId, teacher, excused = {}) {
     return this.exclusive(async () => {
       if (!ID_RE.test(String(eventId)) || !teacher) throw new StoreError('invalid', 'Неверная фиксация');
       const event = await this.readCurrent(eventId);
@@ -351,7 +358,7 @@ class EventStore {
         id,
         eventId,
         marks: current?.marks ?? {},
-        lock: { at: new Date().toISOString(), teacher, device: this.deviceId, participants: event.participants },
+        lock: { at: new Date().toISOString(), teacher, device: this.deviceId, participants: event.participants, excused },
         updatedAt: nextStamp(current?.updatedAt),
         updatedBy: this.deviceId,
       });

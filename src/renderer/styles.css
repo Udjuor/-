@@ -710,3 +710,7 @@ dialog#welcome { width: min(40rem, 94vw); }
 .rollhistory { margin-top: 1rem; }
 .rollhistory h3 { margin-bottom: .3rem; font-size: 1.05rem; font-weight: 600; }
 .rollhistory li { color: var(--fg-muted); overflow-wrap: anywhere; }
+
+/* Освобождение по приказу */
+.rollrow.excused { border-left: .2rem solid var(--accent); padding-left: .4rem; }
+.blockexcused { display: block; font-size: .8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

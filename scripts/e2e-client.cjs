@@ -24,7 +24,8 @@ const today = (() => {
     return id;
   };
   put({ kind: 'group', name: 'ИС-21' });
-  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:55', participants: ['Иванов'], devices: [] });
+  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:55', participants: ['Иванов', 'Петров', 'Сидоров'], devices: [] });
+  put({ title: 'Концерт на панели', type: 'event', date: today, start: '23:00', end: '23:30', participants: ['Сидоров'], devices: [] });
   const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
   const hex = crypto.createHash('sha256').update(`attendance:${lockedId}`).digest('hex');
   const docId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
@@ -80,11 +81,22 @@ const today = (() => {
   }
   await page.click('#details .primary');
   await page.waitForSelector('#roll[open]');
-  assert.equal(await page.locator('.rollrow .reason').count(), 0);
+  assert.equal(await page.locator('.rollrow .reason:has-text("Болезнь")').count(), 0);
   assert.equal(await page.locator('#lock-report').count(), 0);
   await page.click('.rollrow:has-text("Иванов") .rollname');
   await page.waitForSelector('.rollrow:has-text("Иванов") .rollname[aria-pressed=true]');
+  // Опоздание ставится на панели, а внесённый в мероприятие сразу освобождён.
+  await page.click('.rollrow:has-text("Петров") >> text=Опоздал');
+  await page.fill('.rollrow:has-text("Петров") .latetime', '00:12');
+  await page.locator('.rollrow:has-text("Петров") .latetime').blur();
+  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("опоздание 7 мин")');
+  await page.fill('.rollrow:has-text("Петров") .latetime', '00:50');
+  await page.locator('.rollrow:has-text("Петров") .latetime').blur();
+  await page.waitForSelector('.rollrow:has-text("Петров"):has-text("это пропуск")');
+  await page.waitForSelector('.rollrow.excused:has-text("Сидоров"):has-text("По приказу: Концерт на панели")');
+  assert.match(await page.textContent('.rollsummary'), /по приказу: 1/);
   await page.click('#roll [aria-label=Закрыть]');
+  await page.waitForSelector('.block:has-text("Пара на панели"):has-text("По приказу: 1")');
   await refused(async () => {
     const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
     return window.calendar.mark(event.id, 'Иванов', 'sick', {});
