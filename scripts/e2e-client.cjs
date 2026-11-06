@@ -24,7 +24,7 @@ const today = (() => {
     return id;
   };
   put({ kind: 'group', name: 'ИС-21' });
-  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
+  put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '23:20', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
   put({ title: 'Концерт на панели', type: 'event', date: today, start: '23:00', end: '23:30', participants: ['Сидоров'], devices: [] });
   const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
   const hex = crypto.createHash('sha256').update(`attendance:${lockedId}`).digest('hex');
@@ -127,7 +127,7 @@ const today = (() => {
   });
   assert.equal((await page.evaluate((id) => window.calendar.mark(id, 'Иванов', 'present', {}), lockedId)).code, 'locked');
 
-  for (const call of [() => window.calendar.backupNow(), () => window.calendar.restoreBackup('C:\\'), () => window.calendar.resetTemplate()]) {
+  for (const call of [() => window.calendar.removeRange('2000-01-01', '2100-01-01', ['lesson']), () => window.calendar.backupNow(), () => window.calendar.restoreBackup('C:\\'), () => window.calendar.resetTemplate()]) {
     assert.equal((await page.evaluate(call)).code, 'teacher-only');
   }
 

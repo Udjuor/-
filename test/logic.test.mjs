@@ -470,6 +470,32 @@ test('на мероприятии только был или не был, без
   assert.equal(L.countsLateness({ type: 'lesson' }), true);
 });
 
+test('цепочка событий: даты по каждому виду повтора до последнего дня', () => {
+  assert.deepEqual(L.repeatDates('2026-11-02', 'week', '2026-11-23'), ['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23']);
+  assert.deepEqual(L.repeatDates('2026-11-02', '2weeks', '2026-11-29'), ['2026-11-02', '2026-11-16']);
+  assert.deepEqual(L.repeatDates('2026-11-06', 'weekdays', '2026-11-10'), ['2026-11-06', '2026-11-09', '2026-11-10'], 'суббота и воскресенье пропущены');
+  assert.equal(L.repeatDates('2026-11-01', 'day', '2026-11-30').length, 30);
+  assert.deepEqual(L.repeatDates('2026-10-31', 'month', '2027-01-31'), ['2026-10-31', '2026-12-31', '2027-01-31'], 'в ноябре нет 31-го');
+  assert.deepEqual(L.repeatDates('2026-11-02', 'week', '2026-11-01'), ['2026-11-02']);
+  assert.equal(L.repeatDates('2026-01-01', 'day', '2030-01-01').length, L.MAX_REPEATS, 'длина ограничена');
+  const series = [{ id: 'a', seriesId: 's', date: '2026-11-02' }, { id: 'c', seriesId: 's', date: '2026-11-16' }, { id: 'b', seriesId: 's', date: '2026-11-09' }, { id: 'x', seriesId: 'другая', date: '2026-11-20' }];
+  assert.deepEqual(L.seriesFrom(series[2], series).map((e) => e.id), ['b', 'c']);
+  assert.deepEqual(L.seriesFrom({ id: 'одно', date: '2026-11-02' }, series).map((e) => e.id), ['одно']);
+});
+
+test('на практике тоже только был или не был', () => {
+  const event = { type: 'practice', date: '2026-11-03', start: '10:00', end: '12:00', participants: ['Аня'] };
+  const doc = { marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 11, 0).toISOString(), late: false } } };
+  assert.deepEqual(L.rollCall(event, doc, '2026-11-03', '12:30').map((row) => [row.status, row.late]), [['present', 0]]);
+});
+
+test('событие на весь день узнаётся по отметке и по времени с полуночи до ночи', () => {
+  assert.equal(L.isAllDay({ start: '09:00', end: '10:00', allDay: true }), true);
+  assert.equal(L.isAllDay({ start: '00:00', end: '23:59' }), true);
+  assert.equal(L.isAllDay({ start: '00:05', end: '23:20' }), false);
+  assert.equal(L.isAllDay({ start: '08:00', end: '20:00' }), false);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

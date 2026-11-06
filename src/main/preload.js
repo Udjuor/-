@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('calendar', {
   setLanguage: (lang) => ipcRenderer.invoke('lang:set', lang),
   list: () => ipcRenderer.invoke('events:list'),
   save: (event, baseUpdatedAt) => ipcRenderer.invoke('events:save', event, baseUpdatedAt),
+  saveMany: (events) => ipcRenderer.invoke('events:save-many', events),
+  removeRange: (from, to, types) => ipcRenderer.invoke('events:remove-range', from, to, types),
   remove: (id, baseUpdatedAt) => ipcRenderer.invoke('events:remove', id, baseUpdatedAt),
   directory: () => ipcRenderer.invoke('directory:list'),
   saveRefs: (refs) => ipcRenderer.invoke('directory:save', refs),

@@ -725,3 +725,14 @@ dialog#welcome { width: min(40rem, 94vw); }
 .startinfo { margin: 0; font-weight: 600; }
 .startinfo.delayed { color: var(--attention-fg, var(--fg)); }
 #start-lesson { min-height: 3rem; padding: 0 1.4rem; font-size: 1.15rem; }
+
+/* Повтор события */
+.repeatrow { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; }
+.repeatrow select { min-width: 14rem; }
+.repeatuntil { display: inline-flex; gap: .5rem; align-items: center; }
+.repeatuntil[hidden] { display: none; }
+.sheetfoot .message button { margin-left: .5rem; }
+
+/* События на весь день */
+.chip.alldaychip { border: 0; border-left: .25rem solid var(--type); background: var(--type-bg, var(--canvas-subtle)); color: var(--fg); font-weight: 600; }
+.chip.alldaychip.past { opacity: .6; }

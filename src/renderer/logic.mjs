@@ -57,6 +57,12 @@ export const fromMinutes = (total) => `${pad(Math.floor(total / 60))}:${pad(tota
 
 export const byTime = (a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end) || a.title.localeCompare(b.title, 'ru');
 
+/**
+ * Событие на весь день: отмечено так или занимает сутки целиком (с полуночи до ночи).
+ * Такие события идут полосой над сеткой часов и не растягивают её.
+ */
+export const isAllDay = (event) => event.allDay === true || (event.start <= '00:30' && event.end >= '23:30');
+
 export const eventsOn = (events, iso) => events.filter((e) => e.date === iso).sort(byTime);
 
 /** Часы, которые показывает сетка: рабочий день, расширенный под мероприятия. */
@@ -397,7 +403,6 @@ function markedRow(event, name, mark, doc) {
   // Болезнь без справки предварительная. У старых отметок поля нет: они считаются подтверждёнными.
   if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
-  // На мероприятии важно только, был ли студент: опоздание не считается.
   if (!countsLateness(event)) return { ...row, marked: true };
   const minutes = minutesAfterStart(event, doc, mark.at);
   const lateMark = mark.late === true;
@@ -407,7 +412,50 @@ function markedRow(event, name, mark, doc) {
   return { ...row, lateMark };
 }
 
-export const countsLateness = (event) => event.type !== 'event';
+// На мероприятии и практике важно только, был ли студент.
+export const countsLateness = (event) => event.type !== 'event' && event.type !== 'practice';
+
+/** Как часто повторяется событие. */
+export const REPEATS = [
+  ['day', 'Каждый день'],
+  ['weekdays', 'По будням'],
+  ['week', 'Каждую неделю'],
+  ['2weeks', 'Раз в две недели'],
+  ['month', 'Каждый месяц'],
+];
+
+export const MAX_REPEATS = 370;
+
+/**
+ * Даты цепочки от первой до последней включительно. Месяц без такого числа
+ * (31-е в ноябре) пропускается: перенос на другое число путал бы расписание.
+ */
+export function repeatDates(firstISO, every, untilISO) {
+  if (!untilISO || untilISO < firstISO) return [firstISO];
+  const dates = [];
+  const [y, m, d] = firstISO.split('-').map(Number);
+  for (let i = 0; dates.length < MAX_REPEATS; i += 1) {
+    let next;
+    if (every === 'month') {
+      const candidate = new Date(y, m - 1 + i, d);
+      if (candidate.getDate() !== d) continue;
+      next = toISO(candidate);
+    } else {
+      const step = { day: 1, weekdays: 1, week: 7, '2weeks': 14 }[every] ?? 0;
+      if (!step) return [firstISO];
+      next = addDays(firstISO, i * step);
+    }
+    if (next > untilISO) break;
+    if (every === 'weekdays' && [0, 6].includes(fromISO(next).getDay())) continue;
+    dates.push(next);
+  }
+  return dates;
+}
+
+/** События цепочки с этой даты и дальше, по порядку. */
+export const seriesFrom = (event, events) => (event.seriesId
+  ? events.filter((other) => other.seriesId === event.seriesId && other.date >= event.date).sort((a, b) => a.date.localeCompare(b.date))
+  : [event]);
 
 /** Начало занятия по расписанию как дата. */
 function scheduledStart(event) {

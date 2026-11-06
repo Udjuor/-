@@ -311,6 +311,24 @@ function registerHandlers() {
     // Новое событие можно добавить с панели, а менять уже записанные нельзя.
     return event?.id ? managed(save) : respond(save);
   });
+  // Цепочка добавляется целиком; новые события можно добавлять и с панели.
+  ipcMain.handle('events:save-many', (_e, events) => respond(async () => {
+    if (!Array.isArray(events) || events.length > 400 || events.some((event) => event?.id)) {
+      throw Object.assign(new Error('invalid'), { code: 'invalid' });
+    }
+    const saved = [];
+    for (const event of events) saved.push(await store.save(event, null));
+    sync?.nudge();
+    return saved;
+  }));
+  // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.
+  ipcMain.handle('events:remove-range', (_e, from, to, types) => managed(async () => {
+    const backup = await makeBackup();
+    const result = await store.removeRange(from, to, types);
+    sync?.nudge();
+    win?.webContents.send('events:changed');
+    return { ...result, backup };
+  }));
   ipcMain.handle('events:remove', (_e, id, base) => managed(async () => {
     await store.remove(id, base);
     sync?.nudge();

@@ -350,6 +350,35 @@ test('«Начать занятие»: с панели один раз и тол
   await assert.rejects(store.startLesson(event.id, { admin: true, at: new Date(at('10:25')).toISOString() }), { code: 'locked' });
 });
 
+test('событие помнит свою цепочку, неверная цепочка отбрасывается', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const seriesId = '11111111-2222-4333-8444-555555555555';
+  const event = await store.save({ ...sample, seriesId, repeat: { every: 'week', until: '2026-12-29' } });
+  assert.deepEqual([event.seriesId, event.repeat], [seriesId, { every: 'week', until: '2026-12-29' }]);
+  const odd = await store.save({ ...sample, seriesId: 'не номер', repeat: { every: 'year', until: 'потом' } });
+  assert.deepEqual([odd.seriesId, odd.repeat], ['', null]);
+});
+
+test('удаление за период: только выбранные типы и даты, зафиксированные остаются', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const make = (title, date, type) => store.save({ ...sample, title, date, type });
+  await make('до', '2026-10-31', 'lesson');
+  const locked = await make('зафиксирована', '2026-11-02', 'lesson');
+  await make('пара', '2026-11-03', 'lesson');
+  await make('концерт', '2026-11-04', 'event');
+  await make('после', '2026-12-01', 'lesson');
+  await store.lockReport(locked.id, 'Кабинет');
+  assert.deepEqual(await store.removeRange('2026-11-01', '2026-11-30', ['lesson']), { removed: 1, kept: 1 });
+  assert.deepEqual((await store.list()).map((e) => e.title).sort(), ['до', 'зафиксирована', 'концерт', 'после']);
+  await assert.rejects(store.removeRange('2026-11-30', '2026-11-01', ['lesson']), { code: 'invalid' });
+});
+
+test('отметка «весь день» хранится', async (t) => {
+  const store = new EventStore(tempDir(t));
+  assert.equal((await store.save({ ...sample, start: '00:00', end: '23:59', allDay: true })).allDay, true);
+  assert.equal((await store.save({ ...sample, allDay: 'да' })).allDay, false);
+});
+
 test('мероприятие не начинают кнопкой', async (t) => {
   const store = new EventStore(tempDir(t));
   const event = await store.save({ ...sample, type: 'event' });

@@ -769,6 +769,76 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.evaluate(() => window.calendar.resetTemplate());
   assert.equal((await page.evaluate(() => window.calendar.memoTemplate())).custom, false);
 
+  // Цепочка: занятие каждую неделю до конкретной даты.
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-title', 'Математика по вторникам');
+  await page.fill('#f-start', '16:00');
+  await page.fill('#f-end', '17:00');
+  await page.selectOption('#f-repeat', 'week');
+  await page.fill('#f-until', day(14));
+  await page.dispatchEvent('#f-until', 'change');
+  await page.waitForSelector('[data-for=f-repeat] .help:has-text("Будет создано событий: 3")');
+  await shot('repeat-form');
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  const chain = async () => (await page.evaluate(() => window.calendar.list())).value
+    .filter((e) => e.seriesId).sort((x, y) => x.date.localeCompare(y.date));
+  assert.deepEqual((await chain()).map((e) => e.date), [day(0), day(7), day(14)]);
+  await page.click('.block:has-text("Математика по вторникам")');
+  await page.waitForSelector('#details[open]');
+  assert.match(await page.textContent('#details'), /Каждую неделю, до/);
+  await page.click('#details >> text=Изменить');
+  await page.waitForSelector('#form[open]');
+  assert.equal(await page.isVisible('#f-repeat'), false, 'повтор задаётся только при создании');
+  await page.fill('#f-title', 'Математика, ауд. 305');
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('#scope-following');
+  await page.click('#scope-following');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  assert.deepEqual((await chain()).map((e) => e.title), Array(3).fill('Математика, ауд. 305'));
+  await page.click('.block:has-text("Математика, ауд. 305")');
+  await page.click('#details >> text=Удалить');
+  await page.waitForSelector('#remove-following');
+  await page.click('#details .danger:has-text("Только это")');
+  await page.waitForSelector('#details', { state: 'hidden' });
+  assert.deepEqual((await chain()).map((e) => e.date), [day(7), day(14)]);
+
+  // Удаление за период: цепочка через неделю и две.
+  const [day7, day14] = [day(7), day(14)];
+  await page.click('#settings');
+  await page.waitForSelector('#s-clear');
+  await page.fill('#s-clear-from', day(7));
+  await page.fill('#s-clear-to', day(14));
+  await page.dispatchEvent('#s-clear-to', 'change');
+  for (const type of ['practice', 'task', 'event']) await page.click(`#s-clearbox .targets button.t-${type}`);
+  await page.click('#s-clear');
+  const toClear = (await page.evaluate(() => window.calendar.list())).value.filter((e) => e.type === 'lesson' && e.date >= day7 && e.date <= day14).length;
+  await page.waitForSelector(`#s-clearbox .help:has-text("Будет удалено событий: ${toClear}")`);
+  await shot('clear-range');
+  const copiesBefore = fs.readdirSync(backupDir).length;
+  await page.click('#s-clear-confirm');
+  await page.waitForFunction((n) => document.querySelector('#s-clearbox [role=status]')?.textContent === `Удалено событий: ${n}`, toClear);
+  assert.equal((await chain()).length, 0);
+  assert.ok(fs.readdirSync(backupDir).length > copiesBefore, 'перед удалением сделана копия');
+  await page.click('#preferences [aria-label=Закрыть]');
+
+  // Событие на весь день идёт полосой над сеткой и не растягивает её.
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-title', 'День открытых дверей');
+  await page.check('#f-allday');
+  assert.equal(await page.isVisible('#f-start'), false);
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await page.waitForSelector('.deadlinestrip .alldaychip:has-text("День открытых дверей")');
+  assert.equal(await page.locator('.block:has-text("День открытых дверей")').count(), 0);
+  assert.equal(await page.locator('.hours span:text-is("0:00")').count(), 0, 'сетка не растянута до полуночи');
+  await shot('allday');
+  await page.click('.alldaychip:has-text("День открытых дверей")');
+  await page.waitForSelector('#details:has-text("Весь день")');
+  await page.click('#details [aria-label=Закрыть]');
+
   // Сроки сдачи.
   await page.click('#today');
   await page.click('#add');

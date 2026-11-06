@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -57,7 +57,7 @@ const fmt = (iso, options) => new Intl.DateTimeFormat(locale(), options).format(
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 // 1 января 2024 — понедельник: неделя всегда начинается с него.
 const WEEKDAYS = Array.from({ length: 7 }, (_, i) => capitalize(fmt(`2024-01-0${i + 1}`, { weekday: 'short' })));
-const timeRange = (e) => `${e.start}–${e.end}`;
+const timeRange = (e) => (isAllDay(e) ? t('Весь день') : `${e.start}–${e.end}`);
 const peopleCount = (n) => tp('people', n);
 
 function periodTitle() {
@@ -134,7 +134,7 @@ function fitBlock(block) {
 
 function timeGrid(days, dayView) {
   const clock = now();
-  const shown = state.events.filter((e) => days.includes(e.date));
+  const shown = state.events.filter((e) => days.includes(e.date) && !isAllDay(e));
   const range = hourRange(shown);
   const hoursCount = range.last - range.first;
 
@@ -160,7 +160,7 @@ function timeGrid(days, dayView) {
         openForm({ date: iso, start: fromMinutes(start), end: fromMinutes(Math.min(start + 60, 23 * 60 + 55)) });
       },
     });
-    for (const item of layoutDay(eventsOn(state.events, iso))) column.append(eventBlock(item, range, dayView));
+    for (const item of layoutDay(eventsOn(state.events, iso).filter((e) => !isAllDay(e)))) column.append(eventBlock(item, range, dayView));
     if (iso === clock.iso) {
       const minutes = toMinutes(clock.time) - range.first * 60;
       if (minutes >= 0 && minutes <= hoursCount * 60) {
@@ -173,7 +173,7 @@ function timeGrid(days, dayView) {
   });
 
   const body = h('div', { class: 'days' }, lines, columns);
-  if (dayView && !shown.length) {
+  if (dayView && !eventsOn(state.events, days[0]).length) {
     body.append(h('p', { class: 'hint' }, t('На этот день мероприятий нет. Нажмите на нужное время, чтобы добавить.')));
   }
   return h('div', { class: `timegrid${dayView ? ' dayview' : ''}` }, hours, body);
@@ -206,13 +206,24 @@ function deadlineChip(event) {
   }, t('Сдать до {0}: {1}', [event.deadline.slice(11), event.title]));
 }
 
-/** Сроки не привязаны к сетке часов, поэтому идут отдельной полосой над ней. */
+function allDayChip(event) {
+  const clock = now();
+  return h('button', {
+    class: `chip alldaychip t-${event.type} ${eventState(event, clock.iso, clock.time)}`,
+    'aria-label': eventLabel(event),
+    onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
+  }, event.title);
+}
+
+/** События на весь день и сроки не привязаны к часам, поэтому идут полосой над сеткой. */
 function deadlineStrip(days) {
+  const allDay = days.map((iso) => eventsOn(state.events, iso).filter(isAllDay));
   const perDay = days.map(deadlinesOn);
-  if (!perDay.some((items) => items.length)) return null;
+  if (![...allDay, ...perDay].some((items) => items.length)) return null;
   return h('div', { class: 'deadlinestrip' },
     h('span', { class: 'deadlinegutter' }),
-    perDay.map((items) => h('div', { class: 'deadlineday' },
+    perDay.map((items, i) => h('div', { class: 'deadlineday' },
+      allDay[i].map(allDayChip),
       items.slice(0, 2).map(deadlineChip),
       items.length > 2 && h('button', { class: 'more', onclick: openDeadlines }, t('ещё {0}', [items.length - 2])))));
 }
@@ -238,7 +249,7 @@ function renderMonth(board) {
       ...eventsOn(state.events, iso).map((e) => () => h('button', {
         class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
         onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
-      }, `${e.start} ${e.title}`)),
+      }, isAllDay(e) ? e.title : `${e.start} ${e.title}`)),
     ];
     const visible = items.length > fits ? items.slice(0, fitsWithMore) : items;
     const classes = ['cell'];
@@ -414,7 +425,8 @@ function showDetails(id) {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
-    h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
+    // Занятию без техники техническое задание не нужно.
+    (event.type !== 'lesson' || event.equipment.length > 0) && h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
     canManage() && event.deadline && h('button', {
       class: 'plain',
       onclick: async () => {
@@ -429,22 +441,31 @@ function showDetails(id) {
     canManage() && h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
   );
 
+  const following = seriesFrom(event, state.allEvents);
+  const removeAll = async (list) => {
+    const removed = [];
+    let failed = null;
+    for (const item of list) {
+      const result = await api.remove(item.id, item.updatedAt);
+      if (result.ok) removed.push(item.id);
+      else failed = failed ?? result;
+    }
+    setEvents(state.allEvents.filter((e) => !removed.includes(e.id)));
+    render();
+    if (failed && !removed.length) {
+      footer.replaceChildren(h('p', { class: 'message' }, storeMessage(failed)));
+      return;
+    }
+    dialog.close();
+    if (list.length > 1) toast(t('Удалено событий: {0}', [removed.length]));
+  };
   const showConfirm = () => footer.replaceChildren(
-    h('p', { class: 'message' }, t('Удалить мероприятие без возможности восстановления?')),
+    h('p', { class: 'message' }, following.length > 1
+      ? t('Это событие из цепочки, дальше в ней ещё {0}. Что удалить?', [following.length - 1])
+      : t('Удалить мероприятие без возможности восстановления?')),
     h('button', { class: 'plain', onclick: showActions }, t('Оставить')),
-    h('button', {
-      class: 'danger',
-      onclick: async () => {
-        const result = await api.remove(event.id, event.updatedAt);
-        if (result.ok) {
-          setEvents(state.allEvents.filter((e) => e.id !== event.id));
-          dialog.close();
-          render();
-        } else {
-          footer.replaceChildren(h('p', { class: 'message' }, storeMessage(result)));
-        }
-      },
-    }, t('Удалить')),
+    h('button', { class: 'danger', onclick: () => removeAll([event]) }, following.length > 1 ? t('Только это') : t('Удалить')),
+    following.length > 1 && h('button', { class: 'danger', id: 'remove-following', onclick: () => removeAll(following) }, t('Это и все следующие')),
   );
 
   showActions();
@@ -456,6 +477,7 @@ function showDetails(id) {
         fact(t('Тип'), typeLabel(event.type)),
         fact(t('Дата'), fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })),
         fact(t('Время'), timeRange(event)),
+        event.repeat ? fact(t('Повтор'), t('{0}, до {1}', [repeatLabel(event.repeat.every), shortDay(event.repeat.until)])) : [],
         fact(t('Подготовка'), prepText(event)),
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
         excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
@@ -634,6 +656,24 @@ async function openForm(source = {}) {
   const title = field(t('Название'), 'f-title', { value: source.title ?? '', autocomplete: 'off', maxlength: 200 });
   const date = field(t('Дата'), 'f-date', { type: 'date', value: source.date ?? state.date }, 'third');
   const from = field(t('Начало'), 'f-start', { type: 'time', value: start }, 'third');
+  const allDayBox = h('input', { id: 'f-allday', type: 'checkbox', checked: Boolean(source.allDay) });
+  const allDayField = h('div', { class: 'field' }, h('label', { class: 'check' }, allDayBox, t('Весь день')));
+  const showTimes = () => {
+    from.hidden = allDayBox.checked;
+    to.hidden = allDayBox.checked;
+    if (allDayBox.checked) {
+      $('f-start').value = '00:00';
+      $('f-end').value = '23:59';
+    }
+  };
+  allDayBox.addEventListener('change', () => {
+    if (!allDayBox.checked) {
+      $('f-start').value = '09:00';
+      $('f-end').value = '10:00';
+    }
+    showTimes();
+    updateConflicts();
+  });
   const to = field(t('Окончание'), 'f-end', {
     type: 'time',
     value: source.end ?? fromMinutes(Math.min(toMinutes(start) + 60, 23 * 60 + 55)),
@@ -648,6 +688,29 @@ async function openForm(source = {}) {
   prep.append(h('p', { class: 'help' }, t('На это время студентов освобождают от занятий. Они и техника уже считаются занятыми.')));
   const showPrep = () => { prep.hidden = draft.type === 'lesson'; };
   showPrep();
+
+  // Повтор задаётся только при создании: дальше у каждого события своя запись.
+  const repeatSelect = h('select', { id: 'f-repeat' },
+    h('option', { value: '' }, t('Не повторять')),
+    REPEATS.map(([id, label]) => h('option', { value: id }, t(label))));
+  const until = h('input', { id: 'f-until', type: 'date', 'aria-label': t('Повторять до') });
+  until.addEventListener('click', () => { try { until.showPicker(); } catch { /* окно уже открыто */ } });
+  const repeatHint = h('p', { class: 'help' });
+  const repeat = h('div', { class: 'field', 'data-for': 'f-repeat', hidden: Boolean(source.id) },
+    h('label', { for: 'f-repeat' }, t('Повторять')),
+    h('div', { class: 'repeatrow' }, repeatSelect, h('span', { class: 'repeatuntil' }, t('до'), until)),
+    repeatHint);
+  const repeatPlan = () => (repeatSelect.value ? repeatDates($('f-date').value, repeatSelect.value, until.value) : [$('f-date').value]);
+  const showRepeat = () => {
+    until.closest('.repeatuntil').hidden = !repeatSelect.value;
+    const count = repeatSelect.value && until.value ? repeatPlan().length : 0;
+    repeatHint.textContent = count
+      ? t('Будет создано событий: {0}, последнее {1}.', [count, shortDay(repeatPlan().at(-1))])
+      : repeatSelect.value ? t('Укажите дату, до которой повторять. Например, последний день семестра.') : '';
+  };
+  repeatSelect.addEventListener('change', showRepeat);
+  until.addEventListener('change', showRepeat);
+  showRepeat();
 
   const deadline = field('', 'f-deadline', { type: 'datetime-local', value: source.deadline ?? '' });
   deadline.append(h('div', { class: 'targets prepchoices' },
@@ -727,6 +790,7 @@ async function openForm(source = {}) {
     date: $('f-date').value,
     start: $('f-start').value,
     end: $('f-end').value,
+    allDay: allDayBox.checked,
     prepMinutes: draft.type === 'lesson' ? 0 : Math.max(0, Math.round(Number($('f-prep').value) || 0)),
     ...readDeadline(),
     place: $('f-place').value.trim(),
@@ -735,6 +799,9 @@ async function openForm(source = {}) {
     ...withOwnCameras(),
     devices: draft.devices,
     notes: $('f-notes').value.trim(),
+    // Правка не выводит событие из цепочки.
+    seriesId: source.seriesId ?? '',
+    repeat: source.repeat ?? null,
   });
 
   const updateConflicts = () => {
@@ -817,12 +884,66 @@ async function openForm(source = {}) {
     setInvalid(title, titleError);
     setInvalid(to, timeError);
     setInvalid(date, dateError);
+    const plan = repeatSelect.value ? repeatPlan() : [];
+    const repeatError = !repeatSelect.value || source.id ? ''
+      : !until.value || until.value < event.date ? t('Укажите дату окончания повторов не раньше даты события')
+        : plan.length >= MAX_REPEATS ? t('Слишком длинная цепочка: не больше {0} событий', [MAX_REPEATS - 1]) : '';
+    setInvalid(repeat, repeatError);
     const lacking = shortages(event, state.allEvents, refsOf('equipment'));
     message.textContent = lacking.length ? t('Не хватает: {0}. Уменьшите количество или выберите другое время.', [lacking.map((item) => item.name).join(', ')]) : '';
-    return !(titleError || timeError || dateError || lacking.length);
+    return !(titleError || timeError || dateError || repeatError || lacking.length);
   };
 
   const save = h('button', { class: 'primary', type: 'submit' }, source.id ? t('Сохранить') : t('Добавить событие'));
+
+  const finish = (date) => {
+    state.date = date;
+    dialog.close();
+    render();
+  };
+
+  const saveSeries = async (event, every, last) => {
+    const seriesId = crypto.randomUUID();
+    const result = await api.saveMany(repeatDates(event.date, every, last)
+      .map((date) => ({ ...event, id: null, date, seriesId, repeat: { every, until: last } })));
+    save.disabled = false;
+    if (!result.ok) {
+      message.textContent = storeMessage(result);
+      return;
+    }
+    setEvents([...state.allEvents, ...result.value]);
+    finish(event.date);
+    toast(t('Добавлено событий: {0}', [result.value.length]));
+    if (canManage() && needsMemo(result.value[0], source)) createMemo(result.value[0]);
+  };
+
+  // Дата у каждого события своя, остальное переносится на всю цепочку дальше.
+  const saveFollowing = async (event) => {
+    let skipped = 0;
+    const saved = [];
+    for (const other of seriesFrom(source, state.allEvents)) {
+      const changed = other.id === source.id
+        ? event
+        : { ...other, ...event, id: other.id, date: other.date, deadline: other.deadline, deadlineDone: other.deadlineDone };
+      const result = await api.save(changed, other.updatedAt);
+      if (result.ok) saved.push(result.value);
+      else skipped += 1;
+    }
+    save.disabled = false;
+    setEvents([...state.allEvents.filter((x) => !saved.some((y) => y.id === x.id)), ...saved]);
+    finish(event.date);
+    toast(skipped
+      ? t('Изменено событий: {0}. Не изменено: {1}, по ним отчёт уже зафиксирован или их изменили на другом устройстве.', [saved.length, skipped])
+      : t('Изменено событий: {0}', [saved.length]));
+  };
+
+  const askScope = () => {
+    message.replaceChildren(
+      t('Это событие из цепочки. Что изменить?'),
+      h('button', { type: 'button', class: 'plain', onclick: () => { form.dataset.scope = 'one'; form.requestSubmit(); } }, t('Только это')),
+      h('button', { type: 'button', class: 'primary', id: 'scope-following', onclick: () => { form.dataset.scope = 'following'; form.requestSubmit(); } }, t('Это и все следующие')),
+    );
+  };
 
   const form = h('form', {
     novalidate: true,
@@ -839,6 +960,19 @@ async function openForm(source = {}) {
       if (!validate(event)) return;
       save.disabled = true;
       message.textContent = '';
+      if (!source.id && repeatSelect.value) {
+        await saveSeries(event, repeatSelect.value, until.value);
+        return;
+      }
+      if (source.seriesId && seriesFrom(source, state.allEvents).length > 1 && !form.dataset.scope) {
+        save.disabled = false;
+        askScope();
+        return;
+      }
+      if (form.dataset.scope === 'following') {
+        await saveFollowing(event);
+        return;
+      }
       const result = await api.save(event, source.updatedAt ?? null);
       save.disabled = false;
       if (!result.ok) {
@@ -855,7 +989,7 @@ async function openForm(source = {}) {
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        typeField, title, date, from, to, prep, deadline, place, responsible, targets,
+        typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, responsible, targets,
         participants.element, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
@@ -867,6 +1001,7 @@ async function openForm(source = {}) {
     form,
   );
   dialog.showModal();
+  showTimes();
   updateConflicts();
   if (!source.id) $('f-title').focus();
 }
@@ -1370,6 +1505,69 @@ function backupSection() {
   };
   draw();
   return box;
+}
+
+/** Удаление событий за период: сначала подсчёт, потом подтверждение. */
+function clearSection() {
+  const clock = now();
+  const from = h('input', { id: 's-clear-from', type: 'date', value: clock.iso, 'aria-label': t('С') });
+  const to = h('input', { id: 's-clear-to', type: 'date', value: clock.iso, 'aria-label': t('По') });
+  const types = new Set(EVENT_TYPES.map(([id]) => id));
+  const typeRow = h('div', { class: 'targets' });
+  const drawTypes = () => typeRow.replaceChildren(...EVENT_TYPES.map(([id, label]) => h('button', {
+    type: 'button',
+    class: `t-${id}`,
+    'aria-pressed': String(types.has(id)),
+    onclick: () => { if (types.has(id)) types.delete(id); else types.add(id); drawTypes(); reset(); },
+  }, t(label))));
+  const message = h('p', { class: 'help', role: 'status' });
+  const actions = h('div', { class: 'targets clearactions' });
+  const matching = () => state.allEvents.filter((e) => e.date >= from.value && e.date <= to.value && types.has(e.type));
+  const reset = () => {
+    message.textContent = '';
+    actions.replaceChildren(h('button', { type: 'button', id: 's-clear', onclick: confirm }, t('Удалить события за период')));
+  };
+  function confirm() {
+    if (!from.value || !to.value || from.value > to.value || !types.size) {
+      message.textContent = t('Выберите период и хотя бы один тип.');
+      return;
+    }
+    const count = matching().length;
+    if (!count) {
+      message.textContent = t('За этот период событий нет.');
+      return;
+    }
+    message.textContent = t('Будет удалено событий: {0}, на всех устройствах сети. Перед удалением программа сделает резервную копию. Зафиксированные пары останутся.', [count]);
+    actions.replaceChildren(
+      h('button', { type: 'button', class: 'plain', onclick: reset }, t('Отмена')),
+      h('button', { type: 'button', class: 'danger', id: 's-clear-confirm', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        const result = await api.removeRange(from.value, to.value, [...types]);
+        reset();
+        if (!result.ok) {
+          message.textContent = result.code === 'backup-failed'
+            ? t('Копия не создана, поэтому ничего не удалено. Проверьте папку резервных копий.')
+            : t('Не удалось удалить события. Попробуйте ещё раз.');
+          return;
+        }
+        await refresh();
+        message.textContent = result.value.kept
+          ? t('Удалено событий: {0}. Оставлено зафиксированных: {1}.', [result.value.removed, result.value.kept])
+          : t('Удалено событий: {0}', [result.value.removed]);
+      } }, t('Удалить {0}', [tp('events', count)])),
+    );
+  }
+  from.addEventListener('change', reset);
+  to.addEventListener('change', reset);
+  drawTypes();
+  reset();
+  return h('section', { class: 'setting', id: 's-clearbox' },
+    h('h3', { class: 'settinghead' }, t('Удаление событий за период')),
+    h('div', { class: 'repeatrow' }, t('С'), from, t('по'), to),
+    typeRow,
+    actions,
+    message,
+    h('p', { class: 'help' }, t('Например, чтобы очистить календарь после окончания семестра. Если удалили лишнее, его можно вернуть кнопкой «Вернуть удалённое из копии».')));
 }
 
 /* Окно */
@@ -2223,11 +2421,14 @@ function certificateItems() {
 function petItems() {
   const clock = now();
   return petGroups().flatMap((group) => {
-    const change = petChange(petOf(group), clock.iso);
-    if (!change) return [];
+    // Только критическое: питомец болен, пока болеет, или недавно умер.
+    const pet = petOf(group);
+    const change = petChange(pet, clock.iso);
+    const critical = pet.mood === 'sick' || (pet.mood === 'dead' && change?.to === 'dead');
+    if (!critical) return [];
     const name = petTitle(group);
-    const text = change.to === 'dead' ? t('{0}: питомец умер', [name]) : MOODS[change.to](name);
-    return [{ id: `pet-${group.id}`, color: PET_ALERT_COLORS[change.to], name: t('Группа {0}: {1}', [group.name, text]) }];
+    const text = pet.mood === 'dead' ? t('{0}: питомец умер', [name]) : MOODS.sick(name);
+    return [{ id: `pet-${group.id}`, color: 'red', name: t('Группа {0}: {1}', [group.name, text]) }];
   });
 }
 
@@ -2329,6 +2530,8 @@ async function reloadNotices() {
   refreshTicker();
   drawNotices();
 }
+
+const repeatLabel = (every) => t(REPEATS.find(([id]) => id === every)?.[1] ?? '');
 
 /* Сроки сдачи */
 
@@ -2786,6 +2989,7 @@ async function openSettings() {
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
       templateSection(),
       backupSection(),
+      clearSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
         h('div', { class: 'adder' }, key, h('button', {

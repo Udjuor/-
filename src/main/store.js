@@ -66,6 +66,12 @@ function normalizeEvent(raw) {
     updatedAt: String(raw.updatedAt ?? ''),
     updatedBy: String(raw.updatedBy ?? ''),
   };
+  event.allDay = raw.allDay === true;
+  // Цепочка повторяющихся событий: у каждого своя запись, общий номер цепочки.
+  event.seriesId = ID_RE.test(raw.seriesId ?? '') ? raw.seriesId : '';
+  event.repeat = event.seriesId && REPEAT_EVERY.has(raw.repeat?.every) && DATE_RE.test(raw.repeat?.until ?? '')
+    ? { every: raw.repeat.every, until: raw.repeat.until }
+    : null;
   // Срок есть только у заданий и мероприятий; без срока нечего отмечать сданным.
   const canHaveDeadline = event.type === 'task' || event.type === 'event';
   event.deadline = canHaveDeadline && MOMENT_RE.test(raw.deadline ?? '') ? raw.deadline : '';
@@ -81,6 +87,7 @@ function normalizeEvent(raw) {
 }
 
 const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
+const REPEAT_EVERY = new Set(['day', 'weekdays', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
@@ -367,7 +374,7 @@ class EventStore {
   startLesson(eventId, { admin = false, at = null, now = this.clock() } = {}) {
     return this.exclusive(async () => {
       const event = await this.readCurrent(String(eventId));
-      if (!event || event.deleted || event.kind || event.type === 'event') throw new StoreError('invalid', 'Занятие не найдено');
+      if (!event || event.deleted || event.kind || event.type === 'event' || event.type === 'practice') throw new StoreError('invalid', 'Занятие не найдено');
       if ((at !== null && !admin) || (at !== null && Number.isNaN(Date.parse(at)))) throw new StoreError('teacher-only', 'Время меняет преподаватель');
       const id = attendanceId(eventId);
       const current = await this.readCurrent(id);
@@ -496,6 +503,24 @@ class EventStore {
 
   async assertNotLocked(eventId) {
     if ((await this.readCurrent(attendanceId(eventId)))?.lock) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
+  }
+
+  /** Удаляет события за период. Зафиксированные пары остаются: их отчёты нельзя потерять. */
+  async removeRange(from, to, types) {
+    if (!DATE_RE.test(from) || !DATE_RE.test(to) || from > to || !Array.isArray(types)) throw new StoreError('invalid', 'Неверный период');
+    let removed = 0;
+    let kept = 0;
+    for (const event of await this.list()) {
+      if (event.date < from || event.date > to || !types.includes(event.type)) continue;
+      try {
+        await this.remove(event.id, event.updatedAt);
+        removed += 1;
+      } catch (err) {
+        if (err.code !== 'locked' && err.code !== 'conflict') throw err;
+        kept += 1;
+      }
+    }
+    return { removed, kept };
   }
 
   async remove(id, baseUpdatedAt) {
