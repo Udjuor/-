@@ -397,6 +397,8 @@ function markedRow(event, name, mark, doc) {
   // Болезнь без справки предварительная. У старых отметок поля нет: они считаются подтверждёнными.
   if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
+  // На мероприятии важно только, был ли студент: опоздание не считается.
+  if (!countsLateness(event)) return { ...row, marked: true };
   const minutes = minutesAfterStart(event, doc, mark.at);
   const lateMark = mark.late === true;
   row.marked = true;
@@ -404,6 +406,8 @@ function markedRow(event, name, mark, doc) {
   if (minutes >= LATE_FROM_MINUTE) return { ...row, late: minutes, lateMark };
   return { ...row, lateMark };
 }
+
+export const countsLateness = (event) => event.type !== 'event';
 
 /** Начало занятия по расписанию как дата. */
 function scheduledStart(event) {

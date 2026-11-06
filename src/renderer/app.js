@@ -1,5 +1,5 @@
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_FROM_MINUTE, actualStart, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -1556,11 +1556,11 @@ function openRoll(id) {
     const count = (status) => rows.filter((row) => row.status === status).length;
     const parts = [
       t('Отмечены: {0} из {1}', [count('present'), rows.length]),
-      t('с опозданием: {0}', [rows.filter((row) => row.late).length]),
+      countsLateness(event) && t('с опозданием: {0}', [rows.filter((row) => row.late).length]),
       ...ABSENCE_REASONS.map(([reason, label]) => `${t(label).toLowerCase()}: ${count(reason)}`),
     ];
-    summary.textContent = parts.join(', ');
-    drawStart(doc, locked, teacherMode);
+    summary.textContent = parts.filter(Boolean).join(', ');
+    if (countsLateness(event)) drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
     banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
     const query = nameKey(search.value);
@@ -1574,7 +1574,7 @@ function openRoll(id) {
           disabled: !teacherMode && (locked || settled),
           onclick: () => setMark(row.name, row.marked ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
-        (!locked || teacherMode) && !row.excusedFor && lateControls(row),
+        (!locked || teacherMode) && !row.excusedFor && countsLateness(event) && lateControls(row),
         !row.excusedFor && (!locked || teacherMode) && ABSENCE_REASONS
           .filter(([reason]) => teacherMode || (reason === 'sick' && !settled))
           .map(([reason, label]) => h('button', {

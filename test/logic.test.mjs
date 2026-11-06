@@ -461,6 +461,15 @@ test('подгруппы МГЗ входят в общую группу, а по
   assert.equal(L.memoData({ ...mgz, responsible: '', place: '' }, students, groups, '2026-11-03').students?.[0]?.group ?? 'ФВТ-24', 'ФВТ-24');
 });
 
+test('на мероприятии только был или не был, без опозданий', () => {
+  const event = { type: 'event', date: '2026-11-03', start: '10:00', end: '12:00', participants: ['Аня', 'Боря', 'Вера'] };
+  const at = (time) => new Date(2026, 10, 3, ...time.split(':').map(Number)).toISOString();
+  const doc = { marks: { Аня: { status: 'present', at: at('10:25'), late: true }, Боря: { status: 'present', at: at('11:30'), late: false } }, start: { at: at('10:20') } };
+  const rows = L.rollCall(event, doc, '2026-11-03', '12:30');
+  assert.deepEqual(rows.map((row) => [row.status, row.late]), [['present', 0], ['present', 0], ['absent', 0]]);
+  assert.equal(L.countsLateness({ type: 'lesson' }), true);
+});
+
 test('склонение', () => {
   const f = (n) => L.plural(n, 'участник', 'участника', 'участников');
   assert.deepEqual([1, 2, 5, 11, 12, 21, 22, 25, 101, 111].map(f), [

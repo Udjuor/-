@@ -74,6 +74,17 @@ const today = (() => {
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await page.waitForSelector('.block:has-text("Событие студента")');
 
+  // На мероприятии только «был» или «не был».
+  await page.click('.block:has-text("Концерт на панели")');
+  await page.waitForSelector('#details[open]');
+  await page.click('#details .primary');
+  await page.waitForSelector('#roll[open]');
+  assert.equal(await page.locator('#start-lesson, .rollrow >> text=Опоздал').count(), 0);
+  await page.click('.rollrow:has-text("Сидоров") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Сидоров") .rollname[aria-pressed=true]');
+  assert.doesNotMatch(await page.textContent('#roll'), /опоздан/i);
+  await page.click('#roll [aria-label=Закрыть]');
+
   // В карточке только просмотр, в отметках только своё присутствие.
   await page.click('.block:has-text("Пара на панели")');
   await page.waitForSelector('#details[open]');

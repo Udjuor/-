@@ -121,7 +121,7 @@ test('отметка с панели без связи не меняет заф�
 test('начало занятия расходится по сети, последнее исправление побеждает', async (t) => {
   const a = await device(t, 'a');
   const b = await device(t, 'b');
-  const event = await a.store.save({ ...sample, participants: ['Иванов'] });
+  const event = await a.store.save({ ...sample, type: 'lesson', participants: ['Иванов'] });
   await a.node.syncWith(b.node.at);
   await a.store.startLesson(event.id, { admin: true, at: '2026-11-10T01:30:00.000Z' });
   await b.store.saveMark(event.id, 'Иванов', 'present', { student: true });

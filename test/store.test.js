@@ -331,7 +331,7 @@ test('возврат из копии добавляет удалённое и н
 
 test('«Начать занятие»: с панели один раз и только около начала, преподаватель может поправить', async (t) => {
   const store = new EventStore(tempDir(t));
-  const event = await store.save({ ...sample, participants: ['Иванов'] });
+  const event = await store.save({ ...sample, type: 'lesson', participants: ['Иванов'] });
   const at = (time) => new Date(2026, 10, 10, ...time.split(':').map(Number)).getTime();
   await assert.rejects(store.startLesson(event.id, { now: at('09:20') }), { code: 'not-now' });
   await assert.rejects(store.startLesson(event.id, { now: at('10:41') }), { code: 'not-now' });
@@ -348,6 +348,12 @@ test('«Начать занятие»: с панели один раз и тол
   const locked = await store.lockReport(event.id, 'Кабинет');
   assert.ok(locked.start, 'фиксация сохраняет начало');
   await assert.rejects(store.startLesson(event.id, { admin: true, at: new Date(at('10:25')).toISOString() }), { code: 'locked' });
+});
+
+test('мероприятие не начинают кнопкой', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const event = await store.save({ ...sample, type: 'event' });
+  await assert.rejects(store.startLesson(event.id, { admin: true, at: '2026-11-10T01:00:00.000Z' }), { code: 'invalid' });
 });
 
 test('PIN из прошлых версий исчезает из данных', async (t) => {
