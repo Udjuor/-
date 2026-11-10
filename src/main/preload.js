@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('calendar', {
   save: (event, baseUpdatedAt) => ipcRenderer.invoke('events:save', event, baseUpdatedAt),
   saveMany: (events) => ipcRenderer.invoke('events:save-many', events),
   removeRange: (from, to, types) => ipcRenderer.invoke('events:remove-range', from, to, types),
+  journal: () => ipcRenderer.invoke('journal:list'),
   remove: (id, baseUpdatedAt) => ipcRenderer.invoke('events:remove', id, baseUpdatedAt),
   directory: () => ipcRenderer.invoke('directory:list'),
   saveRefs: (refs) => ipcRenderer.invoke('directory:save', refs),

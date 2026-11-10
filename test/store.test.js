@@ -59,7 +59,7 @@ test('изменение мероприятия, удалённого на др�
   await store.remove(saved.id, saved.updatedAt);
   await assert.rejects(store.save({ ...saved, title: 'x' }, saved.updatedAt), { code: 'conflict' });
   assert.equal((await store.list()).length, 0);
-  assert.equal((await store.records())[0].deleted, true);
+  assert.equal((await store.records()).find((r) => r.kind !== 'change').deleted, true);
 });
 
 test('новая версия позже предыдущей, даже если часы отстают', async (t) => {
@@ -199,7 +199,7 @@ test('отметка хранит время и статус, снимается
   assert.ok(Date.now() - Date.parse(doc.marks['Петров'].at) < 5000);
   assert.equal((await store.list()).length, 1);
   assert.equal((await store.directory()).length, 0);
-  assert.equal((await store.records()).length, 2, 'одна запись на пару');
+  assert.equal((await store.records()).filter((r) => r.kind !== 'change').length, 2, 'одна запись на пару');
 });
 
 test('быстрые отметки подряд не теряются', async (t) => {
@@ -489,4 +489,39 @@ test('настройки: значения по умолчанию, запись
   assert.equal(again.uiSize, 'small');
   assert.equal(first.memoSigner, 'Семенов И. А.');
   assert.deepEqual(parseIni('\uFEFF[calendar]\r\ndataDir=\\\\srv\\a=b\r\n; комментарий\r\n'), { dataDir: '\\\\srv\\a=b' });
+});
+
+test('журнал: создание, правка с полями, удаление, цепочка и период', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journal-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new EventStore(dir, 'dev-1', { deviceName: () => 'Панель 214' });
+  const event = await store.save({ type: 'lesson', title: 'Физика', date: '2026-11-10', start: '10:00', end: '11:30', participants: ['Иванов'] });
+  const edited = await store.save({ ...event, start: '10:15', participants: ['Иванов', 'Петров'] }, event.updatedAt);
+  await store.save({ ...edited }, edited.updatedAt); // ничего не поменялось
+  await store.remove(edited.id, (await store.list()).find((e) => e.id === edited.id).updatedAt);
+  await store.save({ type: 'event', title: 'Концерт', date: '2026-11-12', start: '15:00', end: '16:00' });
+  await store.removeRange('2026-11-01', '2026-11-30', ['event']);
+  const log = await store.changes();
+  assert.deepEqual(log.map((c) => c.action).sort(), ['create', 'create', 'delete', 'delete-range', 'edit']);
+  const edit = log.find((c) => c.action === 'edit');
+  assert.equal(edit.device, 'Панель 214');
+  assert.equal(edit.title, 'Физика');
+  assert.deepEqual(edit.fields.map((f) => f.field), ['start', 'participants']);
+  assert.deepEqual(edit.fields[0], { field: 'start', before: '10:00', after: '10:15' });
+  assert.equal(log.find((c) => c.action === 'delete-range').count, 1);
+  assert.equal((await store.directory()).length, 0, 'журнал не попадает в справочники');
+  assert.equal((await store.list()).length, 0);
+});
+
+test('журнал старше полугода удаляется и не принимается при обмене', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journal-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = Date.parse('2026-01-01T10:00:00Z');
+  const store = new EventStore(dir, 'dev-1', { clock: () => now });
+  await store.save({ type: 'lesson', title: 'Химия', date: '2026-01-01', start: '10:00', end: '11:30' });
+  const [old] = await store.changes();
+  now = Date.parse('2026-08-01T10:00:00Z');
+  assert.equal((await store.changes()).length, 0);
+  assert.equal(await store.pruneChanges(), 1);
+  assert.equal(await store.merge([{ ...old }]), 0);
 });

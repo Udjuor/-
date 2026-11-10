@@ -317,10 +317,16 @@ function registerHandlers() {
       throw Object.assign(new Error('invalid'), { code: 'invalid' });
     }
     const saved = [];
-    for (const event of events) saved.push(await store.save(event, null));
+    for (const event of events) saved.push(await store.save(event, null, { journal: saved.length === 0 && events.length === 1 }));
+    // Цепочка в журнале одной строкой, а не сотней.
+    if (saved.length > 1) {
+      const first = saved[0];
+      await store.journal('create-series', first, { from: first.date, to: saved.at(-1).date, count: saved.length });
+    }
     sync?.nudge();
     return saved;
   }));
+  ipcMain.handle('journal:list', () => managed(() => store.changes()));
   // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.
   ipcMain.handle('events:remove-range', (_e, from, to, types) => managed(async () => {
     const backup = await makeBackup();
@@ -574,7 +580,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     nativeTheme.themeSource = config.theme;
-    store = new EventStore(config.dataDir, config.deviceId, { clock: storeClock() });
+    store = new EventStore(config.dataDir, config.deviceId, { clock: storeClock(), deviceName: () => config.deviceName });
     edition = readEdition();
     registerHandlers();
     createSplash();
@@ -582,6 +588,10 @@ if (!app.requestSingleInstanceLock()) {
     restartSync();
     setTimeout(dailyBackup, 60_000);
     setInterval(dailyBackup, 60 * 60_000);
+    // Журнал старше полугода чистит каждое устройство: тогда старые записи не возвращаются при обмене.
+    const prune = () => store.pruneChanges().catch((err) => console.error('Журнал не очищен:', err.message));
+    setTimeout(prune, 90_000);
+    setInterval(prune, 24 * 60 * 60_000);
   });
 
   app.on('before-quit', () => {

@@ -1,3 +1,4 @@
+import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS } from './logic.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
@@ -315,15 +316,80 @@ async function refresh() {
   refreshPet();
   refreshTicker();
   refreshGear();
+  if ($('journal').open) loadJournal();
 }
 
 let redrawRoll = null;
+let rollStale = false;
+
+/** Пока учитель правит время, список не перерисовывается: иначе поле пропадёт из-под пальца. */
+const editingTime = () => Boolean(document.activeElement?.closest?.('#roll .timefield'));
 
 async function loadAttendance() {
   const result = await api.attendance();
   if (!result.ok || JSON.stringify(result.value) === JSON.stringify(state.attendance)) return;
   state.attendance = result.value;
-  if ($('roll').open) redrawRoll?.();
+  if (!$('roll').open) return;
+  if (editingTime()) rollStale = true;
+  else redrawRoll?.();
+}
+
+/**
+ * Поле времени без системного выпадающего окна: оно на панелях закрывалось само.
+ * Время вводится цифрами (0925 или 09:25), «−» и «+» меняют его на минуту.
+ */
+function timeField({ value, label, onCommit, className = '' }) {
+  const parse = (text) => {
+    const digits = String(text).replace(/\D/g, '');
+    if (digits.length < 3 || digits.length > 4) return null;
+    const hours = Number(digits.slice(0, -2));
+    const minutes = Number(digits.slice(-2));
+    return hours < 24 && minutes < 60 ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : null;
+  };
+  const shift = (time, delta) => {
+    const total = (Number(time.slice(0, 2)) * 60 + Number(time.slice(3)) + delta + 1440) % 1440;
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  };
+  const input = h('input', {
+    type: 'text',
+    class: `latetime ${className}`.trim(),
+    inputmode: 'numeric',
+    maxlength: 5,
+    autocomplete: 'off',
+    value,
+    'aria-label': label,
+  });
+  const commit = () => {
+    const time = parse(input.value);
+    if (!time) {
+      input.value = value;
+      return;
+    }
+    input.value = time;
+    if (time !== value) onCommit(time);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') {
+      input.value = value;
+      input.blur();
+    }
+  });
+  input.addEventListener('blur', () => {
+    commit();
+    if (rollStale) {
+      rollStale = false;
+      setTimeout(() => { if (!editingTime()) redrawRoll?.(); }, 0);
+    }
+  });
+  const step = (delta, text, name) => h('button', {
+    type: 'button',
+    class: 'timestep',
+    'aria-label': name,
+    onclick: () => onCommit(shift(parse(input.value) ?? value, delta)),
+  }, text);
+  return h('span', { class: 'timefield' },
+    step(-1, '−', t('На минуту раньше')), input, step(1, '+', t('На минуту позже')));
 }
 
 async function loadDirectory() {
@@ -1597,7 +1663,7 @@ const canManage = () => !isClient();
 
 /** Клиент на панели не показывает разделы преподавателя. Запрет проверяется и в основном процессе. */
 function applyEdition() {
-  for (const id of ['open-catalog', 'open-reports', 'notices-open']) $(id).hidden = isClient();
+  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal']) $(id).hidden = isClient();
 }
 
 /* Отметки на паре */
@@ -1699,12 +1765,10 @@ function openRoll(id) {
           ? t('Занятие началось в {0}, по расписанию {1}. Задержка {2} мин, опоздание считается от фактического начала.', [began, event.start, delay])
           : t('Занятие началось вовремя, в {0}.', [event.start]))
         : !locked && h('button', { type: 'button', class: 'primary', id: 'start-lesson', onclick: () => start() }, t('Начать занятие')),
-      teacherMode && !locked && doc?.start && h('input', {
-        type: 'time',
-        class: 'latetime',
+      teacherMode && !locked && doc?.start && timeField({
         value: began,
-        'aria-label': t('Фактическое начало'),
-        onchange: (e) => { if (e.target.value) start(new Date(`${event.date}T${e.target.value}`).toISOString()); },
+        label: t('Фактическое начало'),
+        onCommit: (time) => start(new Date(`${event.date}T${time}`).toISOString()),
       }),
       !began && !locked && h('p', { class: 'help' }, t('Нажмите, когда занятие фактически началось. Опоздание будет считаться от этого времени: до {0} минут не опоздание, с {0}-й по {1}-ю опоздание, с {2}-й пропуск.', [LATE_FROM_MINUTE, ABSENT_FROM_MINUTE - 1, ABSENT_FROM_MINUTE])),
     ].filter(Boolean));
@@ -1717,14 +1781,10 @@ function openRoll(id) {
       'aria-pressed': String(Boolean(row.lateMark || row.late)),
       onclick: () => (row.lateMark || row.late ? setMark(row.name, 'present', { late: false, at: row.at }) : setMark(row.name, 'present', { late: true })),
     }, t('Опоздал')),
-    (row.lateMark || row.late > 0) && h('input', {
-      type: 'time',
-      class: 'latetime',
+    (row.lateMark || row.late > 0) && timeField({
       value: inputTime(row.at),
-      'aria-label': t('Время прихода: {0}', [row.name]),
-      onchange: (e) => {
-        if (e.target.value) setMark(row.name, 'present', { late: true, at: new Date(`${event.date}T${e.target.value}`).toISOString() });
-      },
+      label: t('Время прихода: {0}', [row.name]),
+      onCommit: (time) => setMark(row.name, 'present', { late: true, at: new Date(`${event.date}T${time}`).toISOString() }),
     }),
   ];
 
@@ -2634,6 +2694,124 @@ function refreshDeadlines() {
   if ($('deadlines').open) drawDeadlines();
 }
 
+/* Журнал изменений событий */
+
+const journalView = { query: '', limit: 200, entries: [] };
+
+const LIST_FIELDS = new Set(['participants', 'equipment', 'ownCameras', 'devices']);
+
+/** Значение поля по-человечески. */
+function journalValue(field, value) {
+  if (value === null || value === '' || (Array.isArray(value) && !value.length)) return '—';
+  if (field === 'type') return typeLabel(value);
+  if (field === 'date') return fmt(value, { day: 'numeric', month: 'long', year: 'numeric' });
+  if (field === 'allDay') return value ? t('да') : t('нет');
+  if (field === 'deadline' || field === 'deadlineDone') return stampText(value);
+  if (field === 'prepMinutes') return t('{0} мин', [value]);
+  if (field === 'equipmentQty') return Object.entries(value).map(([name, n]) => `${name} ×${n}`).join(', ') || '—';
+  if (field === 'devices') return value.map(deviceName).join(', ');
+  if (Array.isArray(value)) return value.join(', ');
+  return String(value);
+}
+
+/** Строка изменения поля. В списках видно, кого добавили и кого убрали. */
+function journalField(item) {
+  const label = t(JOURNAL_FIELD_LABELS[item.field] ?? item.field);
+  if (LIST_FIELDS.has(item.field)) {
+    const name = item.field === 'devices' ? deviceName : (x) => x;
+    const before = item.before ?? [];
+    const after = item.after ?? [];
+    const added = after.filter((x) => !before.includes(x));
+    const removed = before.filter((x) => !after.includes(x));
+    return h('li', {}, h('span', { class: 'jfield' }, label),
+      added.length > 0 && h('span', { class: 'jadded' }, t('добавлены: {0}', [added.map(name).join(', ')])),
+      removed.length > 0 && h('span', { class: 'jremoved' }, t('убраны: {0}', [removed.map(name).join(', ')])));
+  }
+  return h('li', {}, h('span', { class: 'jfield' }, label),
+    h('span', { class: 'jbefore' }, journalValue(item.field, item.before)),
+    h('span', { 'aria-hidden': 'true' }, ' → '),
+    h('span', { class: 'jafter' }, journalValue(item.field, item.after)));
+}
+
+function journalEntry(entry) {
+  const when = entry.date ? `${fmt(entry.date, { day: 'numeric', month: 'long' })}, ${entry.start}–${entry.end}` : '';
+  const what = [];
+  if (entry.action === 'create-series') what.push(t('{0} с {1} по {2}', [tp('events', entry.count), fmt(entry.from, { day: 'numeric', month: 'long' }), fmt(entry.to, { day: 'numeric', month: 'long', year: 'numeric' })]));
+  if (entry.action === 'delete-range') what.push(t('{0} с {1} по {2}', [tp('events', entry.count), fmt(entry.from, { day: 'numeric', month: 'long' }), fmt(entry.to, { day: 'numeric', month: 'long', year: 'numeric' })]));
+  if (entry.action === 'restore') what.push(t('Записей: {0}', [entry.count]));
+  const exists = entry.eventId && state.allEvents.some((e) => e.id === entry.eventId);
+  return h('li', { class: `jentry j-${entry.action}` },
+    h('div', { class: 'jhead' },
+      h('time', { datetime: entry.at }, new Date(entry.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })),
+      h('strong', {}, t(JOURNAL_ACTIONS[entry.action])),
+      h('span', { class: 'help' }, entry.device || t('Неизвестное устройство'))),
+    entry.title && h('div', { class: 'jevent' },
+      exists
+        ? h('button', { type: 'button', class: 'link', onclick: () => { $('journal').close(); showDetails(entry.eventId); } }, entry.title)
+        : h('span', {}, entry.title),
+      h('span', { class: 'help' }, [entry.type && typeLabel(entry.type), when].filter(Boolean).join(', '))),
+    what.length > 0 && h('div', { class: 'help' }, what.join(', ')),
+    entry.fields.length > 0 && h('ul', { class: 'jfields' }, entry.fields.map(journalField)),
+  );
+}
+
+function drawJournal() {
+  const box = $('journal-result');
+  if (!box) return;
+  const query = journalView.query.trim().toLocaleLowerCase(locale());
+  const found = journalView.entries.filter((entry) => !query
+    || `${entry.title} ${entry.device}`.toLocaleLowerCase(locale()).includes(query));
+  if (!found.length) {
+    box.replaceChildren(h('p', { class: 'help' }, journalView.entries.length ? t('Ничего не найдено.') : t('Изменений пока нет. Журнал хранит изменения событий за последние полгода.')));
+    return;
+  }
+  const days = new Map();
+  for (const entry of found.slice(0, journalView.limit)) {
+    const day = new Date(entry.at).toLocaleDateString('sv');
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(entry);
+  }
+  keepScroll(box, () => box.replaceChildren(...[
+    ...[...days].map(([day, entries]) => h('section', { class: 'jday' },
+      h('h3', {}, fmt(day, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })),
+      h('ul', { class: 'jlist' }, entries.map(journalEntry)))),
+    found.length > journalView.limit && h('button', {
+      type: 'button',
+      class: 'plain',
+      onclick: () => { journalView.limit += 200; drawJournal(); },
+    }, t('Показать ещё')),
+  ].filter(Boolean)));
+}
+
+async function loadJournal() {
+  const result = await api.journal();
+  if (!result.ok) return;
+  journalView.entries = result.value;
+  drawJournal();
+}
+
+async function openJournal() {
+  const dialog = $('journal');
+  journalView.query = '';
+  journalView.limit = 200;
+  const search = h('input', {
+    type: 'search',
+    id: 'journal-search',
+    placeholder: t('Поиск по названию или устройству'),
+    'aria-label': t('Поиск по названию или устройству'),
+    autocomplete: 'off',
+    oninput: (e) => { journalView.query = e.target.value; journalView.limit = 200; drawJournal(); },
+  });
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Журнал изменений')), h('p', { class: 'help' }, t('Кто, когда и что поменял в событиях за последние полгода.'))),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, h('div', { class: 'field' }, search), h('div', { id: 'journal-result' })),
+  );
+  dialog.showModal();
+  await loadJournal();
+}
+
 /* Занятость техники */
 
 const gearView = { query: '' };
@@ -3072,7 +3250,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'quitask'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'quitask'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -3094,6 +3272,7 @@ function wire() {
   });
   $('open-gear').addEventListener('click', openGear);
   $('open-deadlines').addEventListener('click', openDeadlines);
+  $('open-journal').addEventListener('click', openJournal);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {

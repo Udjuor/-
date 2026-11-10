@@ -13,6 +13,8 @@ const { SyncNode } = require('../src/main/sync');
 const shots = path.resolve(process.env.SHOTS || 'shots');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-'));
 const eventsDir = path.join(home, 'data', 'events');
+// Записи без журнала изменений: он лежит в той же папке.
+const dataFiles = () => fs.readdirSync(eventsDir).filter((name) => !JSON.parse(fs.readFileSync(path.join(eventsDir, name), 'utf8')).kind?.startsWith('change')).length;
 fs.mkdirSync(eventsDir, { recursive: true });
 fs.mkdirSync(shots, { recursive: true });
 
@@ -156,7 +158,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
 
   await page.click('dialog#form button[type=submit]');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
-  assert.equal(fs.readdirSync(eventsDir).length, 14, 'мероприятие записано в папку');
+  assert.equal(dataFiles(), 14, 'мероприятие записано в папку');
 
   await page.click('.block:has-text("Субботник")');
   assert.ok(await page.locator('#details >> text=Семёнова А. Р.').isVisible());
@@ -174,7 +176,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#details .danger');
   await page.waitForSelector('dialog#details', { state: 'hidden' });
   assert.equal(await page.locator('.block:has-text("Субботник")').count(), 0);
-  assert.equal(fs.readdirSync(eventsDir).length, 14, 'удаление записано отметкой для других устройств');
+  assert.equal(dataFiles(), 14, 'удаление записано отметкой для других устройств');
 
   // Обмен: компьютер преподавателя получил всё и появился в списке устройств.
   await until(async () => (await teacherStore.list()).length === 13, 'обмен с компьютером преподавателя');
@@ -957,6 +959,16 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForFunction(() => !document.getElementById('check-update').disabled, null, { timeout: 100000 });
   assert.match(await page.textContent('#s-update'), process.platform === 'win32' ? /Последняя проверка обновлений|не удалось проверить/ : /Проверку запустить не удалось/);
   await page.click('#preferences [aria-label=Закрыть]');
+
+  // Журнал изменений: правка названия видна с прежним и новым значением.
+  await page.click('#open-journal');
+  await page.waitForSelector('#journal .jentry.j-edit:has-text("Субботник у корпуса") .jbefore:text-is("Субботник")');
+  await page.waitForSelector('#journal .jentry.j-delete:has-text("Субботник у корпуса")');
+  await page.waitForSelector('#journal .jentry.j-create-series');
+  await page.fill('#journal-search', 'Субботник');
+  assert.equal(await page.locator('#journal .jentry.j-create-series').count(), 0, 'поиск по названию');
+  await shot('journal');
+  await page.click('#journal [aria-label=Закрыть]');
 
   assert.deepEqual(errors, [], 'ошибок на странице нет');
   await app.close();

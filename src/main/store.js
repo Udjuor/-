@@ -227,6 +227,51 @@ const sameAttendance = (a, b) => {
 
 const LOCKED_FIELDS = ['title', 'type', 'date', 'start', 'end', 'participants'];
 
+/** Записи журнала хранятся полгода. */
+const CHANGE_DAYS = 180;
+
+/** Поля события, изменения которых попадают в журнал. Служебные метки не нужны. */
+const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices'];
+const CHANGE_ACTIONS = new Set(['create', 'edit', 'delete', 'create-series', 'delete-range', 'restore']);
+
+const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
+
+/** Что изменилось в событии: поле, было, стало. */
+function eventDiff(before, after) {
+  return JOURNAL_FIELDS
+    .filter((field) => JSON.stringify(before?.[field] ?? null) !== JSON.stringify(after?.[field] ?? null))
+    .map((field) => ({ field, before: plain(before?.[field] ?? null), after: plain(after?.[field] ?? null) }));
+}
+
+/** Запись журнала изменений. Она не меняется после записи, поэтому слияние не нужно. */
+function normalizeChange(raw) {
+  const id = String(raw.id ?? '');
+  if (!ID_RE.test(id) || !CHANGE_ACTIONS.has(raw.action) || !STAMP_RE.test(String(raw.at ?? ''))) return null;
+  const text = (value, max = 300) => String(value ?? '').slice(0, max);
+  return {
+    id,
+    kind: 'change',
+    action: raw.action,
+    at: raw.at,
+    by: text(raw.by, 80),
+    device: text(raw.device, 80),
+    eventId: text(raw.eventId, 80),
+    title: text(raw.title),
+    type: text(raw.type, 20),
+    date: text(raw.date, 10),
+    start: text(raw.start, 5),
+    end: text(raw.end, 5),
+    from: text(raw.from, 10),
+    to: text(raw.to, 10),
+    count: Number.isInteger(raw.count) && raw.count > 0 ? raw.count : 0,
+    fields: (Array.isArray(raw.fields) ? raw.fields : [])
+      .filter((item) => JOURNAL_FIELDS.includes(item?.field))
+      .map((item) => ({ field: item.field, before: plain(item.before ?? null), after: plain(item.after ?? null) })),
+    updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
+  };
+}
+
 /** Запись для хранения и обмена: мероприятие, справочник, отметки или отметка об удалении. */
 function normalizeRecord(raw) {
   if (raw && raw.deleted === true) {
@@ -236,6 +281,7 @@ function normalizeRecord(raw) {
       : null;
   }
   if (raw?.kind === 'attendance') return normalizeAttendance(raw);
+  if (raw?.kind === 'change') return normalizeChange(raw);
   return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
 }
 
@@ -251,7 +297,8 @@ function nextStamp(previous) {
 
 class EventStore {
   /** clock: часы для времени отметок; в проверках их ставят на день сценария. */
-  constructor(dataDir, deviceId = '', { clock = () => Date.now() } = {}) {
+  constructor(dataDir, deviceId = '', { clock = () => Date.now(), deviceName = () => '' } = {}) {
+    this.deviceName = deviceName;
     this.clock = clock;
     this.dir = path.join(dataDir, 'events');
     this.deviceId = deviceId;
@@ -306,7 +353,55 @@ class EventStore {
 
   /** Записи справочников. */
   async directory() {
-    return (await this.records()).filter((record) => !record.deleted && record.kind && record.kind !== 'attendance');
+    return (await this.records()).filter((record) => !record.deleted && record.kind && record.kind !== 'attendance' && record.kind !== 'change');
+  }
+
+  /** Журнал изменений событий, новые сверху, за последние полгода. */
+  async changes() {
+    const since = new Date(this.clock() - CHANGE_DAYS * 86400000).toISOString();
+    return (await this.records())
+      .filter((record) => record.kind === 'change' && record.at >= since)
+      .sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+  }
+
+  /** Записывает действие в журнал. Ошибка журнала не должна мешать самому изменению. */
+  async journal(action, event, extra = {}) {
+    try {
+      const at = new Date(this.clock()).toISOString();
+      const entry = normalizeChange({
+        id: crypto.randomUUID(),
+        action,
+        at,
+        by: this.deviceId,
+        device: this.deviceName(),
+        eventId: event?.id,
+        title: event?.title,
+        type: event?.type,
+        date: event?.date,
+        start: event?.start,
+        end: event?.end,
+        ...extra,
+        updatedAt: nextStamp(),
+        updatedBy: this.deviceId,
+      });
+      if (entry) await this.write(entry);
+      return entry;
+    } catch (err) {
+      console.error('Журнал не записан:', err.message);
+      return null;
+    }
+  }
+
+  /** Удаляет записи журнала старше полугода. */
+  async pruneChanges() {
+    const since = new Date(this.clock() - CHANGE_DAYS * 86400000).toISOString();
+    let removed = 0;
+    for (const record of await this.records()) {
+      if (record.kind !== 'change' || record.at >= since) continue;
+      await fsp.rm(this.fileFor(record.id), { force: true });
+      removed += 1;
+    }
+    return removed;
   }
 
   /** Записи отметок всех пар. */
@@ -448,7 +543,7 @@ class EventStore {
     await fsp.rename(temp, target);
   }
 
-  async save(input, baseUpdatedAt = null) {
+  async save(input, baseUpdatedAt = null, { journal = true } = {}) {
     const isNew = !input.id;
     const draft = normalizeEvent({
       ...input,
@@ -463,6 +558,11 @@ class EventStore {
     }
     const event = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
     await this.write(event);
+    if (journal) {
+      const fields = eventDiff(current, event);
+      if (isNew) await this.journal('create', event);
+      else if (fields.length) await this.journal('edit', event, { fields });
+    }
     return event;
   }
 
@@ -497,6 +597,7 @@ class EventStore {
         await this.write({ ...record, updatedAt: nextStamp(current?.updatedAt), updatedBy: this.deviceId });
         restored += 1;
       }
+      if (restored) await this.journal('restore', null, { count: restored });
       return restored;
     });
   }
@@ -513,21 +614,23 @@ class EventStore {
     for (const event of await this.list()) {
       if (event.date < from || event.date > to || !types.includes(event.type)) continue;
       try {
-        await this.remove(event.id, event.updatedAt);
+        await this.remove(event.id, event.updatedAt, { journal: false });
         removed += 1;
       } catch (err) {
         if (err.code !== 'locked' && err.code !== 'conflict') throw err;
         kept += 1;
       }
     }
+    if (removed) await this.journal('delete-range', null, { from, to, count: removed });
     return { removed, kept };
   }
 
-  async remove(id, baseUpdatedAt) {
+  async remove(id, baseUpdatedAt, { journal = true } = {}) {
     if (!ID_RE.test(String(id))) throw new StoreError('invalid', 'Неверный номер мероприятия');
     const current = await this.assertUnchanged(id, baseUpdatedAt);
     if (!current.kind) await this.assertNotLocked(id);
     await this.write({ id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+    if (journal && !current.kind) await this.journal('delete', current);
   }
 
   /** Принимает записи с другого устройства, оставляя более новую версию. */
@@ -541,6 +644,7 @@ class EventStore {
     for (const raw of incoming) {
       const record = normalizeRecord(raw);
       if (!record || !STAMP_RE.test(record.updatedAt)) continue;
+      if (record.kind === 'change' && record.at < new Date(this.clock() - CHANGE_DAYS * 86400000).toISOString()) continue;
       const mine = known.get(record.id);
       let result = record;
       if (mine?.kind === 'attendance' && record.kind === 'attendance') {
@@ -563,4 +667,4 @@ class EventStore {
   }
 }
 
-module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId };
+module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId, eventDiff, CHANGE_DAYS };

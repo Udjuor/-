@@ -90,15 +90,14 @@
     WriteINIStr "$calHome\config.ini" "calendar" "peers" "$calPeers"
   ${EndIf}
 
-  ; Версия программы. Клиент для панелей, если ничто не говорит об обратном.
-  ; Компьютеры преподавателей из прошлых версий узнаются по настройке showAll.
-  ; Обновление не меняет версию: файл лежит в каталоге, который переживает его.
+  ; Версия программы.
+  ; Ручной запуск решает по имени установщика: Kerdiis-Admin-Setup ставит версию для
+  ; преподавателей, Kerdiis-Setup — клиент для панелей, что бы ни стояло раньше.
+  ; Тихий запуск (автообновление, массовая установка) сохраняет прежнюю версию:
+  ; файл лежит в каталоге, который переживает обновление. /EDITION= важнее всего.
   StrCpy $calEdition "client"
-  ReadINIStr $calOutput "$calHome\config.ini" "calendar" "showAll"
-  ${If} $calOutput == "1"
-    StrCpy $calEdition "admin"
-  ${EndIf}
-  ${If} ${FileExists} "$PROGRAMFILES64\KerdiisUpdate\edition.txt"
+  ${If} ${Silent}
+  ${AndIf} ${FileExists} "$PROGRAMFILES64\KerdiisUpdate\edition.txt"
     FileOpen $calFile "$PROGRAMFILES64\KerdiisUpdate\edition.txt" r
     FileRead $calFile $calEdition
     FileClose $calFile

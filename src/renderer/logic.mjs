@@ -619,3 +619,33 @@ export function suggestedStart(nowTime) {
   const hour = Math.min(Math.floor(toMinutes(nowTime) / 60) + 1, 22);
   return fromMinutes(hour * 60);
 }
+
+/** Подписи полей и действий в журнале изменений событий. */
+export const JOURNAL_FIELD_LABELS = {
+  title: 'Название',
+  type: 'Вид',
+  date: 'Дата',
+  start: 'Начало',
+  end: 'Конец',
+  allDay: 'Весь день',
+  place: 'Место',
+  responsible: 'Ответственный',
+  participants: 'Участники',
+  equipment: 'Техника',
+  equipmentQty: 'Количество техники',
+  ownCameras: 'Свои камеры',
+  prepMinutes: 'Подготовка',
+  notes: 'Примечания',
+  deadline: 'Срок сдачи',
+  deadlineDone: 'Сдано',
+  devices: 'Устройства',
+};
+
+export const JOURNAL_ACTIONS = {
+  create: 'Добавлено',
+  edit: 'Изменено',
+  delete: 'Удалено',
+  'create-series': 'Добавлена цепочка',
+  'delete-range': 'Удалены события за период',
+  restore: 'Восстановлено из копии',
+};

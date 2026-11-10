@@ -194,7 +194,7 @@ test('отметки разных панелей по одной паре объ
   const expected = { Иванов: 'present', Петров: 'sick', Сидоров: 'order' };
   assert.deepEqual(await view(a), expected);
   assert.deepEqual(await view(b), expected);
-  assert.equal((await a.store.records()).length, 2);
+  assert.equal((await a.store.records()).filter((r) => r.kind !== 'change').length, 2);
 });
 
 test('устройства завершают обмен отметками, а не пересылают их бесконечно', async (t) => {
