@@ -111,6 +111,10 @@ function normalizeRef(raw) {
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
     ref.petSince = MOMENT_RE.test(raw.petSince ?? '') ? raw.petSince : '';
+    // Что надето на питомце и что стоит рядом: только названия призов.
+    const look = raw.petLook && typeof raw.petLook === 'object' ? raw.petLook : null;
+    if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
+    else delete ref.petLook;
     ref.petDeaths = (Array.isArray(raw.petDeaths) ? raw.petDeaths : []).slice(-200).map((death) => ({
       name: String(death?.name ?? '').slice(0, 24),
       bornOn: String(death?.bornOn ?? ''),

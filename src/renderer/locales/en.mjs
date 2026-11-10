@@ -479,7 +479,25 @@ export default {
     "да": "yes",
     "добавлены: {0}": "added: {0}",
     "нет": "no",
-    "убраны: {0}": "removed: {0}"
+    "убраны: {0}": "removed: {0}",
+    "Фотокамера": "Camera",
+    "Штатив": "Tripod",
+    "Наушники": "Headphones",
+    "Микрофон": "Microphone",
+    "Берет художника": "Artist's beret",
+    "Прожектор": "Spotlight",
+    "Кинохлопушка": "Clapperboard",
+    "Корона": "Crown",
+    "До приза «{0}»: {1} из {2} дней подряд со здоровьем 100.": "Next prize “{0}”: {1} of {2} days in a row at full health.",
+    "Все призы получены. Каждые {0} дня подряд со здоровьем 100 приносят звезду.": "All prizes won. Every {0} days in a row at full health earn a star.",
+    "получен {0}": "won on {0}",
+    "ещё не получен": "not won yet",
+    "Ничего": "Nothing",
+    "Призы и звёзды: ★ × {0}": "Prizes and stars: ★ × {0}",
+    "Призы": "Prizes",
+    "На голове": "On the head",
+    "Слева": "On the left",
+    "Справа": "On the right"
   },
   "plurals": {
     "events": {

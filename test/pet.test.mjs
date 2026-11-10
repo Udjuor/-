@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { healthChange, moodOf, petChange, petPixels, petStatus } from '../src/renderer/pet.mjs';
+import { PRIZES, PRIZE_DAYS, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -123,4 +123,46 @@ test('спрайты целые: 16 на 16, все пиксели окраше�
       assert.ok(pixels.every((p) => p.fill && p.x >= 0 && p.x < 16 && p.y >= 0 && p.y < 16), mood);
     }
   }
+});
+
+const petWith = (days, mood = 'play') => ({
+  mood,
+  timeline: days.flatMap(([date, ...healths]) => healths.map((health) => ({ date, title: 'Пара', health }))),
+});
+
+test('приз за каждые три учебных дня подряд со здоровьем 100', () => {
+  assert.equal(PRIZE_DAYS, 3);
+  const pet = petWith([
+    ['2026-11-02', 94, 100], // день не засчитан: после первой пары было 94
+    ['2026-11-03', 100, 100],
+    ['2026-11-04', 100],
+    ['2026-11-06', 100], // выходные и дни без пар серию не прерывают
+    ['2026-11-09', 100],
+    ['2026-11-10', 100, 96], // серия обнулилась
+    ['2026-11-11', 100],
+  ]);
+  const prizes = petPrizes(pet);
+  assert.deepEqual(prizes.earned.map((p) => [p.id, p.date]), [['camera', '2026-11-06']]);
+  assert.equal(prizes.streak, 1);
+  assert.equal(prizes.next.id, 'tripod');
+});
+
+test('после всех призов идут звёзды, у умершего питомца призов нет', () => {
+  const days = Array.from({ length: PRIZE_DAYS * (PRIZES.length + 2) }, (_, i) => [`2026-${String(1 + Math.floor(i / 28)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`, 100]);
+  const prizes = petPrizes(petWith(days));
+  assert.equal(prizes.earned.length, PRIZES.length);
+  assert.equal(prizes.stars, 2);
+  assert.equal(prizes.next, null);
+  assert.equal(petPrizes(petWith(days, 'dead')).earned.length, 0);
+});
+
+test('наряд: выбор учителя из полученного, иначе последнее полученное', () => {
+  const prizes = petPrizes(petWith(Array.from({ length: 15 }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, 100])));
+  // Получены: камера, штатив, наушники, микрофон, берет.
+  assert.deepEqual(petLook(undefined, prizes), { head: 'beret', right: 'microphone', left: 'tripod' });
+  assert.deepEqual(petLook({ head: 'headphones', left: 'camera', right: 'camera' }, prizes), { head: 'headphones', left: 'camera', right: '' });
+  assert.deepEqual(petLook({ head: 'crown', left: 'spotlight', right: 'tripod' }, prizes), { head: '', left: '', right: 'tripod' }, 'неполученное не надевается');
+  assert.deepEqual(petLook({ head: '', left: '', right: '' }, prizes), { head: '', left: '', right: '' }, 'можно снять всё');
+  const pixels = dressedPixels('play', { head: 'crown', left: 'tripod', right: 'camera' });
+  assert.ok(pixels.every((p) => p.x >= 0 && p.x < 32 && p.y >= 0 && p.y < 20));
 });

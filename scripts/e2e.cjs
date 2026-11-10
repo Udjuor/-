@@ -617,6 +617,29 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await until(async () => (await teacherStore.directory()).some((r) => r.petDeaths?.[0]?.name === 'Пиксель'), 'журнал смертей на другом устройстве');
   await page.click('#pet [aria-label=Закрыть]');
 
+  // Призы: новый питомец набирает 100 за первый день, потом шесть дней подряд держит 100.
+  const perfect = async (offset, n) => {
+    for (let k = 0; k < n; k += 1) {
+      const start = `${String(9 + k).padStart(2, '0')}:00`;
+      const pair = await teacherStore.save({ title: `Все на месте ${offset}.${k}`, type: 'lesson', date: day(offset), start, end: `${String(9 + k).padStart(2, '0')}:45`, participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
+      for (const name of tiny) await teacherStore.saveMark(pair.id, name, 'present', { at: new Date(`${day(offset)}T${start}`).toISOString() });
+    }
+  };
+  await perfect(1, 5);
+  for (let d = 2; d <= 7; d += 1) await perfect(d, 1);
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('#pet-open .mood-play', { timeout: 20000 });
+  await page.click('#pet-open');
+  await page.waitForSelector('#pet .prize[data-prize="camera"]:not(.locked)');
+  await page.waitForSelector('#pet .prize[data-prize="tripod"]:not(.locked)');
+  await page.waitForSelector('#pet .prize[data-prize="headphones"].locked');
+  assert.equal(await page.locator('#pet .petstage .petsprite.dressed').count(), 1, 'призы рядом с питомцем');
+  await page.click('#pet .prizeslot:has-text("Слева") button:has-text("Фотокамера")');
+  await until(async () => (await teacherStore.directory()).some((r) => r.petLook?.left === 'camera' && r.petLook?.right === 'tripod'), 'наряд питомца на другом устройстве');
+  await page.waitForSelector('#pet .prizeslot:has-text("Справа") button[aria-pressed="true"]:has-text("Штатив")');
+  await shot('pet-prizes');
+  await page.click('#pet [aria-label=Закрыть]');
+
   // Служебная записка: сама при назначении на практику, не для занятий.
   const documents = path.join(home, 'documents');
   await app.evaluate(({ app: electronApp }, folder) => electronApp.setPath('documents', folder), documents);

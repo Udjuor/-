@@ -554,6 +554,8 @@ dialog::backdrop { background: var(--backdrop); }
 .petbutton .petsprite { width: 1.9rem; }
 .legend { align-items: center; padding-block: .1rem; }
 .petsprite { display: block; aspect-ratio: 1; overflow: visible; }
+.petsprite.dressed { aspect-ratio: 32 / 20; }
+.petstage:has(.dressed) { width: 20rem; }
 .petsprite .frame1 { visibility: hidden; animation: pet-frame 1.2s steps(1) infinite; }
 .petsprite .frame0 { animation: pet-frame 1.2s steps(1) infinite reverse; }
 .mood-play { animation: pet-hop .6s ease-in-out infinite alternate; }
@@ -760,3 +762,12 @@ dialog#welcome { width: min(40rem, 94vw); }
 .jbefore { text-decoration: line-through; opacity: 0.7; }
 .jadded, .jremoved { margin-right: 0.75rem; }
 .jremoved { opacity: 0.8; }
+
+/* Призы питомца */
+.prizes { list-style: none; margin: .5rem 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; }
+.prize { display: grid; justify-items: center; gap: .2rem; padding: .6rem .4rem; border: 1px solid var(--border); border-radius: 10px; text-align: center; }
+.prize .prizeicon { height: 2.6rem; width: auto; max-width: 100%; }
+.prize.locked .prizeicon { filter: grayscale(1) brightness(1.6); opacity: .45; }
+.prize.locked strong { color: var(--fg-muted); font-weight: 500; }
+.prizelook { display: grid; gap: .6rem; margin-top: .6rem; }
+.prizeslot { display: grid; gap: .3rem; }

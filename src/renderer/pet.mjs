@@ -76,6 +76,81 @@ export function petChange(pet, nowISO) {
   return null;
 }
 
+/* Призы */
+
+/** Сколько учебных дней подряд нужно продержаться со здоровьем 100 ради одного приза. */
+export const PRIZE_DAYS = 3;
+
+/**
+ * Призы выдаются по порядку. head надевается на питомца, side стоит рядом.
+ * Когда все получены, каждый следующий приз — звезда.
+ */
+export const PRIZES = [
+  { id: 'camera', slot: 'side', name: 'Фотокамера' },
+  { id: 'tripod', slot: 'side', name: 'Штатив' },
+  { id: 'headphones', slot: 'head', name: 'Наушники' },
+  { id: 'microphone', slot: 'side', name: 'Микрофон' },
+  { id: 'beret', slot: 'head', name: 'Берет художника' },
+  { id: 'spotlight', slot: 'side', name: 'Прожектор' },
+  { id: 'clapper', slot: 'side', name: 'Кинохлопушка' },
+  { id: 'crown', slot: 'head', name: 'Корона' },
+];
+
+const PRIZE_BY_ID = new Map(PRIZES.map((prize) => [prize.id, prize]));
+
+/**
+ * Призы питомца по его истории здоровья.
+ * День засчитывается, если после каждой пары этого дня здоровье было 100.
+ * Дни без пар серию не прерывают, день ниже 100 обнуляет её. Каждый третий
+ * засчитанный день подряд приносит приз. Призы считаются заново на каждом
+ * устройстве из отметок, поэтому везде одинаковы; у нового питомца их нет.
+ */
+export function petPrizes(pet) {
+  const days = new Map();
+  for (const point of pet.timeline) {
+    days.set(point.date, (days.get(point.date) ?? true) && point.health === 100);
+  }
+  let streak = 0;
+  const earned = [];
+  let stars = 0;
+  for (const [date, perfect] of [...days].sort(([a], [b]) => a.localeCompare(b))) {
+    if (!perfect) {
+      streak = 0;
+      continue;
+    }
+    streak += 1;
+    if (streak % PRIZE_DAYS !== 0) continue;
+    if (earned.length < PRIZES.length) earned.push({ ...PRIZES[earned.length], date });
+    else stars += 1;
+  }
+  const alive = pet.mood !== 'dead';
+  return {
+    earned: alive ? earned : [],
+    stars: alive ? stars : 0,
+    streak: alive ? streak % PRIZE_DAYS : 0,
+    next: alive ? PRIZES[earned.length] ?? null : null,
+  };
+}
+
+/**
+ * Что надето и что стоит рядом. Выбор учителя хранится в группе (petLook);
+ * пока его нет, питомец сам надевает последнее полученное.
+ */
+export function petLook(look, prizes) {
+  const owned = new Set(prizes.earned.map((prize) => prize.id));
+  const has = (id, slot) => owned.has(id) && PRIZE_BY_ID.get(id)?.slot === slot;
+  const latest = (slot) => prizes.earned.filter((prize) => prize.slot === slot).map((prize) => prize.id).reverse();
+  if (look && typeof look === 'object') {
+    return {
+      head: has(look.head, 'head') ? look.head : '',
+      left: has(look.left, 'side') ? look.left : '',
+      right: has(look.right, 'side') && look.right !== look.left ? look.right : '',
+    };
+  }
+  const sides = latest('side');
+  return { head: latest('head')[0] ?? '', right: sides[0] ?? '', left: sides[1] ?? '' };
+}
+
 /* Спрайты 16×16 */
 
 const BODY = [
@@ -188,18 +263,163 @@ export function petPixels(mood, frame = 0) {
   return pixels;
 }
 
-/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
-export function petSprite(mood) {
+/* Призы рисуются поверх сцены 32×20: питомец в середине, предметы по бокам. */
+
+const PRIZE_COLORS = {
+  k: '#1b1f24',
+  g: '#6e7781',
+  s: '#adb5bd',
+  w: '#ffffff',
+  l: '#54aeff',
+  y: '#f2cc60',
+  o: '#d4a72c',
+  r: '#e5534b',
+  p: '#8250df',
+  q: '#c297ff',
+  n: '#bc4c00',
+};
+
+// Головные уборы: сетка 16 в ширину, выравнивается по питомцу (его верх в строке 5 сцены).
+const HEAD_ART = {
+  headphones: { y: 2, rows: [
+    '....ssssssss....',
+    '..ss........ss..',
+    '.s............s.',
+    '.s............s.',
+    '.s............s.',
+    'srrs........srrs',
+    'srrs........srrs',
+    'srrs........srrs',
+    '.ss..........ss.',
+  ] },
+  beret: { y: 1, rows: [
+    '........kk......',
+    '.....kkkppkkk...',
+    '...kkppppppqpkk.',
+    '..kpppppppppppk.',
+    '...kkkkkkkkkkk..',
+  ] },
+  crown: { y: 0, rows: [
+    '....y...y...y...',
+    '....yy.yry.yy...',
+    '....yyyyyyyyy...',
+    '....yryyyyyry...',
+    '....ooooooooo...',
+  ] },
+};
+
+// Предметы рядом: сетка 8 в ширину, стоят на земле (нижняя строка сцены 18).
+const SIDE_ART = {
+  camera: [
+    '..kkk...',
+    'kkkkkkkk',
+    'kgglllgk',
+    'kgllwlgk',
+    'kgglllgk',
+    'kkkkkkkk',
+  ],
+  tripod: [
+    '.ssssss.',
+    '.sgggss.',
+    '.ssssss.',
+    '...ss...',
+    '...ss...',
+    '...ss...',
+    '..s..s..',
+    '..s..s..',
+    '.s....s.',
+    '.s....s.',
+    's......s',
+  ],
+  microphone: [
+    '..ssss..',
+    '.ssssgs.',
+    '.sssggs.',
+    '..ssss..',
+    '...ss...',
+    '...ss...',
+    '...ss...',
+    '...ss...',
+    '...ss...',
+    '...ss...',
+    '.ssssss.',
+  ],
+  spotlight: [
+    'yy......',
+    'yyyy....',
+    'yyssss..',
+    '.sggggs.',
+    '.sgggggs',
+    '..sssss.',
+    '....ss..',
+    '....ss..',
+    '...s..s.',
+    '..s....s',
+  ],
+  clapper: [
+    'kwkwkwk.',
+    '.kwkwkwk',
+    'kkkkkkkk',
+    'kwwwwwwk',
+    'kwkkkkwk',
+    'kwwwwwwk',
+    'kkkkkkkk',
+  ],
+};
+
+const art = (rows, left, top) => rows.flatMap((row, y) => [...row].flatMap((char, x) => (
+  char === '.' ? [] : [{ x: left + x, y: top + y, fill: PRIZE_COLORS[char] }]
+)));
+
+/** Пиксели сцены 32×20 с питомцем и призами. Кадр 0 или 1. */
+export function dressedPixels(mood, look, frame = 0) {
+  const pixels = [];
+  const side = (id, left) => {
+    const rows = SIDE_ART[id];
+    if (rows) pixels.push(...art(rows, left, 19 - rows.length));
+  };
+  side(look.left, 0);
+  side(look.right, 24);
+  // Питомец стоит на земле: его последняя строка пустая, поэтому сдвиг на 4.
+  pixels.push(...petPixels(mood, frame).map((p) => ({ ...p, x: p.x + 8, y: p.y + 4 })));
+  const head = HEAD_ART[look.head];
+  if (head && mood !== 'dead') pixels.push(...art(head.rows, 8, head.y));
+  return pixels;
+}
+
+/** Значок приза для списка: только сам предмет. */
+export function prizeIcon(id) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 16 16');
+  const head = HEAD_ART[id];
+  const rows = head ? head.rows : SIDE_ART[id] ?? [];
+  const width = head ? 16 : 8;
+  svg.setAttribute('viewBox', `0 0 ${width} ${Math.max(rows.length, 1)}`);
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('prizeicon');
+  for (const { x, y, fill } of art(rows, 0, 0)) {
+    const pixel = document.createElementNS(ns, 'rect');
+    for (const [name, value] of Object.entries({ x, y, width: 1, height: 1, fill })) pixel.setAttribute(name, value);
+    svg.append(pixel);
+  }
+  return svg;
+}
+
+/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
+export function petSprite(mood, look = null) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  const dressed = Boolean(look && (look.head || look.left || look.right));
+  svg.setAttribute('viewBox', dressed ? '0 0 32 20' : '0 0 16 16');
+  if (dressed) svg.classList.add('dressed');
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add('petsprite', `mood-${mood}`);
   for (const frame of [0, 1]) {
     const layer = document.createElementNS(ns, 'g');
     layer.classList.add(`frame${frame}`);
-    for (const { x, y, fill } of petPixels(mood, frame)) {
+    for (const { x, y, fill } of dressed ? dressedPixels(mood, look, frame) : petPixels(mood, frame)) {
       const pixel = document.createElementNS(ns, 'rect');
       pixel.setAttribute('x', x);
       pixel.setAttribute('y', y);

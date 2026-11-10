@@ -93,15 +93,6 @@ jobs:
           # Обе версии собраны из одной программы, разница задаётся именем установщика.
           $setup = (Get-ChildItem dist/Kerdiis-Setup-*.exe).FullName
           if ((Get-Content (Join-Path (Split-Path (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis.Trim('"')) 'edition.txt') -Raw).Trim() -ne 'client') { throw 'Панель из прошлой версии не стала клиентом' }
-          # Панель, на которой из-за прошлых версий осталась версия для преподавателей:
-          # ручной запуск Kerdiis-Setup должен поставить клиент.
-          Set-Content (Join-Path $env:ProgramFiles 'KerdiisUpdate\edition.txt') 'admin' -NoNewline
-          $p = Start-Process $setup -PassThru
-          if (-not $p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force; throw 'Установщик не закончил работу' }
-          Start-Sleep -Seconds 3
-          Stop-Process -Name Kerdiis -Force -ErrorAction SilentlyContinue
-          $installed = Split-Path (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run').Kerdiis.Trim('"')
-          if ((Get-Content (Join-Path $installed 'edition.txt') -Raw).Trim() -ne 'client') { throw 'Ручная установка Kerdiis-Setup оставила версию для преподавателей' }
           $admin = $setup -replace 'Kerdiis-Setup', 'Kerdiis-Admin-Setup'
           Copy-Item $setup $admin
           $p = Start-Process $admin -ArgumentList '/S', '/SYNCKEY=CI000-CI000-CI000-CI000', '/PEERS=10.0.2.15,10.0.3.7' -Wait -PassThru

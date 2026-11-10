@@ -4,7 +4,7 @@ import {
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
-import { petChange, petSprite, petStatus } from './pet.mjs';
+import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -2358,6 +2358,8 @@ function drawPet() {
     return;
   }
   const pet = petOf(group);
+  const prizes = petPrizes(pet);
+  const look = petLook(group.petLook, prizes);
   const failure = h('p', { class: 'error' });
 
   const saveGroup = async (changes) => {
@@ -2391,7 +2393,7 @@ function drawPet() {
       stage.append(heart);
       setTimeout(() => heart.remove(), 900);
     },
-  }, petSprite(pet.mood));
+  }, petSprite(pet.mood, look));
 
   const meter = h('div', { class: 'petmeter' }, h('i'));
   meter.firstChild.style.width = `${pet.health}%`;
@@ -2430,11 +2432,52 @@ function drawPet() {
         : h('div', { class: 'field petname' },
           h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать'))))),
       failure,
+      pet.mood !== 'dead' && prizeSection(pet, prizes, look, (next) => saveGroup({ petLook: next })),
       healthChart(pet),
       petGraves(group),
       petOverview(groups),
       h('p', { class: 'help' }, t('Питомец живёт посещаемостью группы: пропуски без причины и опоздания вредят ему, хорошая посещаемость лечит. Уважительные причины не вредят.'))),
   );
+}
+
+/** Призы питомца: полученные, следующий и наряд, который выбирает преподаватель. */
+function prizeSection(pet, prizes, look, saveLook) {
+  const owned = new Map(prizes.earned.map((prize) => [prize.id, prize]));
+  const progress = prizes.next
+    ? t('До приза «{0}»: {1} из {2} дней подряд со здоровьем 100.', [t(prizes.next.name), prizes.streak, PRIZE_DAYS])
+    : t('Все призы получены. Каждые {0} дня подряд со здоровьем 100 приносят звезду.', [PRIZE_DAYS]);
+  const tiles = h('ul', { class: 'prizes' }, PRIZES.map((prize) => {
+    const got = owned.get(prize.id);
+    return h('li', { class: `prize${got ? '' : ' locked'}`, 'data-prize': prize.id },
+      prizeIcon(prize.id),
+      h('strong', {}, t(prize.name)),
+      h('span', { class: 'help' }, got ? t('получен {0}', [shortDay(got.date)]) : t('ещё не получен')));
+  }));
+  const slot = (name, label, kind) => {
+    const options = prizes.earned.filter((prize) => prize.slot === kind);
+    if (!options.length) return null;
+    return h('div', { class: 'prizeslot' },
+      h('span', { class: 'help' }, label),
+      h('div', { class: 'targets', role: 'group', 'aria-label': label },
+        [{ id: '' }, ...options].map((prize) => h('button', {
+          type: 'button',
+          'aria-pressed': String(look[name] === prize.id),
+          onclick: () => {
+            const next = { ...look, [name]: prize.id };
+            // Один предмет не может стоять сразу с двух сторон.
+            if (kind === 'side' && prize.id) for (const other of ['left', 'right']) if (other !== name && next[other] === prize.id) next[other] = '';
+            saveLook(next);
+          },
+        }, prize.id ? t(prize.name) : t('Ничего')))));
+  };
+  return h('section', { class: 'petsection' },
+    h('h3', {}, prizes.stars ? t('Призы и звёзды: ★ × {0}', [prizes.stars]) : t('Призы')),
+    h('p', { class: 'help' }, progress),
+    tiles,
+    canManage() && prizes.earned.length > 0 && h('div', { class: 'prizelook' },
+      slot('head', t('На голове'), 'head'),
+      slot('left', t('Слева'), 'side'),
+      slot('right', t('Справа'), 'side')));
 }
 
 /* Бегущая строка */
