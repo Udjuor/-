@@ -1,0 +1,131 @@
+/* Страница студента: те же цвета, что у Kerdiis, под телефон. */
+:root {
+  color-scheme: dark;
+  --canvas: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-strong: #1f6feb;
+  --ok: #3fb950;
+  --ok-bg: rgb(46 160 67 / .15);
+  --warn: #d29922;
+  --warn-bg: rgb(187 128 9 / .15);
+  --bad: #f85149;
+  --bad-bg: rgb(248 81 73 / .15);
+  --info: #a5d6ff;
+  --info-bg: rgb(56 139 253 / .15);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --canvas: #f6f8fa;
+    --card: #ffffff;
+    --border: #d0d7de;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --accent: #0969da;
+    --accent-strong: #0969da;
+    --ok: #1a7f37;
+    --ok-bg: #dafbe1;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --bad: #cf222e;
+    --bad-bg: #ffebe9;
+    --info: #0969da;
+    --info-bg: #ddf4ff;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--fg);
+  font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .8rem 1rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  z-index: 1;
+}
+.top img { border-radius: 8px; }
+.brand { font-weight: 700; }
+.hello { margin-left: auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+main { max-width: 40rem; margin: 0 auto; padding: 1rem; display: grid; gap: .9rem; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; }
+.card.alert { border-color: var(--warn); background: var(--warn-bg); }
+h1 { font-size: 1.35rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
+h2::first-letter { text-transform: uppercase; }
+p { margin: 0 0 .6rem; }
+.muted { color: var(--muted); }
+.small { font-size: .875rem; }
+.note { background: var(--info-bg); border-radius: 10px; padding: .6rem .8rem; }
+.error { color: var(--bad); min-height: 1.2em; }
+
+label { display: block; font-weight: 600; margin: .6rem 0 .3rem; }
+input {
+  width: 100%;
+  font: inherit;
+  font-size: 1.1rem;
+  color: var(--fg);
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .7rem .8rem;
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button {
+  font: inherit;
+  border-radius: 10px;
+  min-height: 48px;
+  padding: .6rem 1rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+button.primary { width: 100%; background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; font-weight: 600; margin-top: .4rem; }
+button.plain { justify-self: center; }
+button:disabled { opacity: .6; }
+
+.here { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; font-weight: 600; }
+.dot { width: .7rem; height: .7rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.item { display: grid; grid-template-columns: auto 1fr; gap: .2rem .8rem; align-items: start; padding-bottom: .6rem; border-bottom: 1px solid var(--border); }
+.item:last-child { border-bottom: 0; padding-bottom: 0; }
+.item > .chip { grid-column: 1 / -1; justify-self: start; }
+.item .what { display: grid; gap: .1rem; min-width: 0; }
+.item .what .chip { justify-self: start; }
+.item .what:first-child { grid-column: 1 / -1; }
+.time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; white-space: nowrap; }
+.state-now .time { color: var(--accent); font-weight: 600; }
+.state-past { opacity: .75; }
+
+.chip { display: inline-block; border-radius: 999px; padding: .15rem .6rem; font-size: .85rem; font-weight: 600; }
+.chip.ok { background: var(--ok-bg); color: var(--ok); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.bad { background: var(--bad-bg); color: var(--bad); }
+.chip.info, .chip.now { background: var(--info-bg); color: var(--info); }
+.chip.muted { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.stat { display: grid; gap: .1rem; border: 1px solid var(--border); border-radius: 10px; padding: .6rem .7rem; }
+.stat b { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.stat span { font-size: .875rem; }

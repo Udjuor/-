@@ -1,4 +1,5 @@
 import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS } from './logic.mjs';
+import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
@@ -14,6 +15,8 @@ const $ = (id) => document.getElementById(id);
 const api = window.calendar;
 
 const state = {
+  presence: new Map(),
+  portal: null,
   view: 'week',
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
@@ -313,6 +316,7 @@ async function refresh() {
   await loadDirectory();
   await loadAttendance();
   await loadDevices();
+  await loadPresence();
   refreshPet();
   refreshTicker();
   refreshGear();
@@ -332,6 +336,75 @@ async function loadAttendance() {
   if (!$('roll').open) return;
   if (editingTime()) rollStale = true;
   else redrawRoll?.();
+}
+
+/** Кто сегодня открыл студенческую страницу в сети колледжа, и где она открыта. */
+async function loadPresence() {
+  const [presence, info] = await Promise.all([api.presenceToday(), api.portalInfo()]);
+  if (presence.ok) {
+    const next = new Map(presence.value.map((p) => [nameKey(p.student), p.at]));
+    const changed = JSON.stringify([...next]) !== JSON.stringify([...state.presence]);
+    state.presence = next;
+    if (changed && $('roll').open) {
+      if (editingTime()) rollStale = true;
+      else redrawRoll?.();
+    }
+  }
+  if (info.ok) {
+    state.portal = info.value?.on ? info.value : null;
+    $('open-portal').hidden = !state.portal;
+    if ($('portal').open) drawPortal();
+  }
+}
+
+/** Как открыть страницу студента: QR-код и адрес. */
+function qrElement(text) {
+  const { size, path } = qrPath(text);
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', t('QR-код страницы для студентов'));
+  svg.classList.add('qr');
+  const back = document.createElementNS(ns, 'rect');
+  back.setAttribute('width', size);
+  back.setAttribute('height', size);
+  back.setAttribute('fill', '#fff');
+  const dark = document.createElementNS(ns, 'path');
+  dark.setAttribute('d', path);
+  dark.setAttribute('fill', '#000');
+  svg.append(back, dark);
+  return svg;
+}
+
+function drawPortal() {
+  const dialog = $('portal');
+  const urls = state.portal?.urls ?? [];
+  const url = urls[0];
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Страница для студентов')), h('p', { class: 'help' }, t('Свои занятия, задания, сроки и отметки на телефоне. Работает в Wi-Fi колледжа.'))),
+      closeButton(dialog)),
+    url
+      ? h('div', { class: 'portalbody' },
+        qrElement(url),
+        h('div', {},
+          h('p', { class: 'portalurl' }, url),
+          urls.length > 1 && h('p', { class: 'help' }, t('Другие адреса этого компьютера: {0}', [urls.slice(1).join(', ')])),
+          h('ol', { class: 'portalsteps' },
+            h('li', {}, t('Подключитесь к Wi-Fi колледжа.')),
+            h('li', {}, t('Наведите камеру телефона на QR-код или откройте адрес в браузере.')),
+            h('li', {}, t('Введите код от куратора и придумайте ник. Ник подтвердит куратор.')),
+            h('li', {}, t('Добавьте страницу на главный экран. Открывайте её, когда пришли в колледж: преподаватель увидит, что вы здесь.'))),
+          h('p', { class: 'help' }, t('Страницу открывает компьютер «{0}». Он должен быть включён.', [state.portal.device]))))
+      : h('p', { class: 'help' }, t('Страница для студентов сейчас выключена.')),
+  );
+}
+
+function openPortal() {
+  drawPortal();
+  $('portal').showModal();
 }
 
 /**
@@ -1251,7 +1324,7 @@ function openStockPicker({ event, values, qty, holders, done }) {
 
 /* Справочники */
 
-const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '' };
+const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '', phone: null, code: null };
 
 const CATALOG_TABS = [
   ['groups', t('Группы и студенты')],
@@ -1379,6 +1452,70 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
     h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = ref.id; catalog.editing = null; drawCatalog(); } }, t('Удалить')));
 }
 
+/** Ник и телефон студента одной строкой под именем. */
+function studentPhoneDetail(student) {
+  const parts = [];
+  if (student.nick) parts.push(student.nickOk ? t('ник {0}', [student.nick]) : t('ник {0} ждёт подтверждения', [student.nick]));
+  if (student.phoneBound) parts.push(t('телефон привязан'));
+  else if (student.codeActive) parts.push(t('код выдан'));
+  return parts.join(', ') || null;
+}
+
+/** Ник, код привязки и отвязка телефона. Код показывается один раз. */
+function phonePanel(student) {
+  const save = async (changes) => {
+    catalog.message = '';
+    await commitCatalog(await api.saveRefs([{ ref: { ...student, ...changes }, base: student.updatedAt }]));
+  };
+  const nick = h('input', { id: 'c-nick', value: student.nick ?? '', maxlength: 20, autocomplete: 'off', placeholder: t('Ник'), 'aria-label': t('Ник') });
+  const code = catalog.code?.id === student.id ? catalog.code.code : null;
+  return h('li', { class: 'phonepanel' },
+    h('div', { class: 'adder' }, nick,
+      h('button', {
+        type: 'button',
+        onclick: () => {
+          const value = nick.value.trim();
+          if (value && !/^[\p{L}\p{N}_.-]{3,20}$/u.test(value)) {
+            catalog.message = t('Ник: от 3 до 20 букв или цифр, можно также _ . и -.');
+            drawCatalog();
+            return;
+          }
+          save({ nick: value, nickOk: Boolean(value) });
+        },
+      }, student.nick && !student.nickOk && nick.value === student.nick ? t('Подтвердить ник') : t('Сохранить ник'))),
+    h('p', { class: 'help' }, t('Ник видят студент на телефоне и преподаватели. ФИО на телефоне не показывается.')),
+    code
+      ? h('div', { class: 'phonecode' },
+        h('strong', { 'aria-label': t('Код для телефона') }, `${code.slice(0, 4)} ${code.slice(4)}`),
+        h('p', { class: 'help' }, t('Передайте код студенту. Код одноразовый и действует 14 дней. Больше он нигде не показывается.')))
+      : h('div', { class: 'targets' },
+        h('button', {
+          type: 'button',
+          id: 'c-phone-code',
+          onclick: async () => {
+            const result = await api.studentCode(student.id);
+            if (!result.ok) {
+              catalog.message = t('Не удалось создать код: {0}', [result.message]);
+              drawCatalog();
+              return;
+            }
+            catalog.code = { id: student.id, code: result.value };
+            await loadDirectory();
+            drawCatalog();
+          },
+        }, student.phoneBound ? t('Новый код (телефон сменился)') : t('Выдать код для телефона')),
+        student.phoneBound && h('button', {
+          type: 'button',
+          class: 'plain',
+          onclick: async () => {
+            await api.unbindPhone(student.id);
+            await loadDirectory();
+            drawCatalog();
+          },
+        }, t('Отвязать телефон'))),
+  );
+}
+
 function refList(rows, emptyText) {
   return rows.length ? h('ul', { class: 'reflist' }, rows) : h('p', { class: 'help' }, emptyText);
 }
@@ -1410,8 +1547,14 @@ function groupsPane() {
         ? [
           addForm('c-add-student', t('Фамилия и имя или столбец из таблицы'),
             (text) => addRefs(text, 'student', members, { groupId: current.id })),
-          refList(members.map((student) => refRow(student, {
-            extra: h('button', {
+          refList(members.flatMap((student) => [refRow(student, {
+            detail: studentPhoneDetail(student),
+            extra: [h('button', {
+              type: 'button',
+              class: 'plain phonetoggle',
+              'aria-expanded': String(catalog.phone === student.id),
+              onclick: () => { catalog.phone = catalog.phone === student.id ? null : student.id; catalog.code = null; drawCatalog(); },
+            }, t('Телефон')), h('button', {
               type: 'button',
               class: 'plain owntoggle',
               'aria-pressed': String(student.ownCamera === true),
@@ -1419,8 +1562,8 @@ function groupsPane() {
                 catalog.message = '';
                 await commitCatalog(await api.saveRefs([{ ref: { ...student, ownCamera: !student.ownCamera }, base: student.updatedAt }]));
               },
-            }, t('Своя камера')),
-          })), t('В группе пока нет студентов.')),
+            }, t('Своя камера'))],
+          }), catalog.phone === student.id && phonePanel(student)].filter(Boolean)), t('В группе пока нет студентов.')),
         ]
         : h('p', { class: 'help' }, t('Сначала добавьте группу.'))));
 }
@@ -1486,6 +1629,8 @@ function rowNote(row) {
   }
   if (row.excusedFor) return t('По приказу: {0}', [row.excusedFor]);
   if (row.unconfirmed) return t('Болезнь, ждём справку');
+  const here = state.presence.get(nameKey(row.name));
+  if (row.status === 'pending' && here) return t('В колледже с {0}: открыл страницу студента. Нажмите на имя, чтобы отметить', [clockTime(here)]);
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
 
@@ -1527,6 +1672,38 @@ function templateSection() {
         } }, t('Вернуть встроенный'))),
       message,
       h('p', { class: 'help' }, t('Скачайте шаблон, поменяйте его в Word и загрузите обратно. Поля пишутся в двойных фигурных скобках: {0}. Строка таблицы, где есть {1}, повторяется для каждого студента.', [braces(fieldNames().memo), braces(fieldNames().row)])),
+    );
+  };
+  draw();
+  return box;
+}
+
+/** Включение студенческой страницы на этом компьютере. */
+function portalSection() {
+  const box = h('section', { class: 'setting', id: 's-portal' });
+  const message = h('p', { class: 'help', role: 'status' });
+  const draw = async () => {
+    const status = await api.portalStatus();
+    const toggle = h('input', {
+      type: 'checkbox',
+      id: 's-portal-on',
+      checked: status.on,
+      onchange: async (e) => {
+        message.textContent = '';
+        toggle.disabled = true;
+        const result = await api.setPortal(e.target.checked);
+        if (!result.ok || !result.value) message.textContent = t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880]);
+        await loadPresence();
+        await draw();
+      },
+    });
+    box.replaceChildren(
+      h('h3', { class: 'settinghead' }, t('Страница для студентов')),
+      h('label', { class: 'check' }, toggle, t('Открыть страницу для студентов на этом компьютере')),
+      h('p', { class: 'help' }, t('Студенты в Wi-Fi колледжа видят на телефоне свои занятия, задания, сроки и отметки, а преподаватель на панели видит, кто уже в колледже. Компьютер должен быть включён весь учебный день. Коды для телефонов выдаются в «Справочниках» у студента.')),
+      status.running && h('p', {}, t('Адрес: {0}', [status.urls.join(', ') || t('нет сети')])),
+      status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880])),
+      message,
     );
   };
   draw();
@@ -3210,6 +3387,7 @@ async function openSettings() {
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
       templateSection(),
       backupSection(),
+      portalSection(),
       clearSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
@@ -3293,7 +3471,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'quitask'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'quitask'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -3316,10 +3494,14 @@ function wire() {
   $('open-gear').addEventListener('click', openGear);
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);
+  $('open-portal').addEventListener('click', openPortal);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';
+    // Код телефона показывается один раз: после закрытия справочника его больше не видно.
+    catalog.phone = null;
+    catalog.code = null;
     drawCatalog({ fromTop: true });
     $('catalog').showModal();
   });

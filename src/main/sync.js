@@ -376,4 +376,4 @@ class SyncNode {
   }
 }
 
-module.exports = { SyncNode, generateKey, seal, open, deriveKey, DEFAULT_PORT };
+module.exports = { SyncNode, generateKey, seal, open, deriveKey, DEFAULT_PORT, localNetworks };

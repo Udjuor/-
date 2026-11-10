@@ -92,6 +92,56 @@ const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const NICK_RE = /^[\p{L}\p{N}_.-]{3,20}$/u;
+const HASH_RE = /^[0-9a-f]{64}$/;
+/** Код привязки телефона действует две недели. */
+const PHONE_CODE_DAYS = 14;
+
+const sha256 = (text) => crypto.createHash('sha256').update(String(text)).digest('hex');
+const nickKey = (nick) => String(nick).toLocaleLowerCase('ru').replace(/ё/g, 'е');
+
+/** Постоянный номер записи из её смысла: одна запись на студента в день, один адрес страницы. */
+function hashId(text) {
+  const hex = sha256(text);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Студент для интерфейса: вместо отпечатков — есть ли привязанный телефон и действующий код. */
+function publicStudent(record, now) {
+  const { phoneKey, phoneCode, phoneCodeAt, ...rest } = record;
+  const since = new Date(now - PHONE_CODE_DAYS * 86400000).toISOString();
+  return { ...rest, phoneBound: Boolean(phoneKey), codeActive: Boolean(phoneCode) && phoneCodeAt >= since };
+}
+
+/** Дата по местному времени компьютера. */
+function localDate(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Студент открыл свою страницу в сети колледжа: «в колледже с …». */
+function normalizePresence(raw) {
+  const id = String(raw.id ?? '');
+  const student = String(raw.student ?? '').trim().slice(0, 200);
+  if (!ID_RE.test(id) || !student || !DATE_RE.test(raw.date ?? '') || !STAMP_RE.test(raw.at ?? '')) return null;
+  return { id, kind: 'presence', student, date: raw.date, at: raw.at, updatedAt: String(raw.updatedAt ?? ''), updatedBy: String(raw.updatedBy ?? '') };
+}
+
+/** Где открыта студенческая страница: панели показывают её адрес QR-кодом. */
+function normalizePortal(raw) {
+  const id = String(raw.id ?? '');
+  const urls = (Array.isArray(raw.urls) ? raw.urls : []).map(String).filter((url) => /^http:\/\/[\w.:-]+\/?$/.test(url)).slice(0, 8);
+  if (!ID_RE.test(id)) return null;
+  return {
+    id,
+    kind: 'portal',
+    urls,
+    device: String(raw.device ?? '').slice(0, 80),
+    on: raw.on === true && urls.length > 0,
+    updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
+  };
+}
 
 /** Запись справочника: группа, студент, техника или преподаватель. */
 function normalizeRef(raw) {
@@ -107,6 +157,14 @@ function normalizeRef(raw) {
   if (raw.kind === 'student') {
     ref.groupId = String(raw.groupId ?? '');
     ref.ownCamera = raw.ownCamera === true;
+    // Ник для студенческой страницы: его придумывает студент, подтверждает куратор.
+    ref.nick = NICK_RE.test(raw.nick ?? '') ? raw.nick : '';
+    ref.nickOk = Boolean(ref.nick) && raw.nickOk === true;
+    // Хранятся только отпечатки кода и ключа телефона, сами они не сохраняются.
+    ref.phoneKey = HASH_RE.test(raw.phoneKey ?? '') ? raw.phoneKey : '';
+    ref.phoneCode = HASH_RE.test(raw.phoneCode ?? '') ? raw.phoneCode : '';
+    ref.phoneCodeAt = STAMP_RE.test(raw.phoneCodeAt ?? '') && ref.phoneCode ? raw.phoneCodeAt : '';
+    if (!ref.phoneCode) ref.phoneCodeAt = '';
   }
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
@@ -286,6 +344,8 @@ function normalizeRecord(raw) {
   }
   if (raw?.kind === 'attendance') return normalizeAttendance(raw);
   if (raw?.kind === 'change') return normalizeChange(raw);
+  if (raw?.kind === 'presence') return normalizePresence(raw);
+  if (raw?.kind === 'portal') return normalizePortal(raw);
   return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
 }
 
@@ -357,7 +417,99 @@ class EventStore {
 
   /** Записи справочников. */
   async directory() {
-    return (await this.records()).filter((record) => !record.deleted && record.kind && record.kind !== 'attendance' && record.kind !== 'change');
+    // Отпечатки кода и ключа телефона наружу не отдаются: только есть или нет.
+    return (await this.records())
+      .filter((record) => !record.deleted && REF_KINDS.has(record.kind))
+      .map((record) => (record.kind === 'student' ? publicStudent(record, this.clock()) : record));
+  }
+
+  /* Студенческая страница */
+
+  /** Новый код привязки телефона. Сам код возвращается один раз и нигде не хранится. */
+  async studentCode(id) {
+    const current = await this.read(id);
+    if (current?.kind !== 'student') throw new StoreError('not-found', 'Студент не найден');
+    const code = String(crypto.randomInt(0, 100_000_000)).padStart(8, '0');
+    await this.write({ ...current, phoneCode: sha256(code), phoneCodeAt: new Date(this.clock()).toISOString(), updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+    return code;
+  }
+
+  /** Отвязывает телефон и гасит неиспользованный код. */
+  async unbindPhone(id) {
+    const current = await this.read(id);
+    if (current?.kind !== 'student') throw new StoreError('not-found', 'Студент не найден');
+    await this.write({ ...current, phoneKey: '', phoneCode: '', phoneCodeAt: '', updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+  }
+
+  /**
+   * Привязка телефона по коду куратора. Ник предлагает студент; подтверждённый
+   * куратором ник не меняется. Возвращает ключ, который хранит только телефон.
+   */
+  async bindPhone(code, nick) {
+    const digits = String(code ?? '').replace(/\D/g, '');
+    if (digits.length !== 8) throw new StoreError('bad-code', 'Неверный код');
+    const students = (await this.records()).filter((record) => record.kind === 'student' && !record.deleted);
+    const since = new Date(this.clock() - PHONE_CODE_DAYS * 86400000).toISOString();
+    const student = students.find((record) => record.phoneCode === sha256(digits) && record.phoneCodeAt >= since);
+    if (!student) throw new StoreError('bad-code', 'Неверный код');
+    let nextNick = student.nick;
+    let nickOk = student.nickOk;
+    if (!student.nickOk) {
+      const wanted = String(nick ?? '').trim();
+      if (!NICK_RE.test(wanted)) throw new StoreError('bad-nick', 'Неверный ник');
+      if (students.some((record) => record.id !== student.id && record.nick && nickKey(record.nick) === nickKey(wanted))) throw new StoreError('nick-taken', 'Ник занят');
+      nextNick = wanted;
+      nickOk = false;
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    await this.write({
+      ...student,
+      nick: nextNick,
+      nickOk,
+      phoneKey: sha256(token),
+      phoneCode: '',
+      phoneCodeAt: '',
+      updatedAt: nextStamp(student.updatedAt),
+      updatedBy: this.deviceId,
+    });
+    return { token, student: student.name };
+  }
+
+  /** Студент по ключу телефона или null. */
+  async studentByToken(token) {
+    if (!/^[0-9a-f]{64}$/.test(String(token ?? ''))) return null;
+    const key = sha256(token);
+    return (await this.records()).find((record) => record.kind === 'student' && !record.deleted && record.phoneKey === key) ?? null;
+  }
+
+  /** Отметка «в колледже»: первая за день остаётся. */
+  async markPresence(student, at = new Date(this.clock()).toISOString()) {
+    const date = localDate(at);
+    const id = hashId(`presence:${nickKey(student)}:${date}`);
+    const current = await this.read(id);
+    if (current && !current.deleted) return current;
+    const record = normalizePresence({ id, student, date, at, updatedAt: nextStamp(current?.updatedAt), updatedBy: this.deviceId });
+    await this.write(record);
+    return record;
+  }
+
+  /** Кто был в колледже в этот день. */
+  async presenceOn(date) {
+    return (await this.records()).filter((record) => record.kind === 'presence' && record.date === date);
+  }
+
+  /** Адрес студенческой страницы для панелей. */
+  async portal() {
+    return (await this.read(hashId('portal'))) ?? null;
+  }
+
+  async setPortal(urls, device, on) {
+    const id = hashId('portal');
+    const current = await this.read(id);
+    const record = normalizePortal({ id, urls, device, on, updatedAt: nextStamp(current?.updatedAt), updatedBy: this.deviceId });
+    const same = current && JSON.stringify([current.urls, current.device, current.on]) === JSON.stringify([record.urls, record.device, record.on]);
+    if (!same) await this.write(record);
+    return same ? current : record;
   }
 
   /** Журнал изменений событий, новые сверху, за последние полгода. */
@@ -521,6 +673,12 @@ class EventStore {
     });
   }
 
+  /** Одна запись в проверенном виде или null. */
+  async read(id) {
+    const raw = await this.readCurrent(id);
+    return raw ? normalizeRecord(raw) : null;
+  }
+
   async readCurrent(id) {
     try {
       return JSON.parse(await fsp.readFile(this.fileFor(id), 'utf8'));
@@ -576,8 +734,14 @@ class EventStore {
     if (!draft) throw new StoreError('invalid', 'Проверьте название');
     const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
     const ref = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
+    if (ref.kind === 'student') {
+      // Код и ключ телефона меняются только своими командами, правка справочника их не трогает.
+      for (const field of ['phoneKey', 'phoneCode', 'phoneCodeAt']) ref[field] = current?.[field] ?? '';
+      delete ref.phoneBound;
+      delete ref.codeActive;
+    }
     await this.write(ref);
-    return ref;
+    return ref.kind === 'student' ? publicStudent(ref, this.clock()) : ref;
   }
 
   /**

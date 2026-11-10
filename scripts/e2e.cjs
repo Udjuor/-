@@ -76,7 +76,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString() },
+    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString(), KERDIIS_PORTAL_PORT: '47890' },
   });
   const errors = [];
   // Панель-визитка: отдельное небольшое окно, потом главное.
@@ -985,6 +985,61 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForFunction(() => !document.getElementById('check-update').disabled, null, { timeout: 100000 });
   assert.match(await page.textContent('#s-update'), process.platform === 'win32' ? /Последняя проверка обновлений|не удалось проверить/ : /Проверку запустить не удалось/);
   await page.click('#preferences [aria-label=Закрыть]');
+
+  // Страница для студентов: включить, показать QR, выдать код, привязать телефон.
+  await page.click('#settings');
+  await page.click('#s-portal-on');
+  await page.waitForSelector('#s-portal:has-text("47890")');
+  await page.click('#preferences [aria-label=Закрыть]');
+  await page.waitForSelector('#open-portal:not([hidden])', { timeout: 15000 });
+  await page.click('#open-portal');
+  await page.waitForSelector('#portal[open] svg.qr');
+  await shot('portal');
+  await page.click('#portal [aria-label=Закрыть]');
+
+  await teacherStore.save({ title: 'Пара для телефона', type: 'lesson', date: day(0), start: '19:15', end: '19:55', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.click('#open-catalog');
+  await page.click('#catalog .tabs >> text=Группы и студенты');
+  await page.click('#catalog .refname:has-text("ИС-21")');
+  await page.click('#catalog .refrow:has-text("Васильева Дарья") .phonetoggle');
+  await page.click('#c-phone-code');
+  const phoneCode = (await page.textContent('.phonecode strong')).replace(/\s/g, '');
+  assert.match(phoneCode, /^\d{8}$/);
+  await shot('phone-code');
+  await page.click('#catalog [aria-label=Закрыть]');
+
+  const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+  const browser = await chromium.launch();
+  const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ru-RU' });
+  await phone.goto('http://127.0.0.1:47890/');
+  await phone.fill('#code', phoneCode);
+  await phone.fill('#nick', 'Дашуля');
+  await phone.click('button[type=submit]');
+  await phone.waitForSelector('text=Вы в колледже с');
+  await phone.waitForSelector('.item:has-text("Пара для телефона")');
+  assert.ok(!(await phone.textContent('body')).includes('null'), 'пустые разделы не печатаются');
+  assert.ok(!(await phone.content()).includes('Васильева'), 'ФИО на телефоне нет');
+  await phone.screenshot({ path: path.join(shots, 'phone.png'), fullPage: true });
+  await phone.reload();
+  await phone.waitForSelector('text=Привет, Дашуля!');
+  await browser.close();
+
+  await page.waitForSelector('.block:has-text("Пара для телефона")', { timeout: 15000 });
+  await page.click('.block:has-text("Пара для телефона")');
+  await page.click('#details >> text=/Отметка/');
+  await page.waitForSelector('#roll[open] .rollrow:has-text("Васильева Дарья"):has-text("В колледже с")', { timeout: 15000 });
+  assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья"):has-text("В колледже с")').count(), 0);
+  await shot('roll-presence');
+  await page.click('#roll [aria-label=Закрыть]');
+  await page.click('#open-catalog');
+  await page.click('#catalog .tabs >> text=Группы и студенты');
+  await page.click('#catalog .refname:has-text("ИС-21")');
+  await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля ждёт подтверждения")');
+  await page.click('#catalog .refrow:has-text("Васильева Дарья") .phonetoggle');
+  await page.click('.phonepanel button:has-text("Подтвердить ник")');
+  await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
+  await page.click('#catalog [aria-label=Закрыть]');
 
   // Журнал изменений: правка названия видна с прежним и новым значением.
   await page.click('#open-journal');

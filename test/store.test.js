@@ -525,3 +525,61 @@ test('журнал старше полугода удаляется и не пр
   assert.equal(await store.pruneChanges(), 1);
   assert.equal(await store.merge([{ ...old }]), 0);
 });
+
+test('телефон студента: код, привязка с ником, ключ, отвязка', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = Date.parse('2026-11-10T00:30:00Z');
+  const store = new EventStore(dir, 'dev-1', { clock: () => now });
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
+  const anna = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
+  const boris = await store.saveRef({ kind: 'student', name: 'Борисов Илья', groupId: group.id, nick: 'Boris', nickOk: true });
+  const code = await store.studentCode(anna.id);
+  assert.match(code, /^\d{8}$/);
+  const raw = await store.readCurrent(anna.id);
+  assert.ok(!JSON.stringify(raw).includes(code), 'сам код не хранится');
+  let listed = (await store.directory()).find((r) => r.id === anna.id);
+  assert.equal(listed.codeActive, true);
+  assert.equal(listed.phoneCode, undefined, 'отпечаток не уходит в интерфейс');
+
+  await assert.rejects(store.bindPhone('00000000', 'Anna'), { code: 'bad-code' });
+  await assert.rejects(store.bindPhone(code, 'boris'), { code: 'nick-taken' });
+  await assert.rejects(store.bindPhone(code, 'a'), { code: 'bad-nick' });
+  const { token, student } = await store.bindPhone(code, 'Ануся');
+  assert.equal(student, 'Иванова Анна');
+  assert.equal((await store.studentByToken(token)).name, 'Иванова Анна');
+  await assert.rejects(store.bindPhone(code, 'Ануся2'), { code: 'bad-code' }, 'код одноразовый');
+  listed = (await store.directory()).find((r) => r.id === anna.id);
+  assert.deepEqual([listed.nick, listed.nickOk, listed.phoneBound, listed.codeActive], ['Ануся', false, true, false]);
+
+  // Правка справочника не стирает привязку, подтверждение ника — обычная правка.
+  await store.saveRef({ ...listed, nickOk: true }, listed.updatedAt);
+  assert.equal((await store.studentByToken(token)).nickOk, true);
+
+  // Подтверждённый ник при новой привязке не меняется; код живёт две недели.
+  const old = await store.studentCode(boris.id);
+  now += 15 * 86400000;
+  await assert.rejects(store.bindPhone(old, 'Other'), { code: 'bad-code' });
+  const fresh = await store.studentCode(boris.id);
+  await store.bindPhone(fresh, 'Other');
+  assert.equal((await store.directory()).find((r) => r.id === boris.id).nick, 'Boris');
+
+  await store.unbindPhone(anna.id);
+  assert.equal(await store.studentByToken(token), null);
+});
+
+test('«в колледже»: первая отметка за день остаётся, адрес страницы', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'presence-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new EventStore(dir, 'dev-1');
+  const first = await store.markPresence('Иванова Анна', new Date(2026, 10, 10, 8, 52).toISOString());
+  await store.markPresence('Иванова Анна', new Date(2026, 10, 10, 12, 0).toISOString());
+  const list = await store.presenceOn('2026-11-10');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].at, first.at);
+  assert.equal((await store.presenceOn('2026-11-11')).length, 0);
+  await store.setPortal(['http://10.0.5.12:47880'], 'Кабинет 214', true);
+  assert.deepEqual((await store.portal()).urls, ['http://10.0.5.12:47880']);
+  assert.equal((await store.directory()).length, 0, 'служебные записи не в справочниках');
+  assert.equal((await store.list()).length, 0, 'и не в событиях');
+});

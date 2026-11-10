@@ -771,3 +771,14 @@ dialog#welcome { width: min(40rem, 94vw); }
 .prize.locked strong { color: var(--fg-muted); font-weight: 500; }
 .prizelook { display: grid; gap: .6rem; margin-top: .6rem; }
 .prizeslot { display: grid; gap: .3rem; }
+
+/* Студенческая страница: QR на панели и телефон в справочнике */
+#portal.sheet { width: min(64rem, 100vw); max-width: 100vw; }
+.portalbody { display: grid; grid-template-columns: minmax(12rem, 24rem) 1fr; gap: 1.5rem; align-items: start; padding: 1rem 1.25rem 1.25rem; }
+.portalbody .qr { width: 100%; height: auto; border-radius: .5rem; }
+.portalurl { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 0 0 .75rem; }
+.portalsteps { margin: 0 0 1rem; padding-left: 1.3rem; display: grid; gap: .4rem; font-size: 1.1rem; }
+@media (max-width: 900px) { .portalbody { grid-template-columns: 1fr; } }
+.phonepanel { display: grid; gap: .5rem; padding: .6rem .8rem .8rem; margin: 0 0 .4rem; background: var(--canvas-subtle); border-radius: .4rem; }
+.phonepanel input { flex: 1 1 10rem; min-width: 0; min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.phonecode strong { display: block; font-size: 2.2rem; letter-spacing: .08em; font-variant-numeric: tabular-nums; }

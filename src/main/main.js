@@ -4,10 +4,12 @@ const { execFile } = require('node:child_process');
 const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
-const { SyncNode, generateKey } = require('./sync');
+const { SyncNode, generateKey, localNetworks } = require('./sync');
+const { StudentPortal, PORTAL_PORT } = require('./portal');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
 function homeDir() {
@@ -95,6 +97,46 @@ let store = null;
 let edition = 'client';
 let sync = null;
 let syncProblem = null;
+
+let portal = null;
+let portalProblem = null;
+
+const portalUrls = (port) => localNetworks().addresses.map((address) => `http://${address}:${port}/`);
+
+/** Студенческая страница: запускается на компьютере преподавателя, если включена в настройках. */
+async function restartPortal() {
+  const previous = portal;
+  portal = null;
+  portalProblem = null;
+  await previous?.stop();
+  const wanted = edition === 'admin' && config.portal;
+  if (!wanted) {
+    if (previous) await store.setPortal([], config.deviceName, false).catch(() => {});
+    sync?.nudge();
+    return;
+  }
+  const logic = await import(pathToFileURL(path.join(__dirname, '..', 'renderer', 'logic.mjs')).href);
+  const node = new StudentPortal({
+    store,
+    logic,
+    clock: clockNow,
+    port: Number(process.env.KERDIIS_PORTAL_PORT) || PORTAL_PORT,
+    onChange: () => {
+      sync?.nudge();
+      win?.webContents.send('events:changed');
+    },
+  });
+  try {
+    const port = await node.start();
+    portal = node;
+    await store.setPortal(portalUrls(port), config.deviceName, true);
+    sync?.nudge();
+  } catch (err) {
+    console.error('Студенческая страница не запущена:', err.message);
+    portalProblem = err.code === 'EADDRINUSE' ? 'port-busy' : 'failed';
+    await node.stop();
+  }
+}
 
 async function restartSync() {
   const previous = sync;
@@ -285,6 +327,14 @@ function readEdition() {
  * Часы для отметок. Для проверок их можно сдвинуть, но только вместе со своей папкой данных:
  * на рабочих данных панели время всегда настоящее.
  */
+/** Часы программы: настоящие, а в проверках — заданные. */
+const clockNow = (() => {
+  const fake = Date.parse(process.env.KERDIIS_CLOCK ?? '');
+  if (!process.env.KERDIIS_HOME || Number.isNaN(fake)) return () => Date.now();
+  const offset = fake - Date.now();
+  return () => Date.now() + offset;
+})();
+
 function storeClock() {
   const fake = Date.parse(process.env.KERDIIS_CLOCK ?? '');
   if (!process.env.KERDIIS_HOME || Number.isNaN(fake)) return () => Date.now();
@@ -327,6 +377,34 @@ function registerHandlers() {
     return saved;
   }));
   ipcMain.handle('journal:list', () => managed(() => store.changes()));
+
+  // Студенческая страница.
+  ipcMain.handle('portal:status', () => ({
+    on: config.portal,
+    running: Boolean(portal),
+    problem: portalProblem,
+    urls: portal ? portalUrls(portal.port) : [],
+  }));
+  ipcMain.handle('portal:set', (_e, on) => managed(async () => {
+    config = { ...config, portal: on === true };
+    saveConfig(homeDir(), config);
+    await restartPortal();
+    return Boolean(portal) === config.portal;
+  }));
+  ipcMain.handle('portal:info', () => respond(() => store.portal()));
+  ipcMain.handle('presence:today', () => respond(() => {
+    const d = new Date(clockNow());
+    return store.presenceOn(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }));
+  ipcMain.handle('student:code', (_e, id) => managed(async () => {
+    const code = await store.studentCode(id);
+    sync?.nudge();
+    return code;
+  }));
+  ipcMain.handle('student:unbind', (_e, id) => managed(async () => {
+    await store.unbindPhone(id);
+    sync?.nudge();
+  }));
   // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.
   ipcMain.handle('events:remove-range', (_e, from, to, types) => managed(async () => {
     const backup = await makeBackup();
@@ -585,7 +663,7 @@ if (!app.requestSingleInstanceLock()) {
     registerHandlers();
     createSplash();
     createWindow();
-    restartSync();
+    restartSync().then(restartPortal);
     setTimeout(dailyBackup, 60_000);
     setInterval(dailyBackup, 60 * 60_000);
     // Журнал старше полугода чистит каждое устройство: тогда старые записи не возвращаются при обмене.
@@ -596,6 +674,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     sync?.stop();
+    portal?.stop();
   });
 
   app.on('window-all-closed', () => app.quit());
