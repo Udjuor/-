@@ -1009,10 +1009,15 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('phone-code');
   await page.click('#catalog [aria-label=Закрыть]');
 
-  const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-  const browser = await chromium.launch();
-  const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ru-RU' });
-  await phone.goto('http://127.0.0.1:47890/');
+  // «Телефон» — отдельное окно того же Chromium, что в Electron: отдельный браузер на сервере сборки не скачивается.
+  const phoneOpened = app.waitForEvent('window');
+  await app.evaluate(({ BrowserWindow }) => {
+    const w = new BrowserWindow({ width: 390, height: 844, show: true });
+    w.loadURL('http://127.0.0.1:47890/');
+  });
+  const phone = await phoneOpened;
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.waitForSelector('#code');
   await phone.fill('#code', phoneCode);
   await phone.fill('#nick', 'Дашуля');
   await phone.click('button[type=submit]');
@@ -1023,7 +1028,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await phone.screenshot({ path: path.join(shots, 'phone.png'), fullPage: true });
   await phone.reload();
   await phone.waitForSelector('text=Привет, Дашуля!');
-  await browser.close();
+  await phone.close();
 
   await page.waitForSelector('.block:has-text("Пара для телефона")', { timeout: 15000 });
   await page.click('.block:has-text("Пара для телефона")');
