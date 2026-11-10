@@ -762,11 +762,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Резервная копия и возврат удалённого.
   await page.click('#settings');
   await page.waitForSelector('#s-backup-now');
+  const backupDir = (await page.evaluate(() => window.calendar.backupStatus())).dir;
+  // Ежедневная копия могла уже появиться сама: считаем только новую.
+  const listCopies = () => (fs.existsSync(backupDir) ? fs.readdirSync(backupDir) : []).filter((name) => name.startsWith('Kerdiis-'));
+  const before = listCopies();
   await page.click('#s-backup-now');
   await page.waitForSelector('#s-backup:has-text("Копия сохранена")');
   await shot('backup');
-  const backupDir = (await page.evaluate(() => window.calendar.backupStatus())).dir;
-  const copies = fs.readdirSync(backupDir).filter((name) => name.startsWith('Kerdiis-'));
+  const copies = listCopies().filter((name) => !before.includes(name));
   assert.equal(copies.length, 1);
   await page.click('#preferences [aria-label=Закрыть]');
   await page.click('#settings');
