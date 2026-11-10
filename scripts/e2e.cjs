@@ -766,11 +766,13 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Ежедневная копия могла уже появиться сама: считаем только новую.
   const listCopies = () => (fs.existsSync(backupDir) ? fs.readdirSync(backupDir) : []).filter((name) => name.startsWith('Kerdiis-'));
   const before = listCopies();
+  const clicked = Date.now();
   await page.click('#s-backup-now');
   await page.waitForSelector('#s-backup:has-text("Копия сохранена")');
   await shot('backup');
-  const copies = listCopies().filter((name) => !before.includes(name));
-  assert.equal(copies.length, 1);
+  // Новая папка или та же секунда, что у ежедневной копии: тогда папка просто обновлена.
+  const fresh = () => listCopies().filter((name) => !before.includes(name) || fs.statSync(path.join(backupDir, name)).mtimeMs >= clicked - 1000);
+  await until(() => fresh().length >= 1, 'новая резервная копия');
   await page.click('#preferences [aria-label=Закрыть]');
   await page.click('#settings');
   await page.waitForSelector('#s-backup-now');
@@ -998,6 +1000,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#portal [aria-label=Закрыть]');
 
   await teacherStore.save({ title: 'Пара для телефона', type: 'lesson', date: day(0), start: '19:15', end: '19:55', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
+  await teacherStore.save({ title: 'Пара сейчас', type: 'lesson', date: day(0), start: '09:00', end: '10:00', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacher.syncWith('127.0.0.1:47800');
   await page.click('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');
@@ -1036,6 +1039,18 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#roll[open] .rollrow:has-text("Васильева Дарья"):has-text("В колледже с")', { timeout: 15000 });
   assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья"):has-text("В колледже с")').count(), 0);
   await shot('roll-presence');
+  await page.click('#roll [aria-label=Закрыть]');
+
+  // Открыв страницу, студент сам отметился на идущей паре; преподаватель подтверждает.
+  await page.click('.block:has-text("Пара сейчас")');
+  await page.click('#details >> text=/Отметка/');
+  await page.waitForSelector('#roll[open] .rollrow:has-text("Васильева Дарья"):has-text("С телефона в")', { timeout: 15000 });
+  await page.waitForSelector('#roll .autobox:has-text("ждут подтверждения: 1")');
+  assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья") .confirmauto').count(), 0);
+  await shot('roll-auto');
+  await page.click('#roll .rollrow:has-text("Васильева Дарья") .confirmauto');
+  await page.waitForSelector('#roll .autobox', { state: 'hidden' });
+  assert.match(await page.textContent('#roll .rollrow:has-text("Васильева Дарья")'), /Отмечен в/);
   await page.click('#roll [aria-label=Закрыть]');
   await page.click('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');

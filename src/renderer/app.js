@@ -1620,6 +1620,9 @@ function drawCatalog({ fromTop = false } = {}) {
 const clockTime = (at) => new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 
 function rowNote(row) {
+  if (row.auto && row.status === 'absent') return t('С телефона в {0}, с {1}-й минуты это пропуск. Ждёт подтверждения', [clockTime(row.at), ABSENT_FROM_MINUTE]);
+  if (row.auto && row.late) return t('С телефона в {0}, опоздание {1} мин. Ждёт подтверждения', [clockTime(row.at), row.late]);
+  if (row.auto) return t('С телефона в {0}. Ждёт подтверждения', [clockTime(row.at)]);
   if (row.lateMark && row.status === 'absent') return t('Пришёл в {0}, с {1}-й минуты это пропуск', [clockTime(row.at), ABSENT_FROM_MINUTE]);
   if (row.lateMark && !row.late) return t('Пришёл в {0}, меньше {1} минут от начала не считается опозданием', [clockTime(row.at), LATE_FROM_MINUTE]);
   if (row.status === 'present') {
@@ -1867,6 +1870,7 @@ function openRoll(id) {
   if (!event) return;
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
+  const autoBox = h('div', { class: 'autobox', hidden: true });
   const banner = h('p', { class: 'lockbanner', hidden: true });
   const startBox = h('div', { class: 'startline' });
   const list = h('ul', { class: 'rolllist' });
@@ -1995,6 +1999,19 @@ function openRoll(id) {
       ...ABSENCE_REASONS.map(([reason, label]) => `${t(label).toLowerCase()}: ${count(reason)}`),
     ];
     summary.textContent = parts.filter(Boolean).join(', ');
+    // Отметки со страницы студента ждут преподавателя: подтвердить или поправить время прихода.
+    const pendingAuto = rows.filter((row) => row.auto);
+    autoBox.hidden = locked || !pendingAuto.length;
+    autoBox.replaceChildren(...(autoBox.hidden ? [] : [
+      h('span', {}, t('Отметились с телефона и ждут подтверждения: {0}. Если студент пришёл в аудиторию позже, нажмите «Опоздал» и поправьте время.', [pendingAuto.length])),
+      h('button', {
+        type: 'button',
+        id: 'confirm-auto',
+        onclick: async () => {
+          for (const row of pendingAuto) await setMark(row.name, 'present', { at: row.at });
+        },
+      }, t('Подтвердить всех ({0})', [pendingAuto.length])),
+    ]));
     if (countsLateness(event)) drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
     banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
@@ -2009,6 +2026,11 @@ function openRoll(id) {
           disabled: !teacherMode && (locked || settled),
           onclick: () => setMark(row.name, row.marked ? null : 'present'),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
+        row.auto && !locked && h('button', {
+          type: 'button',
+          class: 'reason confirmauto',
+          onclick: () => setMark(row.name, 'present', { at: row.at, late: row.lateMark === true }),
+        }, t('Подтвердить')),
         (!locked || teacherMode) && !row.excusedFor && countsLateness(event) && lateControls(row),
         !row.excusedFor && (!locked || teacherMode) && ABSENCE_REASONS
           .filter(([reason]) => teacherMode || (reason === 'sick' && !settled))
@@ -2044,7 +2066,7 @@ function openRoll(id) {
         h('h2', {}, event.title),
         h('p', { class: 'help' }, `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
       closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, banner, startBox, summary, failure, h('div', { class: 'field' }, search), list, log),
+    h('div', { class: 'sheetbody' }, banner, startBox, summary, autoBox, failure, h('div', { class: 'field' }, search), list, log),
     footer,
   );
   dialog.showModal();

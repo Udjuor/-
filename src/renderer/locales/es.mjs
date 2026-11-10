@@ -530,7 +530,13 @@ export default {
     "нет сети": "sin red",
     "ник {0}": "apodo {0}",
     "ник {0} ждёт подтверждения": "apodo {0} pendiente de aprobación",
-    "телефон привязан": "teléfono vinculado"
+    "телефон привязан": "teléfono vinculado",
+    "Отметились с телефона и ждут подтверждения: {0}. Если студент пришёл в аудиторию позже, нажмите «Опоздал» и поправьте время.": "Marcados desde el teléfono, pendientes de confirmar: {0}. Si un estudiante entró al aula más tarde, pulse «Llegó tarde» y corrija la hora.",
+    "Подтвердить всех ({0})": "Confirmar todos ({0})",
+    "Подтвердить": "Confirmar",
+    "С телефона в {0}, с {1}-й минуты это пропуск. Ждёт подтверждения": "Desde el teléfono a las {0}; desde el minuto {1} es ausencia. Pendiente de confirmar",
+    "С телефона в {0}, опоздание {1} мин. Ждёт подтверждения": "Desde el teléfono a las {0}, {1} min de retraso. Pendiente de confirmar",
+    "С телефона в {0}. Ждёт подтверждения": "Desde el teléfono a las {0}. Pendiente de confirmar"
   },
   "plurals": {
     "events": {

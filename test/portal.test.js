@@ -77,3 +77,44 @@ test('подбор кода ограничен, чужой сайт не мож�
   assert.equal((await call('/api/bind', { code: '00000000', nick: 'Nick' })).status, 429);
   assert.equal((await call('/api/open', {}, '', { Origin: 'http://evil.example' })).status, 403);
 });
+
+test('открытие страницы отмечает на идущей и ближайшей паре, предварительно', async (t) => {
+  const { store, call } = await setup(t); // сейчас 10.11.2026 09:05
+  const group = await store.saveRef({ kind: 'group', name: 'ФВТ-24' });
+  const me = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
+  const who = ['Иванова Анна', 'Петров Олег'];
+  const running = await store.save({ type: 'lesson', title: 'Идёт', date: '2026-11-10', start: '08:30', end: '10:00', participants: who });
+  const soon = await store.save({ type: 'lesson', title: 'Скоро', date: '2026-11-10', start: '10:00', end: '11:30', participants: who });
+  const later = await store.save({ type: 'lesson', title: 'Позже', date: '2026-11-10', start: '12:00', end: '13:30', participants: who });
+  const marked = await store.save({ type: 'lesson', title: 'Уже отмечен', date: '2026-11-10', start: '09:00', end: '10:30', participants: who });
+  await store.saveMark(marked.id, 'Иванова Анна', 'sick');
+  const locked = await store.save({ type: 'lesson', title: 'Зафиксирован', date: '2026-11-10', start: '08:00', end: '09:30', participants: who });
+  await store.lockReport(locked.id, 'Преподаватель');
+
+  const code = await store.studentCode(me.id);
+  const { data: { token } } = await call('/api/bind', { code, nick: 'Anna' });
+  const { data } = await call('/api/open', {}, token);
+  const docs = new Map((await store.attendance()).map((doc) => [doc.eventId, doc]));
+  const mark = (event) => docs.get(event.id)?.marks?.['Иванова Анна'];
+  assert.equal(mark(running).auto, true);
+  assert.equal(mark(running).at, new Date(2026, 10, 10, 9, 5).toISOString());
+  assert.equal(mark(soon).auto, true, 'пара через час');
+  assert.equal(mark(later), undefined, 'дальше часа не отмечается');
+  assert.equal(mark(marked).status, 'sick', 'поставленное вручную не меняется');
+  assert.equal(mark(locked), undefined, 'зафиксированный отчёт не трогается');
+  assert.equal(docs.get(running.id).marks['Петров Олег'], undefined, 'только себя');
+  const today = data.today.find((e) => e.title === 'Идёт');
+  assert.match(today.status.text, /ждёт подтверждения/);
+
+  // Опоздание считается от момента открытия: пара шла с 08:30, открыл в 09:05.
+  const logic = await import('../src/renderer/logic.mjs');
+  const row = logic.rollCall(running, docs.get(running.id), '2026-11-10', '09:06').find((r) => r.name === 'Иванова Анна');
+  assert.equal(row.auto, true);
+  assert.equal(row.late, 35);
+
+  // Фиксация отчёта подтверждает отметку.
+  await store.lockReport(running.id, 'Преподаватель');
+  const after = (await store.attendance()).find((doc) => doc.eventId === running.id);
+  assert.equal(after.marks['Иванова Анна'].auto, undefined);
+  assert.equal(after.marks['Иванова Анна'].status, 'present');
+});

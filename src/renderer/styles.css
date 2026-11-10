@@ -782,3 +782,9 @@ dialog#welcome { width: min(40rem, 94vw); }
 .phonepanel { display: grid; gap: .5rem; padding: .6rem .8rem .8rem; margin: 0 0 .4rem; background: var(--canvas-subtle); border-radius: .4rem; }
 .phonepanel input { flex: 1 1 10rem; min-width: 0; min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
 .phonecode strong { display: block; font-size: 2.2rem; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+
+/* Отметки со страницы студента */
+.autobox { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .6rem .8rem; margin: 0 0 .6rem; border: .05rem solid var(--attention-border); background: var(--attention-subtle); border-radius: .4rem; }
+.autobox span { flex: 1 1 20rem; }
+.autobox[hidden] { display: none; }
+.confirmauto { border-color: var(--attention-border); }

@@ -22,6 +22,8 @@ const MAX_BODY = 2048;
 const BIND_FAILS = 5;
 const BIND_WINDOW_MS = 10 * 60_000;
 const UPCOMING_DAYS = 14;
+/** За сколько минут до начала пары открытие страницы уже отмечает на ней. */
+const AUTO_MARK_BEFORE_MINUTES = 60;
 
 const HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -148,8 +150,32 @@ class StudentPortal {
     const now = this.clock();
     const before = (await this.store.presenceOn(localParts(now).iso)).some((p) => sameName(p.student, student.name));
     const presence = await this.store.markPresence(student.name, new Date(now).toISOString());
-    if (!before) this.onChange();
+    const marked = await this.autoMark(student, now);
+    if (!before || marked) this.onChange();
     this.json(res, 200, await this.summary(student, presence, now));
+  }
+
+  /**
+   * Предварительная отметка «пришёл» на идущей паре и на той, что начнётся в ближайший час.
+   * Время — момент, когда студент открыл страницу. Поставленные отметки не меняются.
+   */
+  async autoMark(student, now) {
+    const L = this.logic;
+    const { iso, time } = localParts(now);
+    const events = await this.store.list();
+    const docOf = new Map((await this.store.attendance()).map((doc) => [doc.eventId, doc]));
+    let marked = 0;
+    for (const event of events) {
+      if (event.date !== iso || !event.participants.some((name) => sameName(name, student.name))) continue;
+      const state = L.eventState(event, iso, time);
+      const soon = state === 'future' && L.toMinutes(event.start) - L.toMinutes(time) <= AUTO_MARK_BEFORE_MINUTES;
+      if (state !== 'now' && !soon) continue;
+      const row = L.rollCall(event, docOf.get(event.id), iso, time, events).find((r) => sameName(r.name, student.name));
+      if (!row || row.status !== 'pending') continue;
+      const doc = await this.store.saveMark(event.id, row.name, 'present', { at: new Date(now).toISOString(), auto: true, student: true, onlyIfEmpty: true });
+      if (doc?.marks?.[row.name]?.auto) marked += 1;
+    }
+    return marked;
   }
 
   /** Сводка для студента. Имена других студентов в неё не попадают. */
@@ -179,6 +205,7 @@ class StudentPortal {
       let text = L.statusName(r.status) ?? '';
       if (r.status === 'present' && r.late > 0) text = `Опоздание ${r.late} мин`;
       if (r.status === 'present' && !r.late && r.at) text = `Отмечен в ${timeOf(r.at)}`;
+      if (r.status === 'present' && r.auto) text += ', ждёт подтверждения преподавателя';
       if (r.status === 'sick' && r.unconfirmed) text = 'Болезнь, ждём справку';
       if (r.status === 'order' && r.excusedFor) text = `По приказу: ${r.excusedFor.title ?? r.excusedFor}`;
       return { code: r.status === 'present' && r.late > 0 ? 'late' : r.status, text };
@@ -255,4 +282,4 @@ function readBody(req) {
   });
 }
 
-module.exports = { StudentPortal, PORTAL_PORT };
+module.exports = { StudentPortal, PORTAL_PORT, AUTO_MARK_BEFORE_MINUTES };

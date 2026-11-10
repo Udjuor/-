@@ -224,6 +224,8 @@ function normalizeAttendance(raw) {
       if (typeof mark.late === 'boolean') doc.marks[name].late = mark.late;
       if (typeof mark.confirmed === 'boolean') doc.marks[name].confirmed = mark.confirmed;
       if (mark.teacher) doc.marks[name].teacher = String(mark.teacher);
+      // Отметка со страницы студента: предварительная, пока её не подтвердит преподаватель.
+      if (mark.auto === true && status === 'present') doc.marks[name].auto = true;
     }
   }
   const lock = raw.lock;
@@ -570,7 +572,7 @@ class EventStore {
    * student: отметка с клиента на панели: присутствие, опоздание и предварительная болезнь.
    * teacher: устройство с версией для преподавателей, только оно может исправить зафиксированный отчёт.
    */
-  saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null, confirmed = false } = {}) {
+  saveMark(eventId, name, status, { teacher = null, student = false, late = false, at = null, confirmed = false, auto = false, onlyIfEmpty = false } = {}) {
     return this.exclusive(async () => {
       const validTime = at === null || !Number.isNaN(Date.parse(at));
       if (!ID_RE.test(String(eventId)) || !String(name).trim() || !(status === null || MARK_STATUSES.has(status)) || !validTime) {
@@ -579,6 +581,8 @@ class EventStore {
       const id = attendanceId(eventId);
       const current = await this.readCurrent(id);
       const before = current?.marks?.[name];
+      // Автоматическая отметка не трогает поставленную вручную и зафиксированный отчёт.
+      if (onlyIfEmpty && (before?.status || current?.lock)) return current ? normalizeAttendance(current) : null;
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
       if (student) {
         // На панели отмечают приход, опоздание и предварительную болезнь. Остальное делает преподаватель.
@@ -596,6 +600,7 @@ class EventStore {
         late: status === 'present' && late,
       };
       if (status === 'sick') mark.confirmed = Boolean(confirmed);
+      if (status === 'present' && auto) mark.auto = true;
       if (teacher) mark.teacher = teacher;
       const history = [...(current?.history ?? [])];
       if (current?.lock) {
@@ -659,10 +664,12 @@ class EventStore {
       const id = attendanceId(eventId);
       const current = await this.readCurrent(id);
       if (current?.lock) throw new StoreError('locked', 'Отчёт уже зафиксирован');
+      // Фиксация отчёта подтверждает и отметки со страницы студента.
+      const marks = Object.fromEntries(Object.entries(current?.marks ?? {}).map(([name, { auto, ...mark }]) => [name, mark]));
       const doc = normalizeAttendance({
         id,
         eventId,
-        marks: current?.marks ?? {},
+        marks,
         start: current?.start,
         lock: { at: new Date(this.clock()).toISOString(), teacher, device: this.deviceId, participants: event.participants, excused },
         updatedAt: nextStamp(current?.updatedAt),

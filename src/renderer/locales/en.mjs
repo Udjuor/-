@@ -530,7 +530,13 @@ export default {
     "нет сети": "no network",
     "ник {0}": "nickname {0}",
     "ник {0} ждёт подтверждения": "nickname {0} awaits approval",
-    "телефон привязан": "phone linked"
+    "телефон привязан": "phone linked",
+    "Отметились с телефона и ждут подтверждения: {0}. Если студент пришёл в аудиторию позже, нажмите «Опоздал» и поправьте время.": "Checked in from a phone and awaiting confirmation: {0}. If a student entered the room later, press “Late” and correct the time.",
+    "Подтвердить всех ({0})": "Confirm all ({0})",
+    "Подтвердить": "Confirm",
+    "С телефона в {0}, с {1}-й минуты это пропуск. Ждёт подтверждения": "From phone at {0}; from minute {1} this is an absence. Awaiting confirmation",
+    "С телефона в {0}, опоздание {1} мин. Ждёт подтверждения": "From phone at {0}, {1} min late. Awaiting confirmation",
+    "С телефона в {0}. Ждёт подтверждения": "From phone at {0}. Awaiting confirmation"
   },
   "plurals": {
     "events": {

@@ -403,6 +403,7 @@ function groupsByStudent(students, groups) {
 /** Опоздание ставят кнопкой. Старые отметки без этого поля считаются, как раньше. */
 function markedRow(event, name, mark, doc) {
   const row = { name, status: mark.status, at: mark.at, late: 0 };
+  if (mark.auto === true) row.auto = true;
   // Болезнь без справки предварительная. У старых отметок поля нет: они считаются подтверждёнными.
   if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
