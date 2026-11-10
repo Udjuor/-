@@ -546,7 +546,13 @@ export default {
     "С 40-й минуты": "From minute 40",
     "Последнее": "Latest",
     "Опозданий за этот период нет.": "No late arrivals in this period.",
-    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Late arrivals: {0}, students who were late: {1}. Most late arrivals: {2} ({3})."
+    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Late arrivals: {0}, students who were late: {1}. Most late arrivals: {2} ({3}).",
+    "Вне колледжа": "Off campus",
+    "Проходит вне колледжа": "Held off campus",
+    "Например, физкультура в другом учреждении. На панели и с телефона такую пару не отметить, отметки вносит преподаватель.": "For example, PE at another institution. Such classes cannot be marked on the panel or from a phone; the teacher enters the marks.",
+    "Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей": "Held off campus: the teacher enters marks in the teacher edition",
+    "Пара проходит вне колледжа. Отметки вносит преподаватель в версии для преподавателей.": "This class is held off campus. The teacher enters marks in the teacher edition.",
+    "Отметка": "Attendance"
   },
   "plurals": {
     "events": {

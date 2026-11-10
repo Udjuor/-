@@ -621,6 +621,7 @@ function showDetails(id) {
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
         excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
         fact(t('Место'), event.place),
+        event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
       listGroup(t('Участники: {0}', [event.participants.length]), event.participants, true),
@@ -797,6 +798,11 @@ async function openForm(source = {}) {
   const from = field(t('Начало'), 'f-start', { type: 'time', value: start }, 'third');
   const allDayBox = h('input', { id: 'f-allday', type: 'checkbox', checked: Boolean(source.allDay) });
   const allDayField = h('div', { class: 'field' }, h('label', { class: 'check' }, allDayBox, t('Весь день')));
+  // Пара в другом учреждении: на панели и с телефона её не отметить.
+  const offsiteBox = h('input', { id: 'f-offsite', type: 'checkbox', checked: Boolean(source.offsite) });
+  const offsiteField = h('div', { class: 'field' },
+    h('label', { class: 'check' }, offsiteBox, t('Проходит вне колледжа')),
+    h('p', { class: 'help' }, t('Например, физкультура в другом учреждении. На панели и с телефона такую пару не отметить, отметки вносит преподаватель.')));
   const showTimes = () => {
     from.hidden = allDayBox.checked;
     to.hidden = allDayBox.checked;
@@ -930,6 +936,7 @@ async function openForm(source = {}) {
     start: $('f-start').value,
     end: $('f-end').value,
     allDay: allDayBox.checked,
+    offsite: offsiteBox.checked,
     prepMinutes: draft.type === 'lesson' ? 0 : Math.max(0, Math.round(Number($('f-prep').value) || 0)),
     ...readDeadline(),
     place: $('f-place').value.trim(),
@@ -1128,7 +1135,7 @@ async function openForm(source = {}) {
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, responsible, targets,
+        typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, targets,
         participants.element, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
@@ -1885,7 +1892,7 @@ function openRoll(id) {
   };
 
   const refused = (result) => {
-    if (result.code === 'teacher-only') {
+    if (result.code === 'teacher-only' || result.code === 'offsite') {
       failure.textContent = t('Это можно сделать только в версии для преподавателей.');
     } else if (result.code === 'locked') {
       failure.textContent = t('Отчёт зафиксирован. Исправить его можно в версии для преподавателей.');
@@ -1990,8 +1997,10 @@ function openRoll(id) {
   function draw() {
     const rows = roll(event);
     const doc = attendanceOf(event.id);
-    const locked = Boolean(doc?.lock);
     const teacherMode = canManage();
+    // Пару вне колледжа на панели не отмечают: только смотрят, что внёс преподаватель.
+    const away = event.offsite === true && !teacherMode;
+    const locked = Boolean(doc?.lock) || away;
     const count = (status) => rows.filter((row) => row.status === status).length;
     const parts = [
       t('Отмечены: {0} из {1}', [count('present'), rows.length]),
@@ -2014,7 +2023,9 @@ function openRoll(id) {
     ]));
     if (countsLateness(event)) drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
-    banner.textContent = locked ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)]) : '';
+    banner.textContent = doc?.lock
+      ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)])
+      : away ? t('Пара проходит вне колледжа. Отметки вносит преподаватель в версии для преподавателей.') : '';
     const query = nameKey(search.value);
     keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
       const settled = !row.excusedFor && !row.unconfirmed && !['present', 'pending', 'absent'].includes(row.status);
@@ -2054,7 +2065,8 @@ function openRoll(id) {
       h('ul', {}, [...history].reverse().map((entry) => h('li', {},
         t('{0}, {1}. {2}: {3} на {4}', [stampText(entry.at), entry.teacher, entry.name, markText(entry.before), markText(entry.after)])))),
     );
-    drawFooter(doc);
+    if (away) footer.replaceChildren();
+    else drawFooter(doc);
   }
 
   search.addEventListener('input', draw);

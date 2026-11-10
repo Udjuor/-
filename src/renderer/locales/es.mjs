@@ -546,7 +546,13 @@ export default {
     "С 40-й минуты": "Desde el minuto 40",
     "Последнее": "Último",
     "Опозданий за этот период нет.": "No hay retrasos en este periodo.",
-    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Retrasos: {0}, estudiantes que llegaron tarde: {1}. Más retrasos: {2} ({3})."
+    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Retrasos: {0}, estudiantes que llegaron tarde: {1}. Más retrasos: {2} ({3}).",
+    "Вне колледжа": "Fuera del centro",
+    "Проходит вне колледжа": "Se imparte fuera del centro",
+    "Например, физкультура в другом учреждении. На панели и с телефона такую пару не отметить, отметки вносит преподаватель.": "Por ejemplo, educación física en otra institución. Esta clase no se puede marcar en el panel ni desde el teléfono; las marcas las introduce el profesor.",
+    "Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей": "Se imparte fuera del centro: el profesor introduce las marcas en la versión para profesores",
+    "Пара проходит вне колледжа. Отметки вносит преподаватель в версии для преподавателей.": "Esta clase se imparte fuera del centro. El profesor introduce las marcas en la versión para profesores.",
+    "Отметка": "Asistencia"
   },
   "plurals": {
     "events": {

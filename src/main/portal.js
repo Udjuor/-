@@ -167,6 +167,7 @@ class StudentPortal {
     let marked = 0;
     for (const event of events) {
       if (event.date !== iso || !event.participants.some((name) => sameName(name, student.name))) continue;
+      if (event.offsite) continue; // пару в другом учреждении с телефона не отметить
       const state = L.eventState(event, iso, time);
       const soon = state === 'future' && L.toMinutes(event.start) - L.toMinutes(time) <= AUTO_MARK_BEFORE_MINUTES;
       if (state !== 'now' && !soon) continue;
@@ -198,6 +199,7 @@ class StudentPortal {
       end: event.end,
       place: event.place ?? '',
       responsible: event.responsible ?? '',
+      offsite: event.offsite === true,
     });
     const statusOf = (event) => {
       const r = row(event);

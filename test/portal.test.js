@@ -118,3 +118,26 @@ test('открытие страницы отмечает на идущей и б
   assert.equal(after.marks['Иванова Анна'].auto, undefined);
   assert.equal(after.marks['Иванова Анна'].status, 'present');
 });
+
+test('пара вне колледжа: с телефона и с панели не отмечается, неотмеченные не прогульщики', async (t) => {
+  const { store, call } = await setup(t); // сейчас 10.11.2026 09:05
+  const logic = await import('../src/renderer/logic.mjs');
+  const group = await store.saveRef({ kind: 'group', name: 'ФВТ-24' });
+  const me = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
+  const pe = await store.save({ type: 'lesson', title: 'Физическая культура', date: '2026-11-10', start: '09:00', end: '10:30', offsite: true, participants: ['Иванова Анна'] });
+  assert.equal(pe.offsite, true);
+  const code = await store.studentCode(me.id);
+  const { data: { token } } = await call('/api/bind', { code, nick: 'Anna' });
+  const { data } = await call('/api/open', {}, token);
+  assert.equal((await store.attendance()).length, 0, 'с телефона не отмечено');
+  assert.equal(data.today[0].offsite, true);
+  await assert.rejects(store.saveMark(pe.id, 'Иванова Анна', 'present', { student: true }), { code: 'offsite' });
+  // После окончания неотмеченный остаётся «нет отметки», пока преподаватель не зафиксирует отчёт.
+  assert.equal(logic.rollCall(pe, null, '2026-11-10', '12:00')[0].status, 'pending');
+  await store.saveMark(pe.id, 'Иванова Анна', 'present', { teacher: 'Преподаватель', at: new Date(2026, 10, 10, 9, 0).toISOString() });
+  assert.equal((await store.attendance())[0].marks['Иванова Анна'].status, 'present', 'преподаватель отмечает');
+  const lone = await store.save({ type: 'lesson', title: 'Физкультура 2', date: '2026-11-10', start: '09:00', end: '10:30', offsite: true, participants: ['Петров'] });
+  await store.lockReport(lone.id, 'Преподаватель');
+  const doc = (await store.attendance()).find((d) => d.eventId === lone.id);
+  assert.equal(logic.rollCall(lone, doc, '2026-11-10', '12:00')[0].status, 'absent', 'после фиксации — без причины');
+});

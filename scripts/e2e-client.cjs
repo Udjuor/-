@@ -26,6 +26,7 @@ const today = (() => {
   put({ kind: 'group', name: 'ИС-21' });
   put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '19:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
   put({ title: 'Концерт на панели', type: 'event', date: today, start: '19:00', end: '19:30', participants: ['Сидоров'], devices: [] });
+  put({ title: 'Физкультура выездная', type: 'lesson', date: today, start: '04:00', end: '05:00', offsite: true, participants: ['Иванов', 'Петров'], devices: [] });
   const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
   const hex = crypto.createHash('sha256').update(`attendance:${lockedId}`).digest('hex');
   const docId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
@@ -130,6 +131,16 @@ const today = (() => {
   for (const call of [() => window.calendar.removeRange('2000-01-01', '2100-01-01', ['lesson']), () => window.calendar.backupNow(), () => window.calendar.restoreBackup('C:\\'), () => window.calendar.resetTemplate()]) {
     assert.equal((await page.evaluate(call)).code, 'teacher-only');
   }
+
+  // Пара вне колледжа: на панели только просмотр.
+  await page.click('.block:has-text("Физкультура выездная")');
+  await page.waitForSelector('#details:has-text("Проходит вне колледжа")');
+  await page.click('#details >> text=/Отметка:/');
+  await page.waitForSelector('#roll[open] .lockbanner:has-text("вне колледжа")');
+  assert.equal(await page.locator('#roll .rollname:not([disabled])').count(), 0, 'имена не нажимаются');
+  assert.equal(await page.locator('#roll #start-lesson, #roll .sheetfoot button').count(), 0, 'нет начала и фиксации');
+  assert.match(await page.textContent('#roll .rollrow:has-text("Иванов")'), /Нет отметки|Нажмите/);
+  await page.click('#roll [aria-label=Закрыть]');
 
   // В настройках только язык, размер и версия.
   await page.click('#settings');

@@ -334,7 +334,8 @@ const hasEnded = (event, nowISO, nowTime) => eventState(event, nowISO, nowTime) 
  * это пропуск без причины; пока она идёт — просто «нет отметки».
  */
 export function rollCall(event, doc, nowISO, nowTime, events = []) {
-  const closed = Boolean(doc?.lock) || hasEnded(event, nowISO, nowTime);
+  // Пару вне колледжа преподаватель отмечает позже: до фиксации отчёта неотмеченные не прогульщики.
+  const closed = Boolean(doc?.lock) || (hasEnded(event, nowISO, nowTime) && event.offsite !== true);
   // После фиксации освобождения берутся из отчёта: изменения расписания его не трогают.
   const excused = doc?.lock ? new Map(Object.entries(doc.lock.excused ?? {})) : excusedBy(event, events);
   return (doc?.lock?.participants ?? event.participants).map((name) => {
@@ -665,6 +666,7 @@ export const JOURNAL_FIELD_LABELS = {
   start: 'Начало',
   end: 'Конец',
   allDay: 'Весь день',
+  offsite: 'Вне колледжа',
   place: 'Место',
   responsible: 'Ответственный',
   participants: 'Участники',

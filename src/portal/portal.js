@@ -95,7 +95,7 @@
       h('div', { class: 'time' }, `${item.start}–${item.end}`),
       h('div', { class: 'what' },
         h('strong', {}, item.title),
-        h('span', { class: 'muted small' }, [item.typeName, item.place].filter(Boolean).join(', ')),
+        h('span', { class: 'muted small' }, [item.typeName, item.place, item.offsite && 'вне колледжа'].filter(Boolean).join(', ')),
         item.state === 'now' && h('span', { class: 'chip now' }, 'идёт сейчас')),
       item.status && h('span', { class: `chip ${STATUS_CLASS[item.status.code] ?? 'muted'}` }, item.status.text));
   }
