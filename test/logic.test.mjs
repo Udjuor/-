@@ -511,3 +511,24 @@ test('предложенное время начала', () => {
   assert.equal(L.suggestedStart('09:20'), '10:00');
   assert.equal(L.suggestedStart('23:50'), '22:00');
 });
+
+test('опоздания: кто чаще и по каким дням недели', () => {
+  const students = [{ name: 'Иванов', groupId: 'g' }, { name: 'Петрова', groupId: 'g' }, { name: 'Сидоров', groupId: 'g' }];
+  const groups = [{ id: 'g', name: 'ФВТ-24' }];
+  const who = students.map((s) => s.name);
+  // 2026-11-02 понедельник, 2026-11-03 вторник, 2026-11-09 понедельник.
+  const lessons = ['2026-11-02', '2026-11-03', '2026-11-09'].map((date, i) => ({ id: `e${i}`, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:30', participants: who }));
+  const at = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const attendance = [
+    { eventId: 'e0', marks: { 'Иванов': { status: 'present', at: at('2026-11-02', '09:15') }, 'Петрова': { status: 'present', at: at('2026-11-02', '09:12') }, 'Сидоров': { status: 'present', at: at('2026-11-02', '09:00') } } },
+    { eventId: 'e1', marks: { 'Иванов': { status: 'present', at: at('2026-11-03', '09:05') }, 'Петрова': { status: 'present', at: at('2026-11-03', '09:45') }, 'Сидоров': { status: 'present', at: at('2026-11-03', '09:00') } } },
+    { eventId: 'e2', marks: { 'Иванов': { status: 'present', at: at('2026-11-09', '09:25') }, 'Петрова': { status: 'present', at: at('2026-11-09', '09:00') }, 'Сидоров': { status: 'present', at: at('2026-11-09', '09:00') } } },
+  ];
+  const report = L.buildReport({ events: lessons, attendance, students, groups, filters: { from: '2026-11-01', to: '2026-11-30', types: ['lesson'], group: '', teacher: '' }, nowISO: '2026-11-30', nowTime: '20:00' });
+  assert.deepEqual(report.lateness.map((r) => [r.name, r.late, r.minutes, r.tooLate]), [['Иванов', 2, 40, 0], ['Петрова', 1, 12, 1]]);
+  assert.deepEqual(report.lateness[0].byWeekday, [2, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(report.lateness[0].worstDays, [1]);
+  assert.equal(report.lateness[0].average, 20);
+  assert.equal(report.lateness[0].last, '2026-11-09');
+  assert.deepEqual(report.latenessByWeekday, [3, 0, 0, 0, 0, 0, 0]);
+});

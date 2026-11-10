@@ -533,7 +533,7 @@ export function buildReport({ events, attendance, students, groups, filters, now
     for (const row of roster) {
       const key = nameKey(row.name);
       if (!byStudent.has(key)) byStudent.set(key, { name: row.name, group: groupOf.get(key) ?? '', rows: [] });
-      byStudent.get(key).rows.push(row);
+      byStudent.get(key).rows.push({ ...row, date: event.date });
     }
   }
 
@@ -553,7 +553,43 @@ export function buildReport({ events, attendance, students, groups, filters, now
   const groupRows = [...byGroup].map(([name, rows]) => ({ name, ...tally(rows) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 
-  return { pairs, students: studentRows, groups: groupRows };
+  return { pairs, students: studentRows, groups: groupRows, ...latenessReport(byStudent.values()) };
+}
+
+/** День недели: понедельник 1, воскресенье 7. */
+export const weekdayOf = (iso) => fromISO(iso).getDay() || 7;
+
+/**
+ * Кто чаще опаздывает и в какие дни недели. Опоздание — пришёл с 10-й по 39-ю минуту;
+ * пришедший с 40-й минуты считается пропуском, но тоже виден отдельной колонкой.
+ */
+function latenessReport(students) {
+  const days = [0, 0, 0, 0, 0, 0, 0];
+  const lateness = [];
+  for (const { name, group, rows } of students) {
+    const late = rows.filter((row) => row.late > 0);
+    const tooLate = rows.filter((row) => row.status === 'absent' && row.lateMark).length;
+    if (!late.length && !tooLate) continue;
+    const byWeekday = [0, 0, 0, 0, 0, 0, 0];
+    for (const row of late) byWeekday[weekdayOf(row.date) - 1] += 1;
+    byWeekday.forEach((n, i) => { days[i] += n; });
+    const minutes = late.reduce((sum, row) => sum + row.late, 0);
+    const most = Math.max(...byWeekday);
+    lateness.push({
+      name,
+      group,
+      late: late.length,
+      minutes,
+      average: late.length ? Math.round(minutes / late.length) : 0,
+      tooLate,
+      byWeekday,
+      // Дни, когда опозданий больше всего; при равенстве — все такие дни.
+      worstDays: most ? byWeekday.map((n, i) => (n === most ? i + 1 : 0)).filter(Boolean) : [],
+      last: late.map((row) => row.date).sort().at(-1) ?? null,
+    });
+  }
+  lateness.sort((a, b) => b.late - a.late || b.minutes - a.minutes || a.name.localeCompare(b.name, 'ru'));
+  return { lateness, latenessByWeekday: days };
 }
 
 /** CSV для Excel: точка с запятой и метка кодировки, чтобы кириллица открылась верно. */

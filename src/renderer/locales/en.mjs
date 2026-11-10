@@ -536,7 +536,17 @@ export default {
     "Подтвердить": "Confirm",
     "С телефона в {0}, с {1}-й минуты это пропуск. Ждёт подтверждения": "From phone at {0}; from minute {1} this is an absence. Awaiting confirmation",
     "С телефона в {0}, опоздание {1} мин. Ждёт подтверждения": "From phone at {0}, {1} min late. Awaiting confirmation",
-    "С телефона в {0}. Ждёт подтверждения": "From phone at {0}. Awaiting confirmation"
+    "С телефона в {0}. Ждёт подтверждения": "From phone at {0}. Awaiting confirmation",
+    "Кто опаздывает и в какие дни": "Who is late and on which days",
+    "Опоздания": "Lateness",
+    "Опозданий": "Late arrivals",
+    "Минут всего": "Minutes in total",
+    "В среднем, мин": "Average, min",
+    "Чаще всего": "Most often",
+    "С 40-й минуты": "From minute 40",
+    "Последнее": "Latest",
+    "Опозданий за этот период нет.": "No late arrivals in this period.",
+    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Late arrivals: {0}, students who were late: {1}. Most late arrivals: {2} ({3})."
   },
   "plurals": {
     "events": {

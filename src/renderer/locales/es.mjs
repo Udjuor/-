@@ -536,7 +536,17 @@ export default {
     "Подтвердить": "Confirmar",
     "С телефона в {0}, с {1}-й минуты это пропуск. Ждёт подтверждения": "Desde el teléfono a las {0}; desde el minuto {1} es ausencia. Pendiente de confirmar",
     "С телефона в {0}, опоздание {1} мин. Ждёт подтверждения": "Desde el teléfono a las {0}, {1} min de retraso. Pendiente de confirmar",
-    "С телефона в {0}. Ждёт подтверждения": "Desde el teléfono a las {0}. Pendiente de confirmar"
+    "С телефона в {0}. Ждёт подтверждения": "Desde el teléfono a las {0}. Pendiente de confirmar",
+    "Кто опаздывает и в какие дни": "Quién llega tarde y qué días",
+    "Опоздания": "Retrasos",
+    "Опозданий": "Retrasos",
+    "Минут всего": "Minutos en total",
+    "В среднем, мин": "Promedio, min",
+    "Чаще всего": "Con más frecuencia",
+    "С 40-й минуты": "Desde el minuto 40",
+    "Последнее": "Último",
+    "Опозданий за этот период нет.": "No hay retrasos en este periodo.",
+    "Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).": "Retrasos: {0}, estudiantes que llegaron tarde: {1}. Más retrasos: {2} ({3})."
   },
   "plurals": {
     "events": {

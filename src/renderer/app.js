@@ -2259,7 +2259,29 @@ const REPORT_TABS = [
     [t('Всего мест'), (r) => r.total],
     ...COUNTS,
   ]],
+  ['lateness', t('Кто опаздывает и в какие дни'), t('Опоздания'), [
+    [t('Группа'), (r) => r.group],
+    [t('Студент'), (r) => r.name],
+    [t('Опозданий'), (r) => r.late],
+    [t('Минут всего'), (r) => r.minutes],
+    [t('В среднем, мин'), (r) => r.average || ''],
+    ...[1, 2, 3, 4, 5, 6].map((day) => [weekdayShort(day), (r) => r.byWeekday[day - 1] || '', { heat: (r) => r.byWeekday[day - 1] }]),
+    [t('Чаще всего'), (r) => r.worstDays.map(weekdayLong).join(', ')],
+    [t('С 40-й минуты'), (r) => r.tooLate || ''],
+    [t('Последнее'), (r) => (r.last ? shortDate(r.last) : '')],
+  ]],
 ];
+
+/** Названия дней недели на языке программы: понедельник 1. */
+function weekdayDate(day) {
+  return addDays('2024-01-01', day - 1);
+}
+function weekdayShort(day) {
+  return fmt(weekdayDate(day), { weekday: 'short' });
+}
+function weekdayLong(day) {
+  return fmt(weekdayDate(day), { weekday: 'long' });
+}
 
 function currentReport() {
   const clock = now();
@@ -2281,6 +2303,13 @@ function currentReport() {
 }
 
 function reportSummary(report) {
+  if (reports.tab === 'lateness') {
+    const lates = report.latenessByWeekday.reduce((sum, n) => sum + n, 0);
+    if (!lates) return t('Опозданий за этот период нет.');
+    const most = Math.max(...report.latenessByWeekday);
+    const days = report.latenessByWeekday.map((n, i) => (n === most ? weekdayLong(i + 1) : null)).filter(Boolean);
+    return t('Опозданий: {0}, опаздывали студентов: {1}. Больше всего опозданий: {2} ({3}).', [lates, report.lateness.filter((r) => r.late).length, days.join(', '), most]);
+  }
   const total = report.pairs.reduce((sum, pair) => sum + pair.total, 0);
   const present = report.pairs.reduce((sum, pair) => sum + pair.present, 0);
   const pairs = report.pairs.length;
@@ -2297,8 +2326,10 @@ function drawReportResult(box) {
     rows.length
       ? h('div', { class: 'tablewrap' }, h('table', {},
         h('thead', {}, h('tr', {}, columns.map(([name]) => h('th', { scope: 'col' }, name)))),
-        h('tbody', {}, rows.map((row) => h('tr', {}, columns.map(([, value]) => h('td', {}, String(value(row) ?? ''))))))))
-      : h('p', { class: 'help' }, t('За этот период проведённых пар нет. Измените период или условия отбора.')),
+        h('tbody', {}, rows.map((row) => h('tr', {}, columns.map(([, value, options]) => h('td', {
+          class: options?.heat ? `heat heat-${Math.min(4, options.heat(row) ?? 0)}` : null,
+        }, String(value(row) ?? ''))))))))
+      : h('p', { class: 'help' }, reports.tab === 'lateness' ? t('Опозданий за этот период нет.') : t('За этот период проведённых пар нет. Измените период или условия отбора.')),
   );
 }
 

@@ -544,6 +544,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('.rollrow:has-text("Егоров Тимур") .rollname[aria-pressed=true]', { timeout: 15000 });
   await page.click('#roll [aria-label=Закрыть]');
 
+  // Вчерашние опоздания для раздела «Опоздания».
+  for (const [start, end, arrived] of [['09:00', '10:30', '09:20'], ['11:00', '12:30', '11:15']]) {
+    const past = await teacherStore.save({ title: `Вчерашняя пара ${start}`, type: 'lesson', date: day(-1), start, end, participants: ['Алексеева Мария', 'Борисов Илья'], devices: ['00000000-0000-4000-8000-000000000000'] });
+    await teacherStore.saveMark(past.id, 'Алексеева Мария', 'present', { at: new Date(`${day(-1)}T${arrived}`).toISOString() });
+    await teacherStore.saveMark(past.id, 'Борисов Илья', 'present', { at: new Date(`${day(-1)}T${start}`).toISOString() });
+  }
+  await teacher.syncWith('127.0.0.1:47800');
+
   // Отчёт за период.
   await page.click('#open-reports');
   await page.waitForSelector('#reports[open]');
@@ -558,6 +566,15 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForFunction(() => document.querySelectorAll('#reports tbody tr').length === 3);
   await page.click('#reports .tabs >> text=По группам');
   await page.waitForSelector('#reports tbody tr:has-text("ИС-21")');
+  await page.click('#reports .tabs >> text=Кто опаздывает и в какие дни');
+  const lateRow = page.locator('#reports tbody tr:has-text("Алексеева Мария")');
+  await lateRow.waitFor();
+  const lateCells = await lateRow.locator('td').allTextContents();
+  assert.deepEqual(lateCells.slice(2, 6), ['2', '35', '18', '2'], lateCells.join('|'));
+  assert.equal(await lateRow.locator('td.heat-2').count(), 1, 'понедельник подсвечен');
+  assert.equal(await page.locator('#reports tbody tr:has-text("Борисов Илья")').count(), 0, 'без опозданий не попадает');
+  await page.waitForSelector('#report-summary:has-text("Больше всего опозданий")');
+  await shot('report-lateness');
 
   const saved = path.join(home, 'report.csv');
   await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, saved);

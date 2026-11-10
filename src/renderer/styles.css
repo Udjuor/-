@@ -788,3 +788,10 @@ dialog#welcome { width: min(40rem, 94vw); }
 .autobox span { flex: 1 1 20rem; }
 .autobox[hidden] { display: none; }
 .confirmauto { border-color: var(--attention-border); }
+
+/* Опоздания по дням недели: чем чаще, тем ярче клетка */
+td.heat { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+td.heat-1 { background: rgb(210 153 34 / .18); }
+td.heat-2 { background: rgb(210 153 34 / .35); }
+td.heat-3 { background: rgb(219 109 40 / .5); }
+td.heat-4 { background: rgb(218 54 51 / .55); }
