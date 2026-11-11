@@ -73,7 +73,7 @@ test('привязка, «в колледже», только свои заня�
 
 test('подбор кода ограничен, чужой сайт не может отправить запрос', async (t) => {
   const { call } = await setup(t);
-  for (let i = 0; i < 5; i += 1) assert.equal((await call('/api/bind', { code: '00000000', nick: 'Nick' })).status, 400);
+  for (let i = 0; i < 20; i += 1) assert.equal((await call('/api/bind', { code: '00000000', nick: 'Nick' })).status, 400);
   assert.equal((await call('/api/bind', { code: '00000000', nick: 'Nick' })).status, 429);
   assert.equal((await call('/api/open', {}, '', { Origin: 'http://evil.example' })).status, 403);
 });

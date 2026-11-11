@@ -18,8 +18,8 @@ const FILES = {
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
 };
 const MAX_BODY = 2048;
-/** Подбор кода: не больше 5 ошибок за 10 минут с одного адреса. */
-// Телефоны за роутером Kerdiis_FVT приходят с одного адреса, поэтому запас на опечатки всего класса.
+/** Подбор кода: не больше 20 ошибок за 10 минут с одного адреса.
+ *  Телефоны за роутером Kerdiis_FVT приходят с одного адреса, поэтому запас на опечатки всего класса. */
 const BIND_FAILS = 20;
 const BIND_WINDOW_MS = 10 * 60_000;
 const UPCOMING_DAYS = 14;
