@@ -54,7 +54,7 @@ const today = (() => {
 
   // Разделов преподавателя нет ни на экране, ни при прямом обращении к программе.
   for (const button of ['#open-catalog', '#open-reports', '#notices-open', '#open-journal', '#open-signals']) {
-    assert.equal(await page.isVisible(button), false, button);
+    assert.equal(await page.$eval(button, (el) => el.hidden), true, button);
   }
   await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));
   await refused(() => window.calendar.saveSettings({ deviceName: 'Взлом' }));

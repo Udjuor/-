@@ -103,6 +103,29 @@ h1 {
 
 .primary { padding: 0 1.3rem; border: .05rem solid rgb(240 246 252 / .1); background: var(--success-emphasis); color: #fff; font-size: 1.05rem; font-weight: 600; }
 
+/* Редкие разделы собраны в одно меню, чтобы верхняя строка помещалась на ноутбуке. */
+.menubutton { display: inline-flex; align-items: center; gap: .35rem; anchor-name: --sections; }
+.menubutton svg { width: 1.1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.menubutton:has(+ .sectionmenu:popover-open) { border-color: var(--accent-emphasis); }
+.sectionmenu {
+  position-anchor: --sections;
+  position-area: bottom span-left;
+  position-try-fallbacks: flip-block;
+  inset: auto;
+  min-width: 14rem;
+  margin: .35rem 0 0;
+  padding: .35rem;
+  border: .05rem solid var(--border);
+  border-radius: .6rem;
+  background: var(--canvas-overlay, var(--canvas-subtle));
+  color: var(--fg);
+  box-shadow: 0 .5rem 1.5rem rgb(1 4 9 / .45);
+}
+.sectionmenu:popover-open { display: grid; gap: .1rem; }
+.sectionmenu button { justify-content: flex-start; width: 100%; min-height: 3rem; padding: 0 1rem; border-radius: .4rem; background: transparent; font-size: 1.05rem; text-align: left; }
+.sectionmenu button:hover, .sectionmenu button:focus-visible { background: var(--btn); }
+.sectionmenu button[hidden] { display: none; }
+
 #clock { min-width: 5rem; color: var(--fg); font-size: 1.9rem; font-weight: 600; text-align: right; }
 
 .banner { flex: none; padding: .6rem 1.25rem; border-bottom: .05rem solid var(--danger-emphasis); background: var(--danger-subtle); font-size: 1.05rem; }
@@ -813,3 +836,16 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .awarddate { color: var(--fg-muted); font-variant-numeric: tabular-nums; min-width: 6rem; }
 .awardresult { color: var(--success-emphasis); font-weight: 600; }
 .awards li button { margin-left: auto; }
+
+/* Узкий экран (ноутбук): компактнее заголовок, часы и вкладки. */
+@media (max-width: 1500px) {
+  .topbar { gap: 1rem; padding: 0 .75rem; }
+  .tools { gap: .5rem; }
+  h1 { margin-left: .4rem; font-size: 1.5rem; }
+  .views button { padding: 0 .7rem; }
+  .text, .primary { padding: 0 .8rem; }
+  #clock { min-width: 0; font-size: 1.5rem; }
+}
+@media (max-width: 1150px) {
+  #clock { display: none; }
+}

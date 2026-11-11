@@ -3725,6 +3725,10 @@ function wire() {
     drawPet();
     $('pet').showModal();
   });
+  // Пункт меню «Разделы» открывает своё окно, а само меню закрывается.
+  $('sections').addEventListener('click', (event) => {
+    if (event.target.closest('button')) $('sections').hidePopover();
+  });
   $('open-gear').addEventListener('click', openGear);
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);

@@ -573,7 +573,8 @@ export default {
     "Дипломы, места и грамоты вносит преподаватель. Участие ниже Kerdiis собирает сам.": "Diplomas, places and certificates are entered by the teacher. Kerdiis collects the participation below by itself.",
     "Пока нет мероприятий, заданий и практик, где студент был отмечен или записан.": "No events, tasks or practicums yet where the student was marked or listed.",
     "Портфолио {0}.pdf": "Portfolio {0}.pdf",
-    "Сигналы": "Warnings"
+    "Сигналы": "Warnings",
+    "Разделы": "Sections"
   },
   "plurals": {
     "events": {

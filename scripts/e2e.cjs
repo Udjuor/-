@@ -105,6 +105,12 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.clock.setFixedTime(new Date(2026, 10, 3, 11, 42));
   await page.reload();
   await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => {});
+  // Редкие разделы спрятаны в меню «Разделы».
+  const openSection = async (selector) => {
+    await page.click('#open-sections');
+    await page.click(selector);
+    await page.waitForSelector('#sections:not(:popover-open)', { state: 'attached' });
+  };
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });
 
   await page.locator('.block').first().waitFor();
@@ -218,7 +224,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
     data.setData('text', value);
     document.querySelector(sel).dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
   }, [selector, text]);
-  await page.click('#open-catalog');
+  await openSection('#open-catalog');
   await page.fill('#c-add-group', 'ИС-21');
   await page.keyboard.press('Enter');
   await page.waitForSelector('#catalog .refname:has-text("ИС-21")');
@@ -290,7 +296,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const group = (await teacherStore.directory()).find((r) => r.name === 'ПИ-22');
   await teacherStore.saveRef({ kind: 'student', name: 'Новиков Роман', groupId: group.id });
   await teacher.syncWith('127.0.0.1:47800');
-  await page.click('#open-catalog');
+  await openSection('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');
   await page.click('#catalog .refname:has-text("ПИ-22")');
   await page.waitForSelector('#catalog li:has-text("Новиков Роман")', { timeout: 15000 });
@@ -302,7 +308,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await until(async () => !(await teacherStore.directory()).some((r) => r.name === 'ПИ-22' || r.name === 'Новиков Роман'), 'удаление группы на другом устройстве');
 
   // Свои подсказки при вводе: длинный список прокручивается.
-  await page.click('#open-catalog');
+  await openSection('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');
   await page.click('#catalog .refname:has-text("ИС-21")');
   await paste('#c-add-student', Array.from({ length: 40 }, (_, i) => `Тестов Ученик${i}`).join('\n') + '\n');
@@ -553,7 +559,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await teacher.syncWith('127.0.0.1:47800');
 
   // Отчёт за период.
-  await page.click('#open-reports');
+  await openSection('#open-reports');
   await page.waitForSelector('#reports[open]');
   const row = page.locator('#reports tbody tr:has-text("Подготовка к олимпиаде")');
   assert.deepEqual((await row.locator('td').allTextContents()).slice(9), ['6', '2', await row.locator('td').nth(11).textContent(), '1', '1', '1', '1', '33%', '1']);
@@ -756,7 +762,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#notices [aria-label=Закрыть]');
 
   // Занятость техники в реальном времени.
-  await page.click('#open-gear');
+  await openSection('#open-gear');
   await page.waitForSelector('#gear[open]');
   const micRow = page.locator('#gear tbody tr:has-text("Микрофон")');
   assert.match(await micRow.textContent(), /Занято[\s\S]*Павлов С\. Н\.[\s\S]*Волонтёры дня открытых дверей[\s\S]*Актовый зал[\s\S]*12:30/);
@@ -1010,8 +1016,8 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#s-portal-on');
   await page.waitForSelector('#s-portal:has-text("47890")');
   await page.click('#preferences [aria-label=Закрыть]');
-  await page.waitForSelector('#open-portal:not([hidden])', { timeout: 15000 });
-  await page.click('#open-portal');
+  await page.waitForSelector('#open-portal:not([hidden])', { state: 'attached', timeout: 15000 });
+  await openSection('#open-portal');
   await page.waitForSelector('#portal[open] svg.qr');
   await shot('portal');
   await page.click('#portal [aria-label=Закрыть]');
@@ -1019,7 +1025,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await teacherStore.save({ title: 'Пара для телефона', type: 'lesson', date: day(0), start: '19:15', end: '19:55', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacherStore.save({ title: 'Пара сейчас', type: 'lesson', date: day(0), start: '09:00', end: '10:00', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacher.syncWith('127.0.0.1:47800');
-  await page.click('#open-catalog');
+  await openSection('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');
   await page.click('#catalog .refname:has-text("ИС-21")');
   await page.click('#catalog .refrow:has-text("Васильева Дарья") .phonetoggle');
@@ -1069,7 +1075,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#roll .autobox', { state: 'hidden' });
   assert.match(await page.textContent('#roll .rollrow:has-text("Васильева Дарья")'), /Отмечен в/);
   await page.click('#roll [aria-label=Закрыть]');
-  await page.click('#open-catalog');
+  await openSection('#open-catalog');
   await page.click('#catalog .tabs >> text=Группы и студенты');
   await page.click('#catalog .refname:has-text("ИС-21")');
   await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля ждёт подтверждения")');
@@ -1077,6 +1083,27 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('.phonepanel button:has-text("Подтвердить ник")');
   await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
   await page.click('#catalog [aria-label=Закрыть]');
+
+  // Верхняя строка помещается и на ноутбуке: кнопки не наезжают друг на друга и на заголовок.
+  for (const width of [1920, 1536, 1366, 1280]) {
+    await page.setViewportSize({ width, height: Math.round(width * 9 / 16) });
+    await page.waitForTimeout(150);
+    const bar = await page.evaluate(() => {
+      const box = (el) => el.getBoundingClientRect();
+      const tools = [...document.querySelectorAll('.tools > *')].filter((el) => !el.hidden && el.offsetWidth && !el.matches('[popover]')).map(box);
+      return { title: box(document.getElementById('title')), period: box(document.querySelector('.period')), toolsLeft: Math.min(...tools.map((b) => b.left)), toolsRight: Math.max(...tools.map((b) => b.right)), width: innerWidth, overlap: tools.some((b, i) => i && b.left < tools[i - 1].right - 0.5) };
+    });
+    assert.ok(bar.toolsRight <= bar.width + 0.5, `${width}: кнопки не выходят за край`);
+    assert.ok(bar.period.right <= bar.toolsLeft + 0.5, `${width}: заголовок не под кнопками`);
+    assert.ok(!bar.overlap, `${width}: кнопки не наезжают`);
+    assert.ok(bar.title.width >= 120, `${width}: заголовок виден (${bar.title.width})`);
+    await shot(`topbar-${width}`);
+  }
+  await page.click('#open-sections');
+  await page.waitForSelector('#sections:popover-open #open-portal');
+  await shot('sections-menu');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   // Ранний сигнал: три пропуска без причины подряд.
   for (const offset of [-3, -2, -1]) {
@@ -1106,7 +1133,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#signals [aria-label=Закрыть]');
 
   // Журнал изменений: правка названия видна с прежним и новым значением.
-  await page.click('#open-journal');
+  await openSection('#open-journal');
   await page.waitForSelector('#journal .jentry.j-edit:has-text("Субботник у корпуса") .jbefore:text-is("Субботник")');
   await page.waitForSelector('#journal .jentry.j-delete:has-text("Субботник у корпуса")');
   await page.waitForSelector('#journal .jentry.j-create-series');

@@ -20,13 +20,16 @@
         <button data-view="week">Неделя</button>
         <button data-view="month">Месяц</button>
       </div>
-      <button class="text" id="open-gear">Техника</button>
       <button class="text" id="open-deadlines">Сроки <span id="deadline-count" class="deadlinecount" hidden></span></button>
       <button class="text" id="open-signals" hidden>Сигналы <span id="signal-count" class="deadlinecount late" hidden></span></button>
-      <button class="text" id="open-reports">Отчёты</button>
-      <button class="text" id="open-catalog">Справочники</button>
-      <button class="text" id="open-journal">Журнал</button>
-      <button class="text" id="open-portal" hidden>Студентам</button>
+      <button class="text menubutton" id="open-sections" popovertarget="sections" aria-haspopup="menu">Разделы <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div id="sections" class="sectionmenu" popover role="menu" aria-label="Разделы">
+        <button role="menuitem" id="open-reports">Отчёты</button>
+        <button role="menuitem" id="open-catalog">Справочники</button>
+        <button role="menuitem" id="open-journal">Журнал изменений</button>
+        <button role="menuitem" id="open-gear">Техника</button>
+        <button role="menuitem" id="open-portal" hidden>Студентам</button>
+      </div>
       <button class="primary" id="add">Добавить</button>
       <time id="clock"></time>
       <button class="icon" id="theme" aria-label="Сменить тему"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" class="filled"/></svg></button>
