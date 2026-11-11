@@ -577,7 +577,17 @@ export default {
     "Разделы": "Secciones",
     "Адрес для QR-кода": "Dirección para el código QR",
     "Автоматически": "Automático",
-    "У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.": "Este ordenador está en varias redes. Elija la dirección de la red Wi-Fi de los estudiantes para que los teléfonos abran la página con el código QR."
+    "У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.": "Este ordenador está en varias redes. Elija la dirección de la red Wi-Fi de los estudiantes para que los teléfonos abran la página con el código QR.",
+    "С понедельника по субботу": "De lunes a sábado",
+    "Конец практики": "Fin de las prácticas",
+    "последний день": "último día",
+    "Начало практики": "Inicio de las prácticas",
+    "Практика: дней {0}, с {1} по {2}. Посещение отмечается за каждый день.": "Prácticas: {0} días, del {1} al {2}. La asistencia se marca cada día.",
+    "Укажите последний день практики.": "Indique el último día de las prácticas.",
+    "Практика в один день. Если она идёт несколько дней, выберите дни недели и последний день.": "Prácticas de un día. Si duran varios días, elija los días de la semana y el último día.",
+    "с {0} по {1}, день {2} из {3}": "del {0} al {1}, día {2} de {3}",
+    "Последний день практики не может быть раньше начала": "El último día de las prácticas no puede ser anterior al inicio",
+    "Один день": "Un día"
   },
   "plurals": {
     "events": {

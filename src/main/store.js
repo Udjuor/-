@@ -89,7 +89,7 @@ function normalizeEvent(raw) {
 }
 
 const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
-const REPEAT_EVERY = new Set(['day', 'weekdays', 'week', '2weeks', 'month']);
+const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice', 'achievement']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);

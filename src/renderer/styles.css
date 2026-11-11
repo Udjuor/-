@@ -340,6 +340,16 @@ dialog::backdrop { background: var(--backdrop); }
   user-select: text;
 }
 
+.field select {
+  min-height: 3rem;
+  padding: .45rem .7rem;
+  border: .05rem solid var(--border);
+  border-radius: .3rem;
+  background: var(--canvas);
+  color: var(--fg);
+  font: inherit;
+}
+
 .field input::placeholder { color: var(--fg-muted); }
 .field textarea { min-height: 5rem; resize: none; }
 .field.invalid input { border-color: var(--danger-emphasis); }
@@ -758,7 +768,8 @@ dialog#welcome { width: min(40rem, 94vw); }
 /* Повтор события */
 .repeatrow { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; }
 .repeatrow select { min-width: 14rem; }
-.repeatuntil { display: inline-flex; gap: .5rem; align-items: center; }
+.repeatuntil { display: inline-flex; gap: .5rem; align-items: center; white-space: nowrap; }
+.repeatuntil input { width: auto; }
 .repeatuntil[hidden] { display: none; }
 .sheetfoot .message button { margin-left: .5rem; }
 

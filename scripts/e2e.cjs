@@ -1084,6 +1084,27 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
   await page.click('#catalog [aria-label=Закрыть]');
 
+  // Практика на несколько дней: начало и последний день, на каждый день своя отметка.
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.fill('#f-title', 'Практика в фотостудии');
+  await page.click('#form .targets button:has-text("Практика")');
+  assert.equal(await page.textContent('[data-for=f-date] label'), 'Начало практики');
+  assert.equal(await page.textContent('[data-for=f-repeat] label'), 'Конец практики');
+  await page.fill('#f-date', day(21));
+  await page.dispatchEvent('#f-date', 'change');
+  await page.fill('#f-start', '09:00');
+  await page.fill('#f-end', '15:00');
+  await page.selectOption('#f-repeat', 'day');
+  await page.fill('#f-until', day(25));
+  await page.dispatchEvent('#f-until', 'change');
+  await page.waitForSelector('[data-for=f-repeat] .help:has-text("Практика: дней 5")');
+  await shot('practice-form');
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  const practiceDays = (await page.evaluate(() => window.calendar.list())).value.filter((e) => e.title === 'Практика в фотостудии').map((e) => e.date).sort();
+  assert.deepEqual(practiceDays, [21, 22, 23, 24, 25].map(day));
+
   // Верхняя строка помещается и на ноутбуке: кнопки не наезжают друг на друга и на заголовок.
   for (const width of [1920, 1536, 1366, 1280]) {
     await page.setViewportSize({ width, height: Math.round(width * 9 / 16) });

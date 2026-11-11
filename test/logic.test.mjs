@@ -476,6 +476,7 @@ test('цепочка событий: даты по каждому виду по�
   assert.deepEqual(L.repeatDates('2026-11-02', 'week', '2026-11-23'), ['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23']);
   assert.deepEqual(L.repeatDates('2026-11-02', '2weeks', '2026-11-29'), ['2026-11-02', '2026-11-16']);
   assert.deepEqual(L.repeatDates('2026-11-06', 'weekdays', '2026-11-10'), ['2026-11-06', '2026-11-09', '2026-11-10'], 'суббота и воскресенье пропущены');
+  assert.deepEqual(L.repeatDates('2026-11-06', 'monsat', '2026-11-10'), ['2026-11-06', '2026-11-07', '2026-11-09', '2026-11-10'], 'воскресенье пропущено');
   assert.equal(L.repeatDates('2026-11-01', 'day', '2026-11-30').length, 30);
   assert.deepEqual(L.repeatDates('2026-10-31', 'month', '2027-01-31'), ['2026-10-31', '2026-12-31', '2027-01-31'], 'в ноябре нет 31-го');
   assert.deepEqual(L.repeatDates('2026-11-02', 'week', '2026-11-01'), ['2026-11-02']);
@@ -572,4 +573,11 @@ test('портфолио: где был, где по приказу, и дост
   assert.deepEqual(p.items.map((i) => i.title), ['Фотосъёмка выставки', 'Концерт хора'], 'практику пропустил, пары и будущее не входят');
   assert.deepEqual(p.awards.map((a) => a.result), ['Диплом I степени']);
   assert.deepEqual(p.counts, { event: 1, task: 1, practice: 0 });
+});
+
+test('многодневная практика: начало, конец и номер дня', () => {
+  const days = ['2026-11-16', '2026-11-17', '2026-11-18'].map((date, i) => ({ id: `p${i}`, type: 'practice', seriesId: 'S', date }));
+  assert.deepEqual(L.practiceSpan(days[1], days), { from: '2026-11-16', to: '2026-11-18', day: 2, days: 3 });
+  assert.equal(L.practiceSpan({ type: 'practice', seriesId: '', date: '2026-11-16' }, days), null, 'один день');
+  assert.equal(L.practiceSpan({ ...days[0], type: 'lesson' }, days), null, 'не практика');
 });

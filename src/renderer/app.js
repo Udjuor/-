@@ -1,7 +1,7 @@
 import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, earlySignals, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
-  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
+  ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
@@ -610,14 +610,16 @@ function showDetails(id) {
 
   showActions();
   const fact = (name, value) => (value ? [h('dt', {}, name), h('dd', {}, value)] : []);
+  const span = practiceSpan(event, state.allEvents);
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, event.title), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('dl', { class: 'facts' },
         fact(t('Тип'), typeLabel(event.type)),
         fact(t('Дата'), fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })),
+        span ? fact(t('Практика'), t('с {0} по {1}, день {2} из {3}', [shortDay(span.from), shortDay(span.to), span.day, span.days])) : [],
         fact(t('Время'), timeRange(event)),
-        event.repeat ? fact(t('Повтор'), t('{0}, до {1}', [repeatLabel(event.repeat.every), shortDay(event.repeat.until)])) : [],
+        event.repeat && !span ? fact(t('Повтор'), t('{0}, до {1}', [repeatLabel(event.repeat.every), shortDay(event.repeat.until)])) : [],
         fact(t('Подготовка'), prepText(event)),
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
         excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
@@ -789,7 +791,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); updateConflicts(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); updateConflicts(); },
   }, t(label))));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, t('Тип')), typeRow);
@@ -842,20 +844,39 @@ async function openForm(source = {}) {
   const until = h('input', { id: 'f-until', type: 'date', 'aria-label': t('Повторять до') });
   until.addEventListener('click', () => { try { until.showPicker(); } catch { /* окно уже открыто */ } });
   const repeatHint = h('p', { class: 'help' });
+  const repeatLabelEl = h('label', { for: 'f-repeat' }, t('Повторять'));
+  const untilWord = h('span', {}, t('до'));
   const repeat = h('div', { class: 'field', 'data-for': 'f-repeat', hidden: Boolean(source.id) },
-    h('label', { for: 'f-repeat' }, t('Повторять')),
-    h('div', { class: 'repeatrow' }, repeatSelect, h('span', { class: 'repeatuntil' }, t('до'), until)),
+    repeatLabelEl,
+    h('div', { class: 'repeatrow' }, repeatSelect, h('span', { class: 'repeatuntil' }, untilWord, until)),
     repeatHint);
-  const repeatPlan = () => (repeatSelect.value ? repeatDates($('f-date').value, repeatSelect.value, until.value) : [$('f-date').value]);
+  // Практика идёт несколько дней: начало — дата события, конец — последний день.
+  // На каждый день создаётся своё событие, чтобы посещение отмечалось по дням.
+  const isPractice = () => draft.type === 'practice';
+  const repeatPlan = () => {
+    const first = date.querySelector('input').value;
+    return repeatSelect.value ? repeatDates(first, repeatSelect.value, until.value) : [first];
+  };
   const showRepeat = () => {
+    repeatLabelEl.textContent = isPractice() ? t('Конец практики') : t('Повторять');
+    repeatSelect.options[0].textContent = isPractice() ? t('Один день') : t('Не повторять');
+    untilWord.textContent = isPractice() ? t('по') : t('до');
+    date.querySelector('label').textContent = isPractice() && !source.id ? t('Начало практики') : t('Дата');
     until.closest('.repeatuntil').hidden = !repeatSelect.value;
     const count = repeatSelect.value && until.value ? repeatPlan().length : 0;
+    if (isPractice()) {
+      repeatHint.textContent = count
+        ? t('Практика: дней {0}, с {1} по {2}. Посещение отмечается за каждый день.', [count, shortDay(repeatPlan()[0]), shortDay(repeatPlan().at(-1))])
+        : repeatSelect.value ? t('Укажите последний день практики.') : t('Практика в один день. Если она идёт несколько дней, выберите дни недели и последний день.');
+      return;
+    }
     repeatHint.textContent = count
       ? t('Будет создано событий: {0}, последнее {1}.', [count, shortDay(repeatPlan().at(-1))])
       : repeatSelect.value ? t('Укажите дату, до которой повторять. Например, последний день семестра.') : '';
   };
   repeatSelect.addEventListener('change', showRepeat);
   until.addEventListener('change', showRepeat);
+  date.querySelector('input').addEventListener('change', showRepeat);
   showRepeat();
 
   const deadline = field('', 'f-deadline', { type: 'datetime-local', value: source.deadline ?? '' });
@@ -1033,7 +1054,7 @@ async function openForm(source = {}) {
     setInvalid(date, dateError);
     const plan = repeatSelect.value ? repeatPlan() : [];
     const repeatError = !repeatSelect.value || source.id ? ''
-      : !until.value || until.value < event.date ? t('Укажите дату окончания повторов не раньше даты события')
+      : !until.value || until.value < event.date ? (isPractice() ? t('Последний день практики не может быть раньше начала') : t('Укажите дату окончания повторов не раньше даты события'))
         : plan.length >= MAX_REPEATS ? t('Слишком длинная цепочка: не больше {0} событий', [MAX_REPEATS - 1]) : '';
     setInvalid(repeat, repeatError);
     const lacking = shortages(event, state.allEvents, refsOf('equipment'));

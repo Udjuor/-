@@ -424,6 +424,7 @@ export const countsLateness = (event) => event.type === 'lesson';
 export const REPEATS = [
   ['day', 'Каждый день'],
   ['weekdays', 'По будням'],
+  ['monsat', 'С понедельника по субботу'],
   ['week', 'Каждую неделю'],
   ['2weeks', 'Раз в две недели'],
   ['month', 'Каждый месяц'],
@@ -446,15 +447,24 @@ export function repeatDates(firstISO, every, untilISO) {
       if (candidate.getDate() !== d) continue;
       next = toISO(candidate);
     } else {
-      const step = { day: 1, weekdays: 1, week: 7, '2weeks': 14 }[every] ?? 0;
+      const step = { day: 1, weekdays: 1, monsat: 1, week: 7, '2weeks': 14 }[every] ?? 0;
       if (!step) return [firstISO];
       next = addDays(firstISO, i * step);
     }
     if (next > untilISO) break;
     if (every === 'weekdays' && [0, 6].includes(fromISO(next).getDay())) continue;
+    if (every === 'monsat' && fromISO(next).getDay() === 0) continue;
     dates.push(next);
   }
   return dates;
+}
+
+/** Многодневная практика: первый и последний день, номер дня. Null, если событие одно. */
+export function practiceSpan(event, events) {
+  if (event.type !== 'practice' || !event.seriesId) return null;
+  const days = events.filter((other) => other.seriesId === event.seriesId).map((other) => other.date).sort();
+  if (days.length < 2) return null;
+  return { from: days[0], to: days.at(-1), day: days.indexOf(event.date) + 1, days: days.length };
 }
 
 /** События цепочки с этой даты и дальше, по порядку. */
