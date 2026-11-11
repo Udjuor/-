@@ -125,6 +125,7 @@
       section('Задания и мероприятия на две недели', data.upcoming.length ? [h('ul', { class: 'list' }, data.upcoming.map((item) => h('li', { class: 'item' },
         h('div', { class: 'time' }, dateText(item.date), h('br'), `${item.start}–${item.end}`),
         h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.place, item.responsible].filter(Boolean).join(', '))))))] : [], 'Ближайших заданий и мероприятий нет.'),
+      portfolioCard(data.portfolio),
       h('section', { class: 'card' },
         h('h2', {}, 'Этот месяц'),
         h('div', { class: 'stats' },
@@ -134,6 +135,27 @@
           stat('По уважительной', month.valid))),
       h('button', { type: 'button', class: 'plain', onclick: () => showMine() }, 'Обновить'),
     ].filter(Boolean));
+  }
+
+  /** Моё портфолио: достижения и где участвовал. */
+  function portfolioCard(p) {
+    if (!p) return null;
+    const total = p.items.length + p.awards.length;
+    return h('section', { class: 'card' },
+      h('h2', {}, 'Моё портфолио'),
+      total
+        ? [
+          h('p', { class: 'muted small' }, `Мероприятий: ${p.counts.event}, заданий: ${p.counts.task}, практик: ${p.counts.practice}, достижений: ${p.awards.length}`),
+          p.awards.length > 0 && h('ul', { class: 'list' }, p.awards.map((item) => h('li', { class: 'item' },
+            h('div', { class: 'time' }, dateText(item.date)),
+            h('div', { class: 'what' }, h('strong', {}, item.title), item.result && h('span', { class: 'chip ok' }, item.result))))),
+          h('details', {},
+            h('summary', {}, `Участие: ${p.items.length}`),
+            h('ul', { class: 'list' }, p.items.map((item) => h('li', { class: 'item' },
+              h('div', { class: 'time' }, dateText(item.date)),
+              h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, item.typeName)))))),
+        ]
+        : h('p', { class: 'muted' }, 'Здесь появятся мероприятия, задания и практика, где вы участвовали, и ваши дипломы.'));
   }
 
   const stat = (label, value, extra = '') => h('div', { class: 'stat' }, h('b', {}, String(value)), h('span', {}, label), extra && h('span', { class: 'muted small' }, extra));

@@ -91,7 +91,7 @@ function normalizeEvent(raw) {
 const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
 const REPEAT_EVERY = new Set(['day', 'weekdays', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice', 'achievement']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const NICK_RE = /^[\p{L}\p{N}_.-]{3,20}$/u;
@@ -167,6 +167,15 @@ function normalizeRef(raw) {
     ref.phoneCode = HASH_RE.test(raw.phoneCode ?? '') ? raw.phoneCode : '';
     ref.phoneCodeAt = STAMP_RE.test(raw.phoneCodeAt ?? '') && ref.phoneCode ? raw.phoneCodeAt : '';
     if (!ref.phoneCode) ref.phoneCodeAt = '';
+    // Когда куратор нажал «Разобрались»: ранний сигнал считает только то, что было позже.
+    ref.signalSince = STAMP_RE.test(raw.signalSince ?? '') ? raw.signalSince : '';
+  }
+  if (raw.kind === 'achievement') {
+    // Достижение в портфолио: название — в name, студент, дата и результат (диплом, место).
+    ref.student = String(raw.student ?? '').trim().slice(0, 200);
+    ref.date = DATE_RE.test(raw.date ?? '') ? raw.date : '';
+    ref.result = String(raw.result ?? '').trim().slice(0, 200);
+    if (!ref.student || !ref.date) return null;
   }
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);

@@ -244,7 +244,16 @@ class StudentPortal {
       if (['sick', 'order', 'excused'].includes(r.status)) month.valid += 1;
     }
 
+    // Портфолио: только свои достижения и участие.
+    const achievements = (await this.store.directory()).filter((ref) => ref.kind === 'achievement');
+    const mineAll = L.portfolio({ name: student.name, events, attendance: docs, achievements, nowISO: iso, nowTime: time });
+
     return {
+      portfolio: {
+        counts: mineAll.counts,
+        awards: mineAll.awards.map((item) => ({ date: item.date, title: item.name, result: item.result })),
+        items: mineAll.items.map((item) => ({ date: item.date, title: item.title, typeName: L.typeName(item.type) })),
+      },
       nick: student.nick,
       nickOk: student.nickOk,
       here: timeOf(presence.at),

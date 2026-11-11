@@ -1,4 +1,4 @@
-import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS } from './logic.mjs';
+import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, earlySignals, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
@@ -283,6 +283,7 @@ function render() {
   for (const block of board.querySelectorAll('.block')) fitBlock(block);
   state.renderedMinute = now().time;
   refreshDeadlines();
+  refreshSignals();
 }
 
 function move(direction) {
@@ -1557,6 +1558,10 @@ function groupsPane() {
           refList(members.flatMap((student) => [refRow(student, {
             detail: studentPhoneDetail(student),
             extra: [h('button', {
+              type: 'button',
+              class: 'plain portfolioopen',
+              onclick: () => openPortfolio(student.id),
+            }, t('Портфолио')), h('button', {
               type: 'button',
               class: 'plain phonetoggle',
               'aria-expanded': String(catalog.phone === student.id),
@@ -2979,6 +2984,170 @@ function refreshDeadlines() {
   if ($('deadlines').open) drawDeadlines();
 }
 
+/* Ранний сигнал для кураторов */
+
+const SIGNAL_TEXT = {
+  streak: (n) => t('Пропусков без причины подряд: {0}', [n]),
+  absentWeek: (n) => t('Пропусков без причины за неделю: {0}', [n]),
+  lateWeek: (n) => t('Опозданий за неделю: {0}', [n]),
+};
+
+function currentSignals() {
+  if (isClient()) return [];
+  const clock = now();
+  return earlySignals({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), nowISO: clock.iso, nowTime: clock.time });
+}
+
+/** Счётчик на кнопке «Сигналы». Студенты здесь видны по именам, поэтому только в версии для преподавателей. */
+function refreshSignals() {
+  const list = currentSignals();
+  const badge = $('signal-count');
+  $('open-signals').hidden = isClient();
+  badge.hidden = !list.length;
+  badge.textContent = String(list.length);
+  if ($('signals').open) drawSignals();
+}
+
+function drawSignals() {
+  const box = $('signals-list');
+  const list = currentSignals();
+  if (!list.length) {
+    box.replaceChildren(h('p', { class: 'help' }, t('Сигналов нет: ни у кого не копятся пропуски и опоздания.')));
+    return;
+  }
+  box.replaceChildren(h('ul', { class: 'signals' }, list.map((item) => h('li', { class: 'signal' },
+    h('div', { class: 'signalhead' },
+      h('strong', {}, item.name),
+      h('span', { class: 'help' }, [item.group, item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
+    h('ul', { class: 'signalreasons' }, item.reasons.map((reason) => h('li', { class: `reason-${reason.kind}` }, SIGNAL_TEXT[reason.kind](reason.count)))),
+    h('div', { class: 'targets' },
+      h('button', { type: 'button', class: 'plain', onclick: () => openPortfolio(item.id) }, t('Портфолио')),
+      h('button', {
+        type: 'button',
+        class: 'primary',
+        onclick: async () => {
+          const student = state.directory.find((ref) => ref.id === item.id);
+          if (!student) return;
+          const result = await api.saveRefs([{ ref: { ...student, signalSince: new Date().toISOString() }, base: student.updatedAt }]);
+          if (result.ok) {
+            await loadDirectory();
+            refreshSignals();
+          }
+        },
+      }, t('Разобрались'))),
+  ))));
+}
+
+function openSignals() {
+  const dialog = $('signals');
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Ранние сигналы')),
+        h('p', { class: 'help' }, t('Студенты, у которых за последние две недели {0} и больше пропусков без причины подряд, {1} и больше пропусков без причины или {2} и больше опозданий за неделю. «Разобрались» убирает студента, пока не накопится новое.', [SIGNAL_STREAK, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK]))),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' }, h('div', { id: 'signals-list' })),
+  );
+  drawSignals();
+  dialog.showModal();
+}
+
+/* Портфолио студента */
+
+function portfolioData(student) {
+  const clock = now();
+  return portfolio({ name: student.name, events: state.allEvents, attendance: state.attendance, achievements: refsOf('achievement'), nowISO: clock.iso, nowTime: clock.time });
+}
+
+const groupOfStudent = (student) => state.directory.find((ref) => ref.id === student.groupId)?.name ?? '';
+
+/** Лист для печати и PDF: достижения и участие. */
+function portfolioSheet(student) {
+  const data = portfolioData(student);
+  return h('article', { class: 'paper reportpaper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, [t('Портфолио студента'), groupOfStudent(student)].filter(Boolean).join(', ')),
+      h('h2', {}, student.name)),
+    h('p', { class: 'own' }, portfolioSummary(data)),
+    data.awards.length > 0 && [h('h3', {}, t('Достижения')), h('table', {},
+      h('thead', {}, h('tr', {}, [t('Дата'), t('Название'), t('Результат')].map((name) => h('th', {}, name)))),
+      h('tbody', {}, data.awards.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))),
+    ],
+    data.items.length > 0 && [h('h3', {}, t('Участие')), h('table', {},
+      h('thead', {}, h('tr', {}, [t('Дата'), t('Вид'), t('Название'), t('Место'), t('Ответственный')].map((name) => h('th', {}, name)))),
+      h('tbody', {}, data.items.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.place), h('td', {}, item.responsible))))),
+    ],
+    h('p', { class: 'stamp' }, t('Сформировано {0}', [fmt(now().iso, { day: 'numeric', month: 'long', year: 'numeric' })])));
+}
+
+const portfolioSummary = (data) => t('Мероприятий: {0}, заданий: {1}, практик: {2}, достижений: {3}.', [data.counts.event, data.counts.task, data.counts.practice, data.awards.length]);
+
+function openPortfolio(studentId) {
+  const dialog = $('portfolio');
+  const failure = h('p', { class: 'message error' });
+  const draw = () => {
+    const student = state.directory.find((ref) => ref.id === studentId);
+    if (!student) {
+      dialog.close();
+      return;
+    }
+    const data = portfolioData(student);
+    const date = h('input', { type: 'date', id: 'pf-date', value: now().iso, 'aria-label': t('Дата') });
+    const title = h('input', { id: 'pf-title', placeholder: t('Конкурс, фестиваль, выставка'), 'aria-label': t('Название') });
+    const result = h('input', { id: 'pf-result', placeholder: t('Например, диплом I степени'), 'aria-label': t('Результат') });
+    const add = h('form', {
+      class: 'adder portfolioadd',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        failure.textContent = '';
+        if (!title.value.trim() || !date.value) return;
+        const saved = await api.saveRefs([{ ref: { kind: 'achievement', name: title.value.trim(), student: student.name, date: date.value, result: result.value.trim() } }]);
+        if (!saved.ok) {
+          failure.textContent = storeMessage(saved);
+          return;
+        }
+        await loadDirectory();
+        draw();
+      },
+    }, date, title, result, h('button', { type: 'submit' }, t('Добавить')));
+    dialog.replaceChildren(
+      h('div', { class: 'sheethead' },
+        h('div', {}, h('h2', {}, t('Портфолио: {0}', [student.name])), h('p', { class: 'help' }, [groupOfStudent(student), portfolioSummary(data)].filter(Boolean).join('. '))),
+        closeButton(dialog)),
+      h('div', { class: 'sheetbody' },
+        h('section', { class: 'group' },
+          h('h3', {}, t('Достижения')),
+          canManage() && add,
+          failure,
+          data.awards.length
+            ? h('ul', { class: 'awards' }, data.awards.map((item) => h('li', {},
+              h('span', { class: 'awarddate' }, shortDate(item.date)),
+              h('strong', {}, item.name),
+              item.result && h('span', { class: 'awardresult' }, item.result),
+              canManage() && h('button', {
+                type: 'button',
+                class: 'plain small',
+                'aria-label': t('Удалить {0}', [item.name]),
+                onclick: async () => {
+                  await api.removeRefs([{ id: item.id, base: item.updatedAt }]);
+                  await loadDirectory();
+                  draw();
+                },
+              }, '×'))))
+            : h('p', { class: 'help' }, t('Дипломы, места и грамоты вносит преподаватель. Участие ниже Kerdiis собирает сам.'))),
+        h('section', { class: 'group' },
+          h('h3', {}, t('Участие')),
+          data.items.length
+            ? h('div', { class: 'tablewrap' }, h('table', {},
+              h('thead', {}, h('tr', {}, [t('Дата'), t('Вид'), t('Название'), t('Место'), t('Ответственный')].map((name) => h('th', {}, name)))),
+              h('tbody', {}, data.items.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.place), h('td', {}, item.responsible))))))
+            : h('p', { class: 'help' }, t('Пока нет мероприятий, заданий и практик, где студент был отмечен или записан.')))),
+      h('div', { class: 'sheetfoot' }, printButtons(() => portfolioSheet(student), () => t('Портфолио {0}.pdf', [student.name]))),
+    );
+  };
+  draw();
+  if (!dialog.open) dialog.showModal();
+}
+
 /* Журнал изменений событий */
 
 const journalView = { query: '', limit: 200, entries: [] };
@@ -3559,6 +3728,7 @@ function wire() {
   $('open-gear').addEventListener('click', openGear);
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);
+  $('open-signals').addEventListener('click', openSignals);
   $('open-portal').addEventListener('click', openPortal);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);

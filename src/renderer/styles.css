@@ -795,3 +795,21 @@ td.heat-1 { background: rgb(210 153 34 / .18); }
 td.heat-2 { background: rgb(210 153 34 / .35); }
 td.heat-3 { background: rgb(219 109 40 / .5); }
 td.heat-4 { background: rgb(218 54 51 / .55); }
+
+/* Ранние сигналы */
+.signals { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.signal { border: .05rem solid var(--border); border-left: .25rem solid var(--danger-emphasis); border-radius: .4rem; padding: .7rem .9rem; display: grid; gap: .4rem; }
+.signalhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; }
+.signalreasons { margin: 0; padding-left: 1.1rem; display: grid; gap: .15rem; }
+.signalreasons .reason-lateWeek { color: var(--attention-fg, inherit); }
+
+/* Портфолио */
+.portfolioadd { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
+.portfolioadd input { min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.portfolioadd #pf-title { flex: 2 1 14rem; }
+.portfolioadd #pf-result { flex: 1 1 12rem; }
+.awards { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.awards li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; padding: .4rem 0; border-bottom: .05rem solid var(--border); }
+.awarddate { color: var(--fg-muted); font-variant-numeric: tabular-nums; min-width: 6rem; }
+.awardresult { color: var(--success-emphasis); font-weight: 600; }
+.awards li button { margin-left: auto; }

@@ -1078,6 +1078,33 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
   await page.click('#catalog [aria-label=Закрыть]');
 
+  // Ранний сигнал: три пропуска без причины подряд.
+  for (const offset of [-3, -2, -1]) {
+    const skipped = await teacherStore.save({ title: `Пара без Ученика30 ${offset}`, type: 'lesson', date: day(offset), start: '15:00', end: '16:30', participants: ['Тестов Ученик30', 'Тестов Ученик31'], devices: ['00000000-0000-4000-8000-000000000000'] });
+    await teacherStore.saveMark(skipped.id, 'Тестов Ученик31', 'present', { at: new Date(`${day(offset)}T15:00`).toISOString() });
+  }
+  // Портфолио: прошедший концерт со студентом.
+  await teacherStore.save({ title: 'Концерт хора', type: 'event', date: day(-1), start: '17:00', end: '19:00', place: 'Актовый зал', participants: ['Тестов Ученик30'], devices: ['00000000-0000-4000-8000-000000000000'] });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('#open-signals:not([hidden]) #signal-count:not([hidden])', { timeout: 15000 });
+  await page.click('#open-signals');
+  const signal = page.locator('#signals .signal:has-text("Тестов Ученик30")');
+  await signal.waitFor();
+  assert.match(await signal.textContent(), /Пропусков без причины подряд: 3/);
+  await shot('signals');
+  await signal.locator('text=Портфолио').click();
+  await page.waitForSelector('#portfolio[open]:has-text("Концерт хора")');
+  await page.fill('#pf-title', 'Конкурс «Объектив»');
+  await page.fill('#pf-result', 'Диплом I степени');
+  await page.click('#portfolio .portfolioadd button[type=submit]');
+  await page.waitForSelector('#portfolio .awards li:has-text("Диплом I степени")');
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'achievement' && r.student === 'Тестов Ученик30'), 'достижение на другом устройстве');
+  await shot('portfolio');
+  await page.click('#portfolio [aria-label=Закрыть]');
+  await page.click('#signals .signal:has-text("Тестов Ученик30") >> text=Разобрались');
+  await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30")', { state: 'detached' });
+  await page.click('#signals [aria-label=Закрыть]');
+
   // Журнал изменений: правка названия видна с прежним и новым значением.
   await page.click('#open-journal');
   await page.waitForSelector('#journal .jentry.j-edit:has-text("Субботник у корпуса") .jbefore:text-is("Субботник")');

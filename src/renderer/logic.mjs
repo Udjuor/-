@@ -688,3 +688,91 @@ export const JOURNAL_ACTIONS = {
   'delete-range': 'Удалены события за период',
   restore: 'Восстановлено из копии',
 };
+
+/* Ранний сигнал для кураторов */
+
+/** Пропуски без причины подряд, после которых куратору стоит вмешаться. */
+export const SIGNAL_STREAK = 3;
+/** За последние 7 дней: столько пропусков без причины или опозданий — повод поговорить. */
+export const SIGNAL_ABSENT_WEEK = 4;
+export const SIGNAL_LATE_WEEK = 3;
+const SIGNAL_DAYS = 14;
+
+/**
+ * Студенты, у которых в последние две недели копятся пропуски или опоздания.
+ * since — когда куратор в последний раз нажал «Разобрались»: раньше этого не считается.
+ */
+export function earlySignals({ events, attendance, students, groups, nowISO, nowTime }) {
+  const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const groupName = new Map(groups.map((group) => [group.id, group.name]));
+  const weekFrom = addDays(nowISO, -6);
+  const from = addDays(nowISO, -(SIGNAL_DAYS - 1));
+  const held = events
+    .filter((event) => event.date >= from && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+  const rowsOf = new Map();
+  for (const event of held) {
+    for (const row of rollCall(event, docOf.get(event.id), nowISO, nowTime, events)) {
+      const key = nameKey(row.name);
+      if (!rowsOf.has(key)) rowsOf.set(key, []);
+      rowsOf.get(key).push({ ...row, date: event.date, end: event.end });
+    }
+  }
+  const signals = [];
+  for (const student of students) {
+    const since = student.signalSince ?? '';
+    const rows = (rowsOf.get(nameKey(student.name)) ?? []).filter((row) => !since || `${row.date}T${row.end}` > localMoment(since));
+    let streak = 0;
+    let longest = 0;
+    for (const row of rows) {
+      if (row.status === 'absent') longest = Math.max(longest, ++streak);
+      else if (row.status === 'present') streak = 0;
+    }
+    const week = rows.filter((row) => row.date >= weekFrom);
+    const absentWeek = week.filter((row) => row.status === 'absent').length;
+    const lateWeek = week.filter((row) => row.status === 'present' && row.late > 0).length;
+    const reasons = [];
+    if (longest >= SIGNAL_STREAK) reasons.push({ kind: 'streak', count: longest });
+    if (absentWeek >= SIGNAL_ABSENT_WEEK) reasons.push({ kind: 'absentWeek', count: absentWeek });
+    if (lateWeek >= SIGNAL_LATE_WEEK) reasons.push({ kind: 'lateWeek', count: lateWeek });
+    if (!reasons.length) continue;
+    signals.push({ id: student.id, name: student.name, group: groupName.get(student.groupId) ?? '', reasons, last: rows.at(-1)?.date ?? null, weight: longest * 2 + absentWeek * 2 + lateWeek });
+  }
+  return signals.sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name, 'ru'));
+}
+
+/** Момент «ГГГГ-ММ-ДДTЧЧ:ММ» по местному времени из отметки ISO. */
+function localMoment(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* Портфолио студента */
+
+const PORTFOLIO_TYPES = ['event', 'task', 'practice'];
+
+/**
+ * Участие студента в мероприятиях, заданиях и практике плюс достижения, внесённые вручную.
+ * Где велась отметка, считается только пришедший; без отметки — по списку участников.
+ */
+export function portfolio({ name, events, attendance, achievements, nowISO, nowTime }) {
+  const key = nameKey(name);
+  const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const items = events
+    .filter((event) => PORTFOLIO_TYPES.includes(event.type) && event.date <= nowISO && event.participants.some((p) => nameKey(p) === key))
+    .filter((event) => {
+      if (!hasEnded(event, nowISO, nowTime)) return false;
+      const doc = docOf.get(event.id);
+      if (!doc) return true;
+      const row = rollCall(event, doc, nowISO, nowTime, events).find((r) => nameKey(r.name) === key);
+      return row && ['present', 'order'].includes(row.status);
+    })
+    .map((event) => ({ id: event.id, date: event.date, type: event.type, title: event.title, place: event.place ?? '', responsible: event.responsible ?? '' }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const awards = achievements
+    .filter((item) => nameKey(item.student) === key)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const counts = Object.fromEntries(PORTFOLIO_TYPES.map((type) => [type, items.filter((item) => item.type === type).length]));
+  return { items, awards, counts };
+}

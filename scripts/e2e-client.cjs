@@ -53,7 +53,7 @@ const today = (() => {
   const refused = async (work) => assert.equal((await page.evaluate(work)).code, 'teacher-only');
 
   // Разделов преподавателя нет ни на экране, ни при прямом обращении к программе.
-  for (const button of ['#open-catalog', '#open-reports', '#notices-open', '#open-journal']) {
+  for (const button of ['#open-catalog', '#open-reports', '#notices-open', '#open-journal', '#open-signals']) {
     assert.equal(await page.isVisible(button), false, button);
   }
   await refused(() => window.calendar.saveRefs([{ ref: { kind: 'group', name: 'Чужая' }, base: null }]));

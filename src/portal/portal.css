@@ -129,3 +129,5 @@ button:disabled { opacity: .6; }
 .stat { display: grid; gap: .1rem; border: 1px solid var(--border); border-radius: 10px; padding: .6rem .7rem; }
 .stat b { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
 .stat span { font-size: .875rem; }
+
+details summary { cursor: pointer; color: var(--accent); margin: .4rem 0 .6rem; font-weight: 600; }

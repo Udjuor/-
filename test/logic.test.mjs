@@ -532,3 +532,44 @@ test('опоздания: кто чаще и по каким дням недел
   assert.equal(report.lateness[0].last, '2026-11-09');
   assert.deepEqual(report.latenessByWeekday, [3, 0, 0, 0, 0, 0, 0]);
 });
+
+test('ранний сигнал: пропуски подряд, частые пропуски и опоздания, «Разобрались»', () => {
+  const students = [{ id: 'a', name: 'Иванов', groupId: 'g' }, { id: 'b', name: 'Петрова', groupId: 'g' }, { id: 'c', name: 'Сидоров', groupId: 'g' }];
+  const groups = [{ id: 'g', name: 'ФВТ-24' }];
+  const who = students.map((s) => s.name);
+  const days = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-09', '2026-11-10'];
+  const events = days.map((date, i) => ({ id: `e${i}`, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:30', participants: who }));
+  const at = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const attendance = days.map((date, i) => ({ eventId: `e${i}`, marks: {
+    // Иванов: 3 пропуска подряд в конце. Петрова: опаздывает 3 раза за неделю. Сидоров: был, один раз болел.
+    'Иванов': i < 2 ? { status: 'present', at: at(date, '09:00') } : undefined,
+    'Петрова': { status: 'present', at: at(date, i >= 2 ? '09:20' : '09:00') },
+    'Сидоров': i === 1 ? { status: 'sick' } : { status: 'present', at: at(date, '09:00') },
+  } })).map((doc) => ({ ...doc, marks: Object.fromEntries(Object.entries(doc.marks).filter(([, m]) => m)) }));
+  const now = { nowISO: '2026-11-10', nowTime: '18:00' };
+  const signals = L.earlySignals({ events, attendance, students, groups, ...now });
+  assert.deepEqual(signals.map((s) => [s.name, s.reasons.map((r) => `${r.kind}:${r.count}`).join(',')]), [
+    ['Иванов', 'streak:3'],
+    ['Петрова', 'lateWeek:3'],
+  ]);
+  assert.equal(signals[0].group, 'ФВТ-24');
+  // Куратор разобрался после пары 10 ноября: старое больше не считается.
+  students[0].signalSince = new Date(2026, 10, 10, 11, 0).toISOString();
+  assert.deepEqual(L.earlySignals({ events, attendance, students, groups, ...now }).map((s) => s.name), ['Петрова']);
+});
+
+test('портфолио: где был, где по приказу, и достижения', () => {
+  const events = [
+    { id: 'e1', type: 'event', title: 'Концерт хора', date: '2026-10-20', start: '17:00', end: '19:00', place: 'Актовый зал', participants: ['Иванов', 'Петрова'] },
+    { id: 'e2', type: 'task', title: 'Фотосъёмка выставки', date: '2026-10-25', start: '12:00', end: '14:00', participants: ['Иванов'] },
+    { id: 'e3', type: 'practice', title: 'Практика в музее', date: '2026-11-02', start: '09:00', end: '15:00', participants: ['Иванов'] },
+    { id: 'e4', type: 'lesson', title: 'Пара', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Иванов'] },
+    { id: 'e5', type: 'event', title: 'Будущий концерт', date: '2026-12-01', start: '17:00', end: '19:00', participants: ['Иванов'] },
+  ];
+  const attendance = [{ eventId: 'e3', marks: { 'Иванов': { status: 'absent' } } }, { eventId: 'e1', marks: { 'Иванов': { status: 'present' } } }];
+  const achievements = [{ name: 'Конкурс «Объектив»', student: 'Иванов', date: '2026-10-30', result: 'Диплом I степени' }, { name: 'Чужое', student: 'Петрова', date: '2026-10-30', result: '' }];
+  const p = L.portfolio({ name: 'иванов', events, attendance, achievements, nowISO: '2026-11-10', nowTime: '12:00' });
+  assert.deepEqual(p.items.map((i) => i.title), ['Фотосъёмка выставки', 'Концерт хора'], 'практику пропустил, пары и будущее не входят');
+  assert.deepEqual(p.awards.map((a) => a.result), ['Диплом I степени']);
+  assert.deepEqual(p.counts, { event: 1, task: 1, practice: 0 });
+});
