@@ -574,7 +574,10 @@ export default {
     "Пока нет мероприятий, заданий и практик, где студент был отмечен или записан.": "Aún no hay eventos, tareas ni prácticas donde el estudiante esté marcado o inscrito.",
     "Портфолио {0}.pdf": "Portafolio {0}.pdf",
     "Сигналы": "Alertas",
-    "Разделы": "Secciones"
+    "Разделы": "Secciones",
+    "Адрес для QR-кода": "Dirección para el código QR",
+    "Автоматически": "Automático",
+    "У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.": "Este ordenador está en varias redes. Elija la dirección de la red Wi-Fi de los estudiantes para que los teléfonos abran la página con el código QR."
   },
   "plurals": {
     "events": {

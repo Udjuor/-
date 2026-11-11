@@ -1717,6 +1717,18 @@ function portalSection() {
       h('label', { class: 'check' }, toggle, t('Открыть страницу для студентов на этом компьютере')),
       h('p', { class: 'help' }, t('Студенты в Wi-Fi колледжа видят на телефоне свои занятия, задания, сроки и отметки, а преподаватель на панели видит, кто уже в колледже. Компьютер должен быть включён весь учебный день. Коды для телефонов выдаются в «Справочниках» у студента.')),
       status.running && h('p', {}, t('Адрес: {0}', [status.urls.join(', ') || t('нет сети')])),
+      status.running && status.addresses.length > 1 && h('label', { class: 'field' }, t('Адрес для QR-кода'),
+        h('select', {
+          id: 's-portal-address',
+          onchange: async (e) => {
+            await api.setPortalAddress(e.target.value);
+            await loadPresence();
+            await draw();
+          },
+        },
+        h('option', { value: '', selected: !status.addresses.includes(status.address) }, t('Автоматически')),
+        status.addresses.map((address) => h('option', { value: address, selected: address === status.address }, address)))),
+      status.running && status.addresses.length > 1 && h('p', { class: 'help' }, t('У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.')),
       status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880])),
       message,
     );

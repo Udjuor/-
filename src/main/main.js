@@ -101,7 +101,19 @@ let syncProblem = null;
 let portal = null;
 let portalProblem = null;
 
-const portalUrls = (port) => localNetworks().addresses.map((address) => `http://${address}:${port}/`);
+/** Адреса страницы. Выбранный в настройках адрес идёт первым: он попадает в QR-код. */
+const portalUrls = (port) => {
+  const addresses = localNetworks().addresses;
+  const chosen = addresses.includes(config.portalAddress) ? [config.portalAddress] : [];
+  return [...chosen, ...addresses.filter((address) => address !== config.portalAddress)].map((address) => `http://${address}:${port}/`);
+};
+
+/** Сеть могла смениться (подключили роутер): адреса на панелях обновляются сами. */
+async function refreshPortalUrls() {
+  if (!portal) return;
+  await store.setPortal(portalUrls(portal.port), config.deviceName, true).catch(() => {});
+  sync?.nudge();
+}
 
 /** Студенческая страница: запускается на компьютере преподавателя, если включена в настройках. */
 async function restartPortal() {
@@ -384,6 +396,14 @@ function registerHandlers() {
     running: Boolean(portal),
     problem: portalProblem,
     urls: portal ? portalUrls(portal.port) : [],
+    addresses: localNetworks().addresses,
+    address: config.portalAddress,
+  }));
+  ipcMain.handle('portal:address', (_e, address) => managed(async () => {
+    config = { ...config, portalAddress: localNetworks().addresses.includes(address) ? address : '' };
+    saveConfig(homeDir(), config);
+    await refreshPortalUrls();
+    return config.portalAddress;
   }));
   ipcMain.handle('portal:set', (_e, on) => managed(async () => {
     config = { ...config, portal: on === true };
@@ -666,6 +686,7 @@ if (!app.requestSingleInstanceLock()) {
     restartSync().then(restartPortal);
     setTimeout(dailyBackup, 60_000);
     setInterval(dailyBackup, 60 * 60_000);
+    setInterval(refreshPortalUrls, 60_000);
     // Журнал старше полугода чистит каждое устройство: тогда старые записи не возвращаются при обмене.
     const prune = () => store.pruneChanges().catch((err) => console.error('Журнал не очищен:', err.message));
     setTimeout(prune, 90_000);

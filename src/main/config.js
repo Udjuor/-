@@ -40,6 +40,7 @@ function saveConfig(homeDir, config) {
     `memoSigner=${config.memoSigner}`,
     `backupDir=${config.backupDir}`,
     `portal=${config.portal ? 1 : 0}`,
+    `portalAddress=${config.portalAddress}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -76,6 +77,8 @@ function loadConfig(homeDir) {
     memoFrom: values.memoFrom || 'Семенова И. А.',
     // Студенческая страница на этом компьютере (только версия для преподавателей).
     portal: values.portal === '1',
+    // Адрес для QR-кода, если у компьютера несколько сетей (например, сеть колледжа и Wi-Fi Kerdiis_FVT).
+    portalAddress: /^\d{1,3}(\.\d{1,3}){3}$/.test(values.portalAddress ?? '') ? values.portalAddress : '',
     memoSigner: values.memoSigner || 'Семенов И. А.',
     backupDir: values.backupDir || path.join(homeDir, 'backups'),
   };

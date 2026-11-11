@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('calendar', {
   journal: () => ipcRenderer.invoke('journal:list'),
   portalStatus: () => ipcRenderer.invoke('portal:status'),
   setPortal: (on) => ipcRenderer.invoke('portal:set', on),
+  setPortalAddress: (address) => ipcRenderer.invoke('portal:address', address),
   portalInfo: () => ipcRenderer.invoke('portal:info'),
   presenceToday: () => ipcRenderer.invoke('presence:today'),
   studentCode: (id) => ipcRenderer.invoke('student:code', id),
