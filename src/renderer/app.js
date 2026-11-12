@@ -359,14 +359,14 @@ async function loadPresence() {
 }
 
 /** Как открыть страницу студента: QR-код и адрес. */
-function qrElement(text) {
+function qrElement(text, label = t('QR-код страницы для студентов')) {
   const { size, path } = qrPath(text);
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', t('QR-код страницы для студентов'));
+  svg.setAttribute('aria-label', label);
   svg.classList.add('qr');
   const back = document.createElementNS(ns, 'rect');
   back.setAttribute('width', size);
@@ -401,6 +401,28 @@ function drawPortal() {
           h('p', { class: 'help' }, t('Страницу открывает компьютер «{0}». Он должен быть включён.', [state.portal.device]))))
       : h('p', { class: 'help' }, t('Страница для студентов сейчас выключена.')),
   );
+}
+
+/** Ссылка СБП для поддержки проекта. Пока пусто, кнопка не показывается. */
+const DONATE_SBP = '';
+
+/** Поддержать проект: QR-код для перевода по СБП. */
+function openDonate() {
+  const dialog = $('donate');
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Поддержать проект')), h('p', { class: 'help' }, t('Kerdiis бесплатный. Если он помогает вашему колледжу, можно поддержать разработку.'))),
+      closeButton(dialog)),
+    h('div', { class: 'portalbody' },
+      qrElement(DONATE_SBP, t('QR-код для перевода по СБП')),
+      h('div', {},
+        h('ol', { class: 'portalsteps' },
+          h('li', {}, t('Откройте камеру телефона или приложение своего банка.')),
+          h('li', {}, t('Наведите на QR-код: откроется перевод по СБП.')),
+          h('li', {}, t('Сумму выберите сами. Спасибо!'))),
+        h('p', { class: 'help' }, t('Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.')))),
+  );
+  if (!dialog.open) dialog.showModal();
 }
 
 function openPortal() {
@@ -3700,6 +3722,7 @@ async function openSettings() {
       ]),
       h('p', { class: 'help' }, current.edition === 'client' ? t('Версия программы: клиент для панелей.') : t('Версия программы: для преподавателей.')),
       h('p', { class: 'help' }, t('Версия {0}', [current.version])),
+      DONATE_SBP && h('button', { type: 'button', class: 'plain donate', id: 'open-donate', onclick: openDonate }, t('Поддержать проект ♥')),
       h('p', { class: 'help', id: 's-update' }, updateText(await api.updateStatus())),
       h('button', {
         type: 'button',

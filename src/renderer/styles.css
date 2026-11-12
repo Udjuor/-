@@ -810,6 +810,7 @@ dialog#welcome { width: min(40rem, 94vw); }
 #portal.sheet { width: min(64rem, 100vw); max-width: 100vw; }
 .portalbody { display: grid; grid-template-columns: minmax(12rem, 24rem) 1fr; gap: 1.5rem; align-items: start; padding: 1rem 1.25rem 1.25rem; }
 .portalbody .qr { width: 100%; height: auto; border-radius: .5rem; }
+.donate { color: var(--danger-fg, #f85149); }
 .portalurl { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 0 0 .75rem; }
 .portalsteps { list-style: decimal; margin: 0 0 1rem; padding-left: 1.6rem; display: grid; gap: .4rem; font-size: 1.1rem; }
 @media (max-width: 900px) { .portalbody { grid-template-columns: 1fr; } }

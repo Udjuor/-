@@ -587,7 +587,15 @@ export default {
     "Практика в один день. Если она идёт несколько дней, выберите дни недели и последний день.": "Prácticas de un día. Si duran varios días, elija los días de la semana y el último día.",
     "с {0} по {1}, день {2} из {3}": "del {0} al {1}, día {2} de {3}",
     "Последний день практики не может быть раньше начала": "El último día de las prácticas no puede ser anterior al inicio",
-    "Один день": "Un día"
+    "Один день": "Un día",
+    "Поддержать проект": "Apoyar el proyecto",
+    "Поддержать проект ♥": "Apoyar el proyecto ♥",
+    "Kerdiis бесплатный. Если он помогает вашему колледжу, можно поддержать разработку.": "Kerdiis es gratuito. Si ayuda a su centro, puede apoyar su desarrollo.",
+    "QR-код для перевода по СБП": "Código QR para transferencia SBP",
+    "Откройте камеру телефона или приложение своего банка.": "Abra la cámara del teléfono o la app de su banco.",
+    "Наведите на QR-код: откроется перевод по СБП.": "Apunte al código QR: se abrirá una transferencia SBP.",
+    "Сумму выберите сами. Спасибо!": "Elija la cantidad que quiera. ¡Gracias!",
+    "Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.": "La transferencia va al autor. Kerdiis funciona igual, apoye o no el proyecto."
   },
   "plurals": {
     "events": {
