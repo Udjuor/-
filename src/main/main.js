@@ -445,6 +445,14 @@ function registerHandlers() {
     sync?.nudge();
     return saved;
   }));
+  // Имя питомца группы могут менять и студенты на панелях: это единственная правка справочника с панели.
+  ipcMain.handle('pet:name', (_e, groupId, name) => respond(async () => {
+    const group = (await store.directory()).find((ref) => ref.kind === 'group' && ref.id === groupId);
+    if (!group) throw Object.assign(new Error('no group'), { code: 'not-found' });
+    const saved = await store.saveRef({ ...group, petName: String(name ?? '') }, group.updatedAt);
+    sync?.nudge();
+    return saved;
+  }));
   ipcMain.handle('directory:remove', (_e, refs) => managed(async () => {
     for (const { id, base } of refs) await store.remove(id, base);
     sync?.nudge();

@@ -2655,7 +2655,17 @@ function drawPet() {
   };
 
   const name = h('input', { id: 'pet-name', value: group.petName ?? '', maxlength: 24, placeholder: t('Придумайте имя'), autocomplete: 'off', 'aria-label': t('Имя питомца') });
-  const saveName = () => saveGroup({ petName: name.value });
+  const saveName = async () => {
+    const result = await api.namePet(group.id, name.value);
+    if (!result.ok) {
+      failure.textContent = t('Не удалось сохранить. Попробуйте ещё раз.');
+      return;
+    }
+    await loadDirectory();
+    petButtonKey = '';
+    refreshPet();
+    drawPet();
+  };
   name.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -2700,8 +2710,8 @@ function drawPet() {
       h('p', { class: 'petmood' }, titleLine),
       pet.mood !== 'dead' && h('div', { class: 'petlevel' }, meter, h('span', {}, t('Здоровье {0} из 100', [pet.health]))),
       petStats(pet).map((line) => h('p', { class: 'help' }, line)),
-      canManage() && (pet.mood === 'dead'
-        ? h('button', {
+      (pet.mood === 'dead'
+        ? canManage() && h('button', {
           type: 'button',
           class: 'primary petnew',
           onclick: () => {

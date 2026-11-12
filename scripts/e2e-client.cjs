@@ -75,6 +75,19 @@ const today = (() => {
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await page.waitForSelector('.block:has-text("Событие студента")');
 
+  // Имя питомца студенты меняют и с панели, а остальное в группе панель не трогает.
+  await page.waitForSelector('#pet-open:not([hidden])');
+  await page.click('#pet-open');
+  await page.waitForSelector('#pet[open]');
+  await page.fill('#pet-name', 'Бублик');
+  await page.click('#pet >> text=Назвать');
+  await page.waitForSelector('#pet-open:has-text("Бублик")');
+  const petGroup = (await page.evaluate(() => window.calendar.directory())).value.find((ref) => ref.kind === 'group');
+  assert.equal(petGroup.petName, 'Бублик');
+  assert.equal(petGroup.name, 'ИС-21');
+  await shot('client-pet');
+  await page.click('#pet [aria-label=Закрыть]');
+
   // На мероприятии только «был» или «не был».
   await page.click('.block:has-text("Концерт на панели")');
   await page.waitForSelector('#details[open]');
