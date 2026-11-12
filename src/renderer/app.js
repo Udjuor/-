@@ -404,7 +404,7 @@ function drawPortal() {
 }
 
 /** Ссылка СБП для поддержки проекта. Пока пусто, кнопка не показывается. */
-const DONATE_SBP = '';
+const DONATE_SBP = 'https://www.sberbank.com/sms/pbpn?requisiteNumber=79142222833';
 
 /** Поддержать проект: QR-код для перевода по СБП. */
 function openDonate() {
@@ -413,7 +413,7 @@ function openDonate() {
     h('div', { class: 'sheethead' },
       h('div', {}, h('h2', {}, t('Поддержать проект')), h('p', { class: 'help' }, t('Kerdiis бесплатный. Если он помогает вашему колледжу, можно поддержать разработку.'))),
       closeButton(dialog)),
-    h('div', { class: 'portalbody' },
+    h('div', { class: 'donatebody' },
       qrElement(DONATE_SBP, t('QR-код для перевода по СБП')),
       h('div', {},
         h('ol', { class: 'portalsteps' },

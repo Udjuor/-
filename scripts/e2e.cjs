@@ -430,6 +430,11 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#preferences[open]');
   await page.click('#preferences .targets button:has-text("Тёмная")');
   await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(13, 17, 23)');
+  // Поддержать проект: QR-код СБП в настройках.
+  await page.click('#open-donate');
+  await page.waitForSelector('#donate[open] svg.qr');
+  await shot('donate');
+  await page.click('#donate [aria-label=Закрыть]');
   await page.click('#preferences [aria-label=Закрыть]');
 
   // Выбор языка сохраняется и перезапускает программу.
