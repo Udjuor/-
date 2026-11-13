@@ -1089,6 +1089,30 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
   await page.click('#catalog [aria-label=Закрыть]');
 
+  // Занятие не состоялось: причина, зачёркнутый блок, отметок нет.
+  const toCancel = await teacherStore.save({ title: 'Пара для отмены', type: 'lesson', date: day(0), start: '12:00', end: '13:00', participants: ['Тестов Ученик33', 'Тестов Ученик34'] });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.click('#today');
+  await page.click('[data-view=day]');
+  await page.click('.block:has-text("Пара для отмены")', { timeout: 15000 });
+  await page.waitForSelector('#details[open]');
+  await page.click('#cancel-event');
+  await page.fill('#cancel-reason', 'Преподаватель на больничном');
+  await shot('cancel-form');
+  await page.click('#cancel-confirm');
+  await page.waitForSelector('#details[open]:has-text("Причина") , #details[open] dd:has-text("Преподаватель на больничном")');
+  assert.equal(await page.locator('#details .primary:has-text("Отметка")').count(), 0, 'отметки нет');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.waitForSelector('.block.cancelled:has-text("Не состоялось: Преподаватель на больничном")');
+  await shot('cancelled-block');
+  await until(async () => (await teacherStore.list()).some((e) => e.id === toCancel.id && e.cancelled), 'отмена на другом устройстве');
+  await assert.rejects(teacherStore.saveMark(toCancel.id, 'Тестов Ученик33', 'present', { teacher: 'Кабинет' }), { code: 'cancelled' });
+  await page.click('.block:has-text("Пара для отмены")');
+  await page.click('#uncancel');
+  await page.waitForSelector('#details[open] .primary:has-text("Отметка")');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.waitForSelector('.block:has-text("Пара для отмены"):not(.cancelled)');
+
   // Практика на несколько дней: начало и последний день, на каждый день своя отметка.
   await page.click('#add');
   await page.waitForSelector('#form[open]');

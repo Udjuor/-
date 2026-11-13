@@ -595,7 +595,22 @@ export default {
     "Откройте камеру телефона или приложение своего банка.": "Abra la cámara del teléfono o la app de su banco.",
     "Наведите на QR-код: откроется перевод по СБП.": "Apunte al código QR: se abrirá una transferencia SBP.",
     "Сумму выберите сами. Спасибо!": "Elija la cantidad que quiera. ¡Gracias!",
-    "Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.": "La transferencia va al autor. Kerdiis funciona igual, apoye o no el proyecto."
+    "Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.": "La transferencia va al autor. Kerdiis funciona igual, apoye o no el proyecto.",
+    "Не состоялось: {0}": "No se realizó: {0}",
+    "Не состоялось": "No se realizó",
+    "Занятие не состоялось: отметки на нём не ставятся.": "La clase no se realizó, no se marca asistencia.",
+    "Всё-таки состоялось": "Sí se realizó",
+    "Причина, например: преподаватель на больничном": "Motivo, p. ej.: el profesor está de baja",
+    "Почему не состоялось": "Por qué no se realizó",
+    "Отметки на нём не ставятся, в отчёты, сигналы и здоровье питомца оно не идёт. Студенты увидят «Не состоялось» на телефоне.": "No se marca asistencia y no cuenta en informes, alertas ni en la salud de la mascota. Los estudiantes verán «No se realizó» en el teléfono.",
+    "Причина не указана": "Sin motivo",
+    "Занятие не состоялось. Отметки на нём не ставятся.": "La clase no se realizó. No se marca asistencia.",
+    "Причина отмены": "Motivo de la cancelación",
+    "Преподаватель на больничном": "Profesor de baja",
+    "Перенесено на другой день": "Trasladada a otro día",
+    "Замена в расписании": "Cambio de horario",
+    "Мероприятие колледжа": "Evento del centro",
+    "Технические причины": "Motivos técnicos"
   },
   "plurals": {
     "events": {

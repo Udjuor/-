@@ -69,6 +69,9 @@ function normalizeEvent(raw) {
   event.allDay = raw.allDay === true;
   // Пара вне колледжа (физкультура в другом учреждении): отметки вносит только преподаватель.
   event.offsite = raw.offsite === true;
+  // Занятие не состоялось (преподаватель заболел, перенос): отметок нет, в отчёты не идёт.
+  event.cancelled = raw.cancelled === true;
+  event.cancelReason = event.cancelled ? String(raw.cancelReason ?? '').trim().slice(0, 200) : '';
   // Цепочка повторяющихся событий: у каждого своя запись, общий номер цепочки.
   event.seriesId = ID_RE.test(raw.seriesId ?? '') ? raw.seriesId : '';
   event.repeat = event.seriesId && REPEAT_EVERY.has(raw.repeat?.every) && DATE_RE.test(raw.repeat?.until ?? '')
@@ -306,7 +309,7 @@ const LOCKED_FIELDS = ['title', 'type', 'date', 'start', 'end', 'participants'];
 const CHANGE_DAYS = 180;
 
 /** Поля события, изменения которых попадают в журнал. Служебные метки не нужны. */
-const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'offsite', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices'];
+const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'offsite', 'cancelled', 'cancelReason', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices'];
 const CHANGE_ACTIONS = new Set(['create', 'edit', 'delete', 'create-series', 'delete-range', 'restore']);
 
 const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
@@ -595,8 +598,9 @@ class EventStore {
       // Автоматическая отметка не трогает поставленную вручную и зафиксированный отчёт.
       if (onlyIfEmpty && (before?.status || current?.lock)) return current ? normalizeAttendance(current) : null;
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
+      const event = await this.readCurrent(eventId);
+      if (event?.cancelled === true && status) throw new StoreError('cancelled', 'Занятие не состоялось');
       if (student) {
-        const event = await this.readCurrent(eventId);
         if (event?.offsite === true) throw new StoreError('offsite', 'Пара проходит вне колледжа');
         // На панели отмечают приход, опоздание и предварительную болезнь. Остальное делает преподаватель.
         const preliminary = before?.status === 'sick' && before.confirmed === false && !before.teacher;

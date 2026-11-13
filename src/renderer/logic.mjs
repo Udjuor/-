@@ -121,10 +121,16 @@ export const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё
  * Находит, кто из участников, какая техника и какой ответственный уже заняты
  * в пересекающихся по времени мероприятиях.
  */
+/** Занятие не состоялось: не занимает людей и технику, не идёт в отчёты, питомца и сигналы. */
+export const isHeld = (event) => event.cancelled !== true;
+
+/** Подсказки причины, почему занятие не состоялось. Можно написать свою. */
+export const CANCEL_REASONS = ['Преподаватель на больничном', 'Перенесено на другой день', 'Замена в расписании', 'Мероприятие колледжа', 'Технические причины'];
+
 export function findConflicts(draft, events, stock = []) {
   const result = [];
   if (!draft.date || !draft.start || !draft.end || draft.start >= draft.end) return result;
-  const others = events.filter((e) => e.id !== draft.id && overlaps(draft, e)).sort(byTime);
+  const others = events.filter((e) => e.id !== draft.id && isHeld(e) && overlaps(draft, e)).sort(byTime);
   const people = [...draft.participants];
   if (draft.responsible) people.push(draft.responsible);
 
@@ -164,7 +170,7 @@ function usedElsewhere(draft, events, name) {
   const key = nameKey(name);
   let used = 0;
   for (const event of events) {
-    if (event.id === draft.id || !overlaps(draft, event)) continue;
+    if (event.id === draft.id || !isHeld(event) || !overlaps(draft, event)) continue;
     const match = event.equipment.find((item) => nameKey(item) === key);
     if (match) used += equipmentCount(event, match);
   }
@@ -191,6 +197,7 @@ export function shortages(draft, events, stock) {
 
 /** Занятость техники на этот момент: сколько занято, у кого и что дальше. */
 export function equipmentNow(stock, events, nowISO, nowTime) {
+  events = events.filter(isHeld);
   const active = (event) => event.date === nowISO && busyFrom(event) <= nowTime && nowTime < event.end;
   const upcoming = (event) => event.date > nowISO || (event.date === nowISO && busyFrom(event) > nowTime);
   const rows = new Map(stock.filter((item) => item.name !== OWN_CAMERA)
@@ -220,7 +227,7 @@ export function deadlineState(event, moment) {
 
 /** Сроки по порядку: ближайшие и просроченные первыми, сданные недавние первыми. */
 export function deadlineList(events, moment) {
-  const items = events.filter((event) => event.deadline)
+  const items = events.filter((event) => event.deadline && isHeld(event))
     .map((event) => ({ event, state: deadlineState(event, moment) }));
   return {
     overdue: pickDeadlines(items, 'overdue'),
@@ -249,7 +256,7 @@ export function pendingCertificates(attendance, events) {
   const people = new Map();
   for (const doc of attendance) {
     const event = byId.get(doc.eventId);
-    if (!event) continue;
+    if (!event || !isHeld(event)) continue;
     for (const [name, mark] of Object.entries(doc.marks ?? {})) {
       if (mark.status !== 'sick' || mark.confirmed !== false) continue;
       if (!people.has(name)) people.set(name, { name, classes: [] });
@@ -353,7 +360,7 @@ const EXCUSED_TYPES = new Set(['lesson', 'practice']);
 export function excusedBy(event, events) {
   const excused = new Map();
   if (!EXCUSED_TYPES.has(event.type)) return excused;
-  const others = events.filter((other) => other.id !== event.id && other.date === event.date && EXCUSING_TYPES.has(other.type)
+  const others = events.filter((other) => other.id !== event.id && other.date === event.date && EXCUSING_TYPES.has(other.type) && isHeld(other)
     && busyFrom(other) < event.end && event.start < other.end);
   for (const name of event.participants) {
     const other = others.find((item) => item.participants.some((person) => nameKey(person) === nameKey(name)));
@@ -529,7 +536,7 @@ export function buildReport({ events, attendance, students, groups, filters, now
   const pairs = [];
   const byStudent = new Map();
   const held = events
-    .filter((event) => hasEnded(event, nowISO, nowTime)
+    .filter((event) => hasEnded(event, nowISO, nowTime) && isHeld(event)
       && event.date >= filters.from && event.date <= filters.to
       && filters.types.includes(event.type)
       && (!filters.teacher || event.responsible === filters.teacher))
@@ -677,6 +684,8 @@ export const JOURNAL_FIELD_LABELS = {
   end: 'Конец',
   allDay: 'Весь день',
   offsite: 'Вне колледжа',
+  cancelled: 'Не состоялось',
+  cancelReason: 'Причина отмены',
   place: 'Место',
   responsible: 'Ответственный',
   participants: 'Участники',
@@ -718,7 +727,7 @@ export function earlySignals({ events, attendance, students, groups, nowISO, now
   const weekFrom = addDays(nowISO, -6);
   const from = addDays(nowISO, -(SIGNAL_DAYS - 1));
   const held = events
-    .filter((event) => event.date >= from && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
+    .filter((event) => event.date >= from && isHeld(event) && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
     .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
   const rowsOf = new Map();
   for (const event of held) {
@@ -770,7 +779,7 @@ export function portfolio({ name, events, attendance, achievements, nowISO, nowT
   const key = nameKey(name);
   const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const items = events
-    .filter((event) => PORTFOLIO_TYPES.includes(event.type) && event.date <= nowISO && event.participants.some((p) => nameKey(p) === key))
+    .filter((event) => PORTFOLIO_TYPES.includes(event.type) && isHeld(event) && event.date <= nowISO && event.participants.some((p) => nameKey(p) === key))
     .filter((event) => {
       if (!hasEnded(event, nowISO, nowTime)) return false;
       const doc = docOf.get(event.id);

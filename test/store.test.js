@@ -583,3 +583,17 @@ test('«в колледже»: первая отметка за день ост�
   assert.equal((await store.directory()).length, 0, 'служебные записи не в справочниках');
   assert.equal((await store.list()).length, 0, 'и не в событиях');
 });
+
+test('занятие не состоялось: причина хранится, отметки не ставятся, снять можно', async (t) => {
+  const store = new EventStore(tempDir(t), 'a');
+  const event = await store.save(sample);
+  await store.saveMark(event.id, 'Иванов', 'present');
+  const cancelled = await store.save({ ...event, cancelled: true, cancelReason: '  Преподаватель на больничном ' }, event.updatedAt);
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.cancelReason, 'Преподаватель на больничном');
+  await assert.rejects(store.saveMark(event.id, 'Петров', 'present', { teacher: 'Кабинет' }), { code: 'cancelled' });
+  await store.saveMark(event.id, 'Иванов', null); // снять старую отметку можно
+  const back = await store.save({ ...cancelled, cancelled: false, cancelReason: 'забыто' }, cancelled.updatedAt);
+  assert.equal(back.cancelled, false);
+  assert.equal(back.cancelReason, '', 'без отмены причины нет');
+});

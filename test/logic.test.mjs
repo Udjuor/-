@@ -581,3 +581,22 @@ test('многодневная практика: начало, конец и н�
   assert.equal(L.practiceSpan({ type: 'practice', seriesId: '', date: '2026-11-16' }, days), null, 'один день');
   assert.equal(L.practiceSpan({ ...days[0], type: 'lesson' }, days), null, 'не практика');
 });
+
+test('занятие не состоялось: нет в отчёте, сигналах, конфликтах и освобождениях', () => {
+  const who = ['Иванов'];
+  const events = ['2026-11-04', '2026-11-05', '2026-11-06'].map((date, i) => ({ id: `e${i}`, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:30', participants: who, equipment: ['Проектор'] }));
+  const attendance = events.map((e) => ({ eventId: e.id, marks: { 'Петров': { status: 'present', at: new Date(`${e.date}T09:00`).toISOString() } } }));
+  events.forEach((e) => e.participants.push('Петров'));
+  const now = { nowISO: '2026-11-10', nowTime: '18:00' };
+  const students = [{ id: 'a', name: 'Иванов', groupId: 'g' }];
+  const groups = [{ id: 'g', name: 'ФВТ-24' }];
+  assert.equal(L.earlySignals({ events, attendance, students, groups, ...now }).length, 1, 'три пропуска подряд');
+  events[1].cancelled = true;
+  assert.equal(L.earlySignals({ events, attendance, students, groups, ...now }).length, 0, 'отменённая пара не пропуск');
+  const report = L.buildReport({ events, attendance, students, groups, filters: { from: '2026-11-01', to: '2026-11-30', types: ['lesson'] }, ...now });
+  assert.deepEqual(report.pairs.map((p) => p.event.id), ['e0', 'e2']);
+  const draft = { id: 'x', date: '2026-11-05', start: '09:30', end: '10:00', participants: ['Иванов'], equipment: ['Проектор'] };
+  assert.deepEqual(L.findConflicts(draft, events), [], 'люди и техника свободны');
+  const task = { id: 't', type: 'task', title: 'Съёмка', date: '2026-11-05', start: '09:00', end: '10:30', participants: ['Иванов'], cancelled: true };
+  assert.equal(L.excusedBy({ ...events[2], date: '2026-11-05' }, [task]).size, 0, 'отменённое задание не освобождает');
+});

@@ -32,7 +32,7 @@ export function petStatus({ group, groups = [group], students, events, attendanc
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const since = group.petSince ?? '';
   const pairs = events
-    .filter((event) => COUNTED_TYPES.has(event.type) && `${event.date}T${event.end}` > since)
+    .filter((event) => COUNTED_TYPES.has(event.type) && event.cancelled !== true && `${event.date}T${event.end}` > since)
     .sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b));
 
   let health = START_HEALTH;

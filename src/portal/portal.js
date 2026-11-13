@@ -91,7 +91,7 @@
   const STATUS_CLASS = { present: 'ok', late: 'warn', absent: 'bad', sick: 'info', order: 'info', excused: 'info', pending: 'muted' };
 
   function lessonItem(item) {
-    return h('li', { class: `item state-${item.state}` },
+    return h('li', { class: `item state-${item.state}${item.cancelled ? ' cancelled' : ''}` },
       h('div', { class: 'time' }, `${item.start}–${item.end}`),
       h('div', { class: 'what' },
         h('strong', {}, item.title),

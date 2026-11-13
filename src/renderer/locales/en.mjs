@@ -595,7 +595,22 @@ export default {
     "Откройте камеру телефона или приложение своего банка.": "Open your phone camera or your banking app.",
     "Наведите на QR-код: откроется перевод по СБП.": "Point it at the QR code to open an SBP transfer.",
     "Сумму выберите сами. Спасибо!": "Choose any amount. Thank you!",
-    "Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.": "The transfer goes to the author. Kerdiis works the same whether you support it or not."
+    "Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.": "The transfer goes to the author. Kerdiis works the same whether you support it or not.",
+    "Не состоялось: {0}": "Did not take place: {0}",
+    "Не состоялось": "Did not take place",
+    "Занятие не состоялось: отметки на нём не ставятся.": "The class did not take place, so attendance is not marked.",
+    "Всё-таки состоялось": "It did take place",
+    "Причина, например: преподаватель на больничном": "Reason, e.g. the teacher is on sick leave",
+    "Почему не состоялось": "Why it did not take place",
+    "Отметки на нём не ставятся, в отчёты, сигналы и здоровье питомца оно не идёт. Студенты увидят «Не состоялось» на телефоне.": "Attendance is not marked, and it is left out of reports, signals and the pet's health. Students will see “Did not take place” on their phones.",
+    "Причина не указана": "No reason given",
+    "Занятие не состоялось. Отметки на нём не ставятся.": "The class did not take place. Attendance is not marked.",
+    "Причина отмены": "Cancellation reason",
+    "Преподаватель на больничном": "Teacher on sick leave",
+    "Перенесено на другой день": "Moved to another day",
+    "Замена в расписании": "Timetable change",
+    "Мероприятие колледжа": "College event",
+    "Технические причины": "Technical reasons"
   },
   "plurals": {
     "events": {

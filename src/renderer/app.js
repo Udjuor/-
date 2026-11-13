@@ -1,4 +1,4 @@
-import { JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, earlySignals, portfolio } from './logic.mjs';
+import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, earlySignals, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
@@ -105,10 +105,11 @@ function eventBlock(item, range, dayView) {
   } else if (event.participants.length) {
     details.push(h('span', {}, peopleCount(event.participants.length)));
   }
-  const excusedCount = roll(event).filter((row) => row.excusedFor).length;
+  const excusedCount = event.cancelled ? 0 : roll(event).filter((row) => row.excusedFor).length;
   if (excusedCount) details.splice(2, 0, h('span', { class: 'blockexcused' }, t('По приказу: {0}', [excusedCount])));
+  if (event.cancelled) details.splice(1, 0, h('span', { class: 'blockcancelled' }, event.cancelReason ? t('Не состоялось: {0}', [event.cancelReason]) : t('Не состоялось')));
   const block = h('button', {
-    class: `block t-${event.type} ${status}${!dayView && columns > 1 ? ' narrow' : ''}`,
+    class: `block t-${event.type} ${status}${event.cancelled ? ' cancelled' : ''}${!dayView && columns > 1 ? ' narrow' : ''}`,
     'aria-label': eventLabel(event),
     onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
   }, details);
@@ -531,7 +532,9 @@ const storeMessage = (result) => (result.code === 'conflict'
       ? t('Отчёт по этой паре зафиксирован: название, время, состав и удаление закрыты.')
       : result.code === 'teacher-only'
         ? t('Это можно сделать только в версии для преподавателей.')
-        : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
+        : result.code === 'cancelled'
+          ? t('Занятие не состоялось: отметки на нём не ставятся.')
+          : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
 
 /* Карточка мероприятия */
 
@@ -583,7 +586,7 @@ function showDetails(id) {
 
   const showActions = () => footer.replaceChildren(
     canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
-    event.participants.length > 0 && h('button', {
+    event.participants.length > 0 && !event.cancelled && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
@@ -598,10 +601,39 @@ function showDetails(id) {
         }
       },
     }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
-    canManage() && memoApplies(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
+    canManage() && memoApplies(event) && !event.cancelled && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
+    canManage() && (event.cancelled
+      ? h('button', { class: 'plain', id: 'uncancel', onclick: () => setCancelled(event, false) }, t('Всё-таки состоялось'))
+      : h('button', { class: 'plain', id: 'cancel-event', onclick: showCancel }, t('Не состоялось'))),
     h('div', { class: 'spacer' }),
     canManage() && h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
   );
+
+  // Занятие не состоялось: причина по желанию, отметки и отчёты его больше не учитывают.
+  const setCancelled = async (target, cancelled, reason = '') => {
+    const result = await api.save({ ...target, cancelled, cancelReason: cancelled ? reason : '' }, target.updatedAt);
+    if (!result.ok) {
+      footer.replaceChildren(h('p', { class: 'message' }, storeMessage(result)), h('button', { class: 'plain', onclick: showActions }, t('Назад')));
+      return;
+    }
+    setEvents([...state.allEvents.filter((x) => x.id !== result.value.id), result.value]);
+    render();
+    dialog.close();
+    showDetails(result.value.id);
+  };
+  const showCancel = () => {
+    const reason = h('input', { id: 'cancel-reason', list: 'cancel-reasons', maxlength: 200, placeholder: t('Причина, например: преподаватель на больничном') });
+    footer.replaceChildren(
+      h('div', { class: 'field cancelfield' },
+        h('label', { for: 'cancel-reason' }, t('Почему не состоялось')),
+        reason,
+        h('datalist', { id: 'cancel-reasons' }, CANCEL_REASONS.map((text) => h('option', { value: t(text) }))),
+        h('p', { class: 'help' }, t('Отметки на нём не ставятся, в отчёты, сигналы и здоровье питомца оно не идёт. Студенты увидят «Не состоялось» на телефоне.'))),
+      h('button', { class: 'plain', onclick: showActions }, t('Оставить')),
+      h('button', { class: 'danger', id: 'cancel-confirm', onclick: () => setCancelled(event, true, reason.value.trim()) }, t('Не состоялось')),
+    );
+    reason.focus();
+  };
 
   const following = seriesFrom(event, state.allEvents);
   const removeAll = async (list) => {
@@ -637,6 +669,7 @@ function showDetails(id) {
     h('div', { class: 'sheethead' }, h('h2', {}, event.title), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('dl', { class: 'facts' },
+        event.cancelled ? fact(t('Не состоялось'), event.cancelReason || t('Причина не указана')) : [],
         fact(t('Тип'), typeLabel(event.type)),
         fact(t('Дата'), fmt(event.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })),
         span ? fact(t('Практика'), t('с {0} по {1}, день {2} из {3}', [shortDay(span.from), shortDay(span.to), span.day, span.days])) : [],
@@ -981,6 +1014,9 @@ async function openForm(source = {}) {
     end: $('f-end').value,
     allDay: allDayBox.checked,
     offsite: offsiteBox.checked,
+    // Правка не возвращает отменённое занятие: для этого есть кнопка «Всё-таки состоялось».
+    cancelled: source.cancelled === true,
+    cancelReason: source.cancelReason ?? '',
     prepMinutes: draft.type === 'lesson' ? 0 : Math.max(0, Math.round(Number($('f-prep').value) || 0)),
     ...readDeadline(),
     place: $('f-place').value.trim(),
@@ -1952,7 +1988,9 @@ function openRoll(id) {
   };
 
   const refused = (result) => {
-    if (result.code === 'teacher-only' || result.code === 'offsite') {
+    if (result.code === 'cancelled') {
+      failure.textContent = t('Занятие не состоялось: отметки на нём не ставятся.');
+    } else if (result.code === 'teacher-only' || result.code === 'offsite') {
       failure.textContent = t('Это можно сделать только в версии для преподавателей.');
     } else if (result.code === 'locked') {
       failure.textContent = t('Отчёт зафиксирован. Исправить его можно в версии для преподавателей.');
@@ -2057,9 +2095,10 @@ function openRoll(id) {
   function draw() {
     const rows = roll(event);
     const doc = attendanceOf(event.id);
-    const teacherMode = canManage();
+    const cancelled = event.cancelled === true;
+    const teacherMode = canManage() && !cancelled;
     // Пару вне колледжа на панели не отмечают: только смотрят, что внёс преподаватель.
-    const away = event.offsite === true && !teacherMode;
+    const away = (event.offsite === true && !teacherMode) || cancelled;
     const locked = Boolean(doc?.lock) || away;
     const count = (status) => rows.filter((row) => row.status === status).length;
     const parts = [
@@ -2081,10 +2120,11 @@ function openRoll(id) {
         },
       }, t('Подтвердить всех ({0})', [pendingAuto.length])),
     ]));
-    if (countsLateness(event)) drawStart(doc, locked, teacherMode);
+    if (countsLateness(event) && !cancelled) drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
     banner.textContent = doc?.lock
       ? t('Отчёт зафиксирован: {0}, {1}', [doc.lock.teacher, stampText(doc.lock.at)])
+      : cancelled ? t('Занятие не состоялось. Отметки на нём не ставятся.')
       : away ? t('Пара проходит вне колледжа. Отметки вносит преподаватель в версии для преподавателей.') : '';
     const query = nameKey(search.value);
     keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {

@@ -168,7 +168,7 @@ class StudentPortal {
     let marked = 0;
     for (const event of events) {
       if (event.date !== iso || !event.participants.some((name) => sameName(name, student.name))) continue;
-      if (event.offsite) continue; // пару в другом учреждении с телефона не отметить
+      if (event.offsite || event.cancelled) continue; // пару в другом учреждении или отменённую с телефона не отметить
       const state = L.eventState(event, iso, time);
       const soon = state === 'future' && L.toMinutes(event.start) - L.toMinutes(time) <= AUTO_MARK_BEFORE_MINUTES;
       if (state !== 'now' && !soon) continue;
@@ -201,8 +201,11 @@ class StudentPortal {
       place: event.place ?? '',
       responsible: event.responsible ?? '',
       offsite: event.offsite === true,
+      cancelled: event.cancelled === true,
+      cancelReason: event.cancelReason ?? '',
     });
     const statusOf = (event) => {
+      if (event.cancelled) return { code: 'cancelled', text: event.cancelReason ? `Не состоялось: ${event.cancelReason}` : 'Не состоялось' };
       const r = row(event);
       if (!r) return null;
       let text = L.statusName(r.status) ?? '';
@@ -219,12 +222,12 @@ class StudentPortal {
 
     const until = L.addDays(iso, UPCOMING_DAYS);
     const upcoming = mine
-      .filter((event) => event.type !== 'lesson' && event.date > iso && event.date <= until)
+      .filter((event) => event.type !== 'lesson' && !event.cancelled && event.date > iso && event.date <= until)
       .sort((a, b) => a.date.localeCompare(b.date) || L.byTime(a, b))
       .map(brief);
 
     const deadlines = mine
-      .filter((event) => event.deadline && L.deadlineState(event, moment) !== 'done')
+      .filter((event) => event.deadline && !event.cancelled && L.deadlineState(event, moment) !== 'done')
       .sort((a, b) => a.deadline.localeCompare(b.deadline))
       .map((event) => ({ ...brief(event), deadline: event.deadline, state: L.deadlineState(event, moment) }));
 
@@ -233,7 +236,7 @@ class StudentPortal {
     // Свои итоги за месяц по занятиям, где велась отметка.
     const month = { lessons: 0, late: 0, lateMinutes: 0, absent: 0, valid: 0 };
     for (const event of mine) {
-      if (event.date.slice(0, 7) !== iso.slice(0, 7) || event.date > iso || !docOf.get(event.id)) continue;
+      if (event.cancelled || event.date.slice(0, 7) !== iso.slice(0, 7) || event.date > iso || !docOf.get(event.id)) continue;
       const r = row(event);
       if (!r || r.status === 'pending') continue;
       month.lessons += 1;

@@ -215,6 +215,10 @@ main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .block span { display: block; flex: none; max-width: 100%; }
 .block.narrow { padding: .2rem .35rem; font-size: .92rem; }
 .block.narrow strong { font-size: .95rem; }
+.block.cancelled { border-style: dashed; border-left-style: solid; background: var(--canvas-subtle); color: var(--fg-muted); }
+.block.cancelled strong { text-decoration: line-through; }
+.blockcancelled { color: var(--danger-fg); font-weight: 600; }
+.cancelfield { flex: 1 1 100%; }
 .block.past { border-color: var(--border); border-left-color: var(--type); background: var(--canvas-subtle); color: var(--fg-muted); }
 .block.now { border-color: var(--now-ring); border-left-color: var(--now-ring); background: var(--type); color: #fff; }
 
