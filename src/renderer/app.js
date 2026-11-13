@@ -21,6 +21,8 @@ const state = {
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
   events: [], // те, что показывает это устройство
+  shown: [], // те, что на открытой вкладке календаря
+  tab: readTab(),
   directory: [],
   attendance: [],
   settings: null,
@@ -139,7 +141,7 @@ function fitBlock(block) {
 
 function timeGrid(days, dayView) {
   const clock = now();
-  const shown = state.events.filter((e) => days.includes(e.date) && !isAllDay(e));
+  const shown = state.shown.filter((e) => days.includes(e.date) && !isAllDay(e));
   const range = hourRange(shown);
   const hoursCount = range.last - range.first;
 
@@ -165,7 +167,7 @@ function timeGrid(days, dayView) {
         openForm({ date: iso, start: fromMinutes(start), end: fromMinutes(Math.min(start + 60, 23 * 60 + 55)) });
       },
     });
-    for (const item of layoutDay(eventsOn(state.events, iso).filter((e) => !isAllDay(e)))) column.append(eventBlock(item, range, dayView));
+    for (const item of layoutDay(eventsOn(state.shown, iso).filter((e) => !isAllDay(e)))) column.append(eventBlock(item, range, dayView));
     if (iso === clock.iso) {
       const minutes = toMinutes(clock.time) - range.first * 60;
       if (minutes >= 0 && minutes <= hoursCount * 60) {
@@ -178,7 +180,7 @@ function timeGrid(days, dayView) {
   });
 
   const body = h('div', { class: 'days' }, lines, columns);
-  if (dayView && !eventsOn(state.events, days[0]).length) {
+  if (dayView && !eventsOn(state.shown, days[0]).length) {
     body.append(h('p', { class: 'hint' }, t('На этот день мероприятий нет. Нажмите на нужное время, чтобы добавить.')));
   }
   return h('div', { class: `timegrid${dayView ? ' dayview' : ''}` }, hours, body);
@@ -199,7 +201,7 @@ function renderWeek(board) {
   board.append(timeGrid(days, false));
 }
 
-const deadlinesOn = (iso) => state.events
+const deadlinesOn = (iso) => state.shown
   .filter((event) => event.deadline.startsWith(iso) && !event.deadlineDone)
   .sort((a, b) => a.deadline.localeCompare(b.deadline));
 
@@ -222,7 +224,7 @@ function allDayChip(event) {
 
 /** События на весь день и сроки не привязаны к часам, поэтому идут полосой над сеткой. */
 function deadlineStrip(days) {
-  const allDay = days.map((iso) => eventsOn(state.events, iso).filter(isAllDay));
+  const allDay = days.map((iso) => eventsOn(state.shown, iso).filter(isAllDay));
   const perDay = days.map(deadlinesOn);
   if (![...allDay, ...perDay].some((items) => items.length)) return null;
   return h('div', { class: 'deadlinestrip' },
@@ -251,7 +253,7 @@ function renderMonth(board) {
   for (const iso of weeks.flat()) {
     const items = [
       ...deadlinesOn(iso).map((event) => () => deadlineChip(event)),
-      ...eventsOn(state.events, iso).map((e) => () => h('button', {
+      ...eventsOn(state.shown, iso).map((e) => () => h('button', {
         class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
         onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
       }, isAllDay(e) ? e.title : `${e.start} ${e.title}`)),
@@ -267,7 +269,79 @@ function renderMonth(board) {
   }
 }
 
+/* Вкладки календаря: всё, задания, практика, мероприятия и расписание каждой группы. */
+
+/** Что можно добавить с панели. Занятия и задания ведут преподаватели. */
+const PANEL_TYPES = ['practice', 'event'];
+
+const TYPE_TABS = ['task', 'practice', 'event'];
+const typeTabLabel = (type) => ({ task: t('Задания'), practice: t('Практика'), event: t('Мероприятия') })[type];
+const TAB_KEY = 'kerdiis-tab';
+
+function readTab() {
+  try { return localStorage.getItem('kerdiis-tab') || 'all'; } catch { return 'all'; }
+}
+
+function setTab(tab) {
+  state.tab = tab;
+  try { localStorage.setItem(TAB_KEY, tab); } catch { /* без памяти вкладки */ }
+  render();
+}
+
+/** Группы верхнего уровня: подгруппы входят в расписание своей группы. */
+const tabGroups = () => refsOf('group').filter((group) => !parentGroup(group, refsOf('group')));
+
+/** Открытая вкладка. Неизвестная (группу удалили или справочник ещё не загружен) — значит «Всё». */
+function currentTab() {
+  const [kind, value] = state.tab.split(':');
+  if (kind === 'type' && TYPE_TABS.includes(value)) return state.tab;
+  if (kind === 'group' && tabGroups().some((item) => item.id === value)) return state.tab;
+  return 'all';
+}
+
+function shownEvents() {
+  const [kind, value] = currentTab().split(':');
+  if (kind === 'type') return state.events.filter((e) => e.type === value);
+  if (kind === 'group') {
+    const group = tabGroups().find((item) => item.id === value);
+    const members = new Set(groupMembers(group, refsOf('group'), refsOf('student')).map((s) => nameKey(s.name)));
+    return state.events.filter((e) => e.participants.some((name) => members.has(nameKey(name))));
+  }
+  return state.events;
+}
+
+function drawTabs() {
+  const tab = (id, label, extra = {}) => h('button', {
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(currentTab() === id),
+    'data-tab': id,
+    onclick: () => setTab(id),
+    ...extra,
+  }, label);
+  const groups = tabGroups();
+  keepTabs(() => $('tabs').replaceChildren(
+    h('div', { role: 'tablist', 'aria-label': t('Вкладки календаря') },
+      tab('all', t('Всё')),
+      TYPE_TABS.map((type) => tab(`type:${type}`, typeTabLabel(type), { class: `t-${type}` })),
+      groups.length > 0 && h('span', { class: 'tabsep', 'aria-hidden': 'true' }),
+      groups.map((group) => tab(`group:${group.id}`, group.name, { class: 'grouptab' }))),
+  ));
+}
+
+/** Перерисовка вкладок не сбрасывает прокрутку длинного ряда групп. */
+function keepTabs(work) {
+  const row = $('tabs').firstElementChild;
+  const left = row?.scrollLeft ?? 0;
+  work();
+  const next = $('tabs').firstElementChild;
+  next.scrollLeft = left;
+  next.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
 function render() {
+  state.shown = shownEvents();
+  drawTabs();
   $('title').textContent = periodTitle();
   for (const button of document.querySelectorAll('.views button')) {
     button.setAttribute('aria-pressed', String(button.dataset.view === state.view));
@@ -493,6 +567,7 @@ async function loadDirectory() {
   const result = await api.directory();
   if (!result.ok || JSON.stringify(result.value) === JSON.stringify(state.directory)) return;
   state.directory = result.value;
+  render(); // вкладки групп и расписание группы зависят от справочника
   const dialog = $('catalog');
   const typing = dialog.contains(document.activeElement) && document.activeElement.value;
   if (dialog.open && !typing) drawCatalog();
@@ -829,7 +904,8 @@ async function openForm(source = {}) {
     equipment: (source.equipment ?? []).filter((name) => name !== OWN_CAMERA),
     qty: { ...(source.equipmentQty ?? {}) },
     devices: [...(source.devices ?? [])],
-    type: source.type ?? 'lesson',
+    // С панели добавляют только практику и мероприятия.
+    type: source.type ?? (isClient() ? 'event' : 'lesson'),
   };
 
   const field = (label, id, attrs, size = '') => {
@@ -842,7 +918,8 @@ async function openForm(source = {}) {
   };
 
   const typeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-type' });
-  const drawTypes = () => typeRow.replaceChildren(...EVENT_TYPES.map(([id, label]) => h('button', {
+  const formTypes = isClient() && !source.id ? EVENT_TYPES.filter(([id]) => PANEL_TYPES.includes(id)) : EVENT_TYPES;
+  const drawTypes = () => typeRow.replaceChildren(...formTypes.map(([id, label]) => h('button', {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
@@ -3815,6 +3892,8 @@ function resetIdle() {
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
+  // На общей панели вкладка тоже возвращается к «Всё».
+  if (isClient()) state.tab = 'all';
   render();
 }
 

@@ -364,8 +364,13 @@ function managed(work) {
 
 function registerHandlers() {
   ipcMain.handle('events:list', () => respond(() => store.list()));
+  // С панели можно добавить только практику и мероприятие: занятия и задания ведут преподаватели.
+  const PANEL_TYPES = new Set(['practice', 'event']);
+  const panelAllowed = (event) => edition !== 'client' || PANEL_TYPES.has(event?.type);
+  const teacherOnly = () => Object.assign(new Error('teacher only'), { code: 'teacher-only' });
   ipcMain.handle('events:save', (_e, event, base) => {
     const save = async () => {
+      if (!panelAllowed(event)) throw teacherOnly();
       const saved = await store.save(event, base);
       sync?.nudge();
       return saved;
@@ -378,6 +383,7 @@ function registerHandlers() {
     if (!Array.isArray(events) || events.length > 400 || events.some((event) => event?.id)) {
       throw Object.assign(new Error('invalid'), { code: 'invalid' });
     }
+    if (!events.every(panelAllowed)) throw teacherOnly();
     const saved = [];
     for (const event of events) saved.push(await store.save(event, null, { journal: saved.length === 0 && events.length === 1 }));
     // Цепочка в журнале одной строкой, а не сотней.

@@ -1134,6 +1134,32 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const practiceDays = (await page.evaluate(() => window.calendar.list())).value.filter((e) => e.title === 'Практика в фотостудии').map((e) => e.date).sort();
   assert.deepEqual(practiceDays, [21, 22, 23, 24, 25].map(day));
 
+  // Вкладки календаря: по типу и расписание группы.
+  await page.click('#today');
+  await page.click('[data-view=day]');
+  await page.click('#tabs [data-tab="type:practice"]');
+  const practiceBlocks = await page.$$eval('#board .block', (blocks) => blocks.map((b) => b.className));
+  assert.ok(practiceBlocks.length > 0 && practiceBlocks.every((c) => c.includes('t-practice')), 'только практика');
+  const groupTab = page.locator('#tabs button.grouptab', { hasText: 'ИС-21' });
+  await groupTab.click();
+  const expected = await page.evaluate(async () => {
+    const dir = (await window.calendar.directory()).value;
+    const group = dir.find((r) => r.kind === 'group' && r.name === 'ИС-21');
+    const subs = new Set([group.id, ...dir.filter((r) => r.kind === 'group' && r.name.startsWith('ИС-21-')).map((r) => r.id)]);
+    const names = new Set(dir.filter((r) => r.kind === 'student' && subs.has(r.groupId)).map((r) => r.name.toLowerCase()));
+    return { names: [...names] };
+  });
+  const shownTitles = await page.$$eval('#board .block strong', (els) => els.map((e) => e.textContent));
+  const all = (await page.evaluate(() => window.calendar.list())).value;
+  for (const title of shownTitles) {
+    const event = all.find((e) => e.title === title);
+    assert.ok(event.participants.some((p) => expected.names.includes(p.toLowerCase())), `${title} — для ИС-21`);
+  }
+  assert.ok(shownTitles.includes('Пара для отмены'), 'пара группы на месте');
+  await page.click('[data-view=week]');
+  await shot('tabs-group');
+  await page.click('#tabs [data-tab=all]');
+
   // Верхняя строка помещается и на ноутбуке: кнопки не наезжают друг на друга и на заголовок.
   for (const width of [1920, 1536, 1366, 1280]) {
     await page.setViewportSize({ width, height: Math.round(width * 9 / 16) });

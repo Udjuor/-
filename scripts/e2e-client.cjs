@@ -71,6 +71,12 @@ const today = (() => {
   await page.click('#add');
   await page.waitForSelector('#form[open]');
   await page.fill('#f-title', 'Событие студента');
+  // С панели — только практика и мероприятие, занятия и задания добавляют преподаватели.
+  const panelTypes = await page.$$eval('#form .targets button[class^="t-"]', (buttons) => buttons.map((b) => b.className.split(' ')[0]));
+  assert.deepEqual(panelTypes.filter((c) => ['t-lesson', 't-task', 't-practice', 't-event'].includes(c)), ['t-practice', 't-event']);
+  assert.equal(await page.getAttribute('#form .targets .t-event', 'aria-pressed'), 'true');
+  const forged = await page.evaluate(() => window.calendar.save({ title: 'Подделка', type: 'lesson', date: '2026-11-03', start: '10:00', end: '11:00', participants: [], equipment: [], devices: [] }, null));
+  assert.equal(forged.code, 'teacher-only', 'занятие с панели не сохраняется');
   await page.click('dialog#form button[type=submit]');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await page.waitForSelector('.block:has-text("Событие студента")');

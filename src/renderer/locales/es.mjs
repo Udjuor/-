@@ -610,7 +610,11 @@ export default {
     "Перенесено на другой день": "Trasladada a otro día",
     "Замена в расписании": "Cambio de horario",
     "Мероприятие колледжа": "Evento del centro",
-    "Технические причины": "Motivos técnicos"
+    "Технические причины": "Motivos técnicos",
+    "Всё": "Todo",
+    "Задания": "Tareas",
+    "Мероприятия": "Eventos",
+    "Вкладки календаря": "Pestañas del calendario"
   },
   "plurals": {
     "events": {
