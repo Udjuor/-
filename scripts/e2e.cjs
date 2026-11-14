@@ -1218,6 +1218,19 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('journal');
   await page.click('#journal [aria-label=Закрыть]');
 
+  // Индикатор связи и проверка связи: компьютер преподавателя на связи, лишний адрес — нет.
+  await page.click('#net');
+  await page.waitForSelector('#netcheck[open] .netverdict');
+  await page.waitForSelector('#netcheck .netpeers li.good:has-text("Кабинет преподавателя")');
+  await page.waitForSelector('#netcheck .netchecks li:has-text("Отпечаток ключа")');
+  await page.fill('#net-address', 'не адрес');
+  await page.click('#netcheck .netadd button');
+  await page.waitForSelector('#netcheck .message:has-text("Адрес вида 10.0.2.15")');
+  await shot('netcheck');
+  await page.click('#netcheck [aria-label=Закрыть]');
+  await until(async () => (await page.getAttribute('#net', 'data-level')) === 'good', 'зелёный индикатор связи');
+  await page.locator('header.topbar').screenshot({ path: path.join(shots, 'net-indicator.png') });
+
   assert.deepEqual(errors, [], 'ошибок на странице нет');
   await app.close();
   await teacher.stop();

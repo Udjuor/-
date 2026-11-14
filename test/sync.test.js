@@ -336,3 +336,87 @@ test('сгенерированный ключ длинный и случайны
   assert.match(generateKey(), /^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
   assert.notEqual(generateKey(), generateKey());
 });
+
+/** Порт, на котором точно никто не слушает: «программа на том компьютере не запущена». */
+async function closedPort() {
+  const server = require('node:net').createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return `127.0.0.1:${port}`;
+}
+
+test('проверка связи: кто на связи, кто выключен, кто с другим ключом', async (t) => {
+  const closed = await closedPort();
+  const panel = await device(t, 'panel', { version: '1.38.0', edition: 'client' });
+  const teacher = await device(t, 'teacher', { version: '1.38.0', edition: 'admin' });
+  const stranger = await device(t, 'stranger', { networkKey: 'OTHER-OTHER-OTHER-OTHER' });
+  await teacher.store.save(sample);
+  await panel.node.addManual(teacher.node.at);
+  await panel.node.addManual(stranger.node.at);
+  await panel.node.addManual(closed);
+  const report = await panel.node.diagnose({ listenMs: 10 });
+  const by = (address) => report.peers.find((p) => p.address === address);
+  assert.equal(by(teacher.node.at).status, 'ok');
+  assert.equal(by(teacher.node.at).name, 'teacher');
+  assert.equal(by(teacher.node.at).version, '1.38.0');
+  assert.equal(by(teacher.node.at).edition, 'admin');
+  assert.equal(by(teacher.node.at).count, (await teacher.store.records()).length);
+  assert.equal(by(stranger.node.at).status, 'wrong-key');
+  assert.equal(by(closed).status, 'refused');
+  assert.equal(report.listening, true);
+  assert.match(report.device.keyPrint, /^[0-9A-F]{4}-[0-9A-F]{4}$/);
+  assert.equal(report.device.keyPrint, teacher.node.print, 'одинаковый ключ — одинаковый отпечаток');
+  assert.notEqual(stranger.node.print, teacher.node.print);
+});
+
+test('встречная проверка показывает, доходят ли другие до этого устройства', async (t) => {
+  const teacher = await device(t, 'teacher', { version: '1.38.0' });
+  const panel = await device(t, 'panel', { version: '1.38.0' });
+  await panel.node.addManual(teacher.node.at);
+  const closed = await closedPort();
+  const ok = await teacher.node.request(panel.node.at, { type: 'probe', targets: [teacher.node.at, 'not-an-address', closed] });
+  assert.deepEqual(ok.results.map((r) => r.status), ['ok', 'refused'], 'чужие строки вместо адреса отбрасываются');
+});
+
+test('проверка связи не шлёт старым версиям незнакомый запрос, а обменивается как обычно', async (t) => {
+  const panel = await device(t, 'panel', { version: '1.38.0' });
+  const old = await device(t, 'old');
+  await old.store.save(sample);
+  await panel.node.syncWith(old.node.at);
+  const report = await panel.node.diagnose({ listenMs: 10 });
+  assert.equal(report.peers.find((p) => p.name === 'old').status, 'ok');
+  assert.equal((await panel.store.list()).length, 1);
+});
+
+test('долго нет связи — поиск устройств перезапускается сам, раз в 15 минут', async (t) => {
+  let now = Date.parse('2026-11-14T10:00:00Z');
+  const { HEAL_MS } = require('../src/main/sync');
+  const panel = await device(t, 'panel', { clock: () => now, peers: [await closedPort()] });
+  await panel.node.round();
+  assert.equal(panel.node.heals, 0);
+  now += HEAL_MS + 1000;
+  await panel.node.round();
+  assert.equal(panel.node.heals, 1);
+  assert.equal(panel.node.discoveryReady, true, 'поиск снова открыт');
+  await panel.node.round();
+  assert.equal(panel.node.heals, 1, 'не чаще раза в 15 минут');
+});
+
+test('забыть старые адреса: остаются только те, с кем есть связь', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  await a.node.syncWith(b.node.at);
+  a.node.remember('gone', 'Старая панель', '10.9.9.9:47800');
+  assert.equal(a.node.forgetStale(), 1);
+  assert.deepEqual([...a.node.peers.keys()], ['b']);
+});
+
+test('адрес вручную проверяется и сразу даёт обмен', async (t) => {
+  const a = await device(t, 'a');
+  const b = await device(t, 'b');
+  await b.store.save(sample);
+  await assert.rejects(a.node.addManual('панель 214'), { code: 'bad-address' });
+  assert.deepEqual(await a.node.addManual(b.node.at), { address: b.node.at, status: 'ok' });
+  assert.equal((await a.store.list()).length, 1);
+});

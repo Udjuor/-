@@ -24,6 +24,13 @@ const NUDGE_MS = 1500;
 const REQUEST_MS = 8000;
 const MAX_BODY = 32 * 1024 * 1024;
 const FANOUT = 8; // за один круг: остальных запись догонит по цепочке
+const PING_MS = 4000;
+const LISTEN_MS = 3000;
+/** Если ни с кем не было обмена столько времени, узел сам перезапускает поиск устройств. */
+const HEAL_MS = 15 * 60_000;
+/** Что умеет узел сверх обмена: проверку связи (ping) и встречную проверку (probe). */
+const CAPS = ['diag'];
+const ADDRESS = /^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/;
 
 // Версия обмена. С 2 в записях есть типы событий: устройство старой версии
 // потеряло бы их, сохраняя копию, поэтому такие устройства ждут обновления.
@@ -83,6 +90,38 @@ function shuffled(items) {
 
 const withPort = (address, port) => (address.includes(':') ? address : `${address}:${port}`);
 
+/** Отпечаток ключа сети: по нему видно, одинаковый ли ключ на двух устройствах, сам ключ не раскрывается. */
+const keyPrint = (key) => crypto.createHash('sha256').update(key).digest('hex').slice(0, 8).toUpperCase().replace(/(.{4})/, '$1-');
+
+/** Подсети компьютера: адрес и маска, чтобы понять, в одной ли сети другое устройство. */
+function localSubnets() {
+  const list = [];
+  for (const [name, entries] of Object.entries(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) list.push({ name, address: entry.address, netmask: entry.netmask });
+    }
+  }
+  return list;
+}
+
+const toInt = (ip) => ip.split('.').reduce((n, part) => ((n << 8) | Number(part)) >>> 0, 0);
+function sameSubnet(address, subnets) {
+  const ip = String(address).split(':')[0];
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return false;
+  return subnets.some((net) => ((toInt(ip) & toInt(net.netmask)) >>> 0) === ((toInt(net.address) & toInt(net.netmask)) >>> 0));
+}
+
+/** Почему не удалось связаться: понятная причина вместо кода ошибки. */
+function failure(err) {
+  if (err.status) return err.status;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return 'timeout';
+  const code = err.cause?.code ?? err.code;
+  if (code === 'ECONNREFUSED') return 'refused';
+  if (code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'EADDRNOTAVAIL') return 'unreachable';
+  if (code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'ETIMEDOUT') return 'timeout';
+  return 'offline';
+}
+
 class SyncNode {
   /**
    * @param options.store хранилище мероприятий
@@ -95,10 +134,18 @@ class SyncNode {
   constructor({
     store, device, networkKey, peers = [], peersFile = null, onChange = () => {},
     port = DEFAULT_PORT, discoveryPort = DISCOVERY_PORT, discoveryTargets = null, timers = true, protocol = PROTOCOL,
+    version = '', edition = '', clock = () => Date.now(),
   }) {
+    this.version = version;
+    this.edition = edition;
+    this.clock = clock;
+    this.lastOkAt = null;
+    this.lastHealAt = clock();
+    this.heals = 0;
     this.store = store;
     this.device = device;
     this.key = deriveKey(networkKey);
+    this.print = keyPrint(this.key);
     this.manual = peers.map((address) => withPort(address, DEFAULT_PORT));
     this.peersFile = peersFile;
     this.onChange = onChange;
@@ -154,16 +201,26 @@ class SyncNode {
   }
 
   async startDiscovery() {
-    this.socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-    this.socket.on('error', (err) => console.error('Поиск устройств:', err.message));
-    this.socket.on('message', (packet, info) => this.onHello(packet, info));
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    this.socket = socket;
+    this.discoveryReady = false;
+    socket.on('error', (err) => console.error('Поиск устройств:', err.message));
+    socket.on('message', (packet, info) => this.onHello(packet, info));
     await new Promise((resolve) => {
-      this.socket.once('error', resolve);
-      this.socket.bind(this.discoveryPort, () => {
-        this.socket.setBroadcast(true);
+      socket.once('error', resolve);
+      socket.bind(this.discoveryPort, () => {
+        socket.setBroadcast(true);
+        this.discoveryReady = true;
         resolve();
       });
     });
+  }
+
+  /** Заново открывает поиск устройств: помогает, когда сеть компьютера переподключилась. */
+  async restartDiscovery() {
+    try { this.socket?.close(); } catch { /* уже закрыт */ }
+    await this.startDiscovery();
+    this.hello();
   }
 
   async stop() {
@@ -179,7 +236,7 @@ class SyncNode {
   }
 
   identity() {
-    return { id: this.device.id, name: this.device.name, port: this.port, protocol: this.protocol };
+    return { id: this.device.id, name: this.device.name, port: this.port, protocol: this.protocol, version: this.version, edition: this.edition, caps: CAPS };
   }
 
   /** Сообщает о себе в подсетях. Посторонние не смогут прочитать пакет. */
@@ -201,14 +258,14 @@ class SyncNode {
     }
     if (peer.id === this.device.id) return;
     const known = this.peers.has(peer.id);
-    this.remember(peer.id, peer.name, `${info.address}:${peer.port}`);
+    this.remember(peer.id, peer.name, `${info.address}:${peer.port}`, { ...about(peer), heardAt: this.clock() });
     if (!known) this.syncWith(this.peers.get(peer.id).address, peer.id);
   }
 
-  remember(id, name, address) {
+  remember(id, name, address, extra = {}) {
     if (!id || id === this.device.id) return;
     const peer = this.peers.get(id) ?? { id, name, address, lastSync: null, status: 'unknown' };
-    this.peers.set(id, { ...peer, name: name || peer.name, address: address || peer.address });
+    this.peers.set(id, { ...peer, ...extra, name: name || peer.name, address: address || peer.address });
   }
 
   /** Адреса других устройств расходятся по сети, в том числе между подсетями. */
@@ -253,7 +310,7 @@ class SyncNode {
     }
     try {
       const address = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
-      this.remember(message.from?.id, message.from?.name, address && `${address}:${message.from?.port}`);
+      this.remember(message.from?.id, message.from?.name, address && `${address}:${message.from?.port}`, { ...about(message.from), contactAt: this.clock() });
       this.learn(message.peers);
       const reply = await this.answer(message);
       res.writeHead(200, { 'Content-Type': 'application/octet-stream' })
@@ -265,6 +322,12 @@ class SyncNode {
   }
 
   async answer(message) {
+    if (message.type === 'ping') return { count: (await this.store.records()).length };
+    // Встречная проверка: «попробуй достучаться до меня» — так видно, что входящие блокирует брандмауэр.
+    if (message.type === 'probe') {
+      const targets = (message.targets ?? []).map(String).filter((a) => ADDRESS.test(a)).slice(0, 4);
+      return { results: await Promise.all(targets.map(async (address) => ({ address, ...(await this.ping(address)) }))) };
+    }
     if (message.type === 'push') {
       await this.accept(message.records ?? []);
       return {};
@@ -292,11 +355,11 @@ class SyncNode {
     return changed;
   }
 
-  async request(address, message) {
+  async request(address, message, timeout = REQUEST_MS) {
     const response = await fetch(`http://${address}/v1`, {
       method: 'POST',
       body: seal(this.key, 'request', { ...message, from: this.identity(), peers: this.publicPeers() }),
-      signal: AbortSignal.timeout(REQUEST_MS),
+      signal: AbortSignal.timeout(timeout),
     });
     if (response.status === 426) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
     if (response.status === 401) throw Object.assign(new Error('другой ключ сети'), { status: 'wrong-key' });
@@ -322,7 +385,7 @@ class SyncNode {
       const reply = await this.request(address, { type: 'sync', manifest });
       if (reply.from?.id === this.device.id) return false; // в списке адресов оказался свой
       if (!(reply.from?.protocol >= PROTOCOL)) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
-      this.remember(reply.from?.id, reply.from?.name, address);
+      this.remember(reply.from?.id, reply.from?.name, address, about(reply.from));
       this.learn(reply.peers);
       await this.accept(reply.send ?? []);
       const wanted = new Set(reply.want ?? []);
@@ -331,6 +394,7 @@ class SyncNode {
       }
       this.manualStatus.set(address, 'ok');
       setStatus('ok', reply.from?.id);
+      this.lastOkAt = this.clock();
       return true;
     } catch (err) {
       const status = err.status ?? 'offline';
@@ -348,8 +412,125 @@ class SyncNode {
     const chosen = all ? known : known.slice(0, FANOUT);
     const jobs = new Map(chosen.map((peer) => [peer.address, peer.id]));
     for (const address of this.manual) if (!jobs.has(address)) jobs.set(address, null);
-    await Promise.all([...jobs].map(([address, id]) => this.syncWith(address, id)));
+    const results = await Promise.all([...jobs].map(([address, id]) => this.syncWith(address, id)));
     this.savePeers();
+    await this.heal(jobs.size > 0 && !results.some(Boolean));
+  }
+
+  /**
+   * Самовосстановление: долго нет ни одного обмена — заново открываем поиск устройств
+   * и спрашиваем все известные адреса, а не только случайные.
+   */
+  async heal(failedRound) {
+    const now = this.clock();
+    const since = this.lastOkAt ?? this.lastHealAt;
+    if (!failedRound || now - since < HEAL_MS || now - this.lastHealAt < HEAL_MS || this.stopped) return false;
+    this.lastHealAt = now;
+    this.heals += 1;
+    await this.restartDiscovery().catch((err) => console.error('Поиск устройств не перезапущен:', err.message));
+    return true;
+  }
+
+  /** Короткая проверка связи с одним адресом, без обмена данными. */
+  async ping(address) {
+    const started = this.clock();
+    try {
+      const reply = await this.request(address, { type: 'ping' }, PING_MS);
+      if (reply.from?.id === this.device.id) return { status: 'self' };
+      return { status: 'ok', ms: this.clock() - started, id: reply.from?.id, name: reply.from?.name, version: reply.from?.version ?? '', edition: reply.from?.edition ?? '', count: reply.count ?? null };
+    } catch (err) {
+      return { status: failure(err) };
+    }
+  }
+
+  /** Добавляет адрес вручную (например, компьютер преподавателя с постоянным IP в другой подсети). */
+  async addManual(address) {
+    const target = withPort(String(address).trim(), DEFAULT_PORT);
+    if (!ADDRESS.test(target)) throw Object.assign(new Error('bad address'), { code: 'bad-address' });
+    if (!this.manual.includes(target)) this.manual.push(target);
+    const ok = await this.syncWith(target);
+    return { address: target, status: ok ? 'ok' : this.manualStatus.get(target) ?? 'offline' };
+  }
+
+  /** Забывает адреса, по которым давно нет связи: после смены сети они только мешают. */
+  forgetStale() {
+    let removed = 0;
+    for (const [id, peer] of this.peers) {
+      if (peer.status !== 'ok') {
+        this.peers.delete(id);
+        removed += 1;
+      }
+    }
+    this.savePeers();
+    this.hello();
+    return removed;
+  }
+
+  /**
+   * Полная проверка связи: сеть компьютера, поиск устройств рассылкой, связь с каждым
+   * известным устройством и встречная проверка — доходят ли другие до этого компьютера.
+   */
+  async diagnose({ listenMs = LISTEN_MS } = {}) {
+    const started = this.clock();
+    const subnets = localSubnets();
+    this.hello();
+    await new Promise((resolve) => { setTimeout(resolve, listenMs); });
+    const heard = new Set([...this.peers.values()].filter((p) => p.heardAt >= started).map((p) => p.id));
+    const targets = new Map();
+    for (const peer of this.peers.values()) if (peer.address) targets.set(peer.address, peer);
+    for (const address of this.manual) if (!targets.has(address)) targets.set(address, null);
+    const peers = await Promise.all([...targets].map(async ([address, peer]) => {
+      // Старые версии не знают проверку связи: с ними проверяем обычным обменом.
+      let result;
+      if (!peer || (peer.caps ?? []).includes('diag')) result = await this.ping(address);
+      else result = { status: (await this.syncWith(address, peer.id)) ? 'ok' : this.peers.get(peer.id)?.status ?? 'offline' };
+      if (result.status === 'ok' && result.id) this.remember(result.id, result.name, address, { version: result.version, edition: result.edition, caps: CAPS, status: 'ok', lastSync: new Date(this.clock()).toISOString() });
+      const known = (result.id && this.peers.get(result.id)) || peer;
+      return {
+        address,
+        id: known?.id ?? null,
+        name: result.name || known?.name || address,
+        version: result.version || known?.version || '',
+        edition: result.edition || known?.edition || '',
+        manual: this.manual.includes(address),
+        sameSubnet: sameSubnet(address, subnets),
+        heard: Boolean(known?.id && heard.has(known.id)),
+        lastSync: known?.lastSync ?? null,
+        ...result,
+      };
+    }));
+    const self = peers.filter((p) => p.status === 'self');
+    const list = peers.filter((p) => p.status !== 'self');
+    // Встречная проверка через тех, кто на связи и умеет её делать.
+    let inbound = 'unknown';
+    const helpers = list.filter((p) => p.status === 'ok' && p.version).slice(0, 3);
+    const mine = subnets.map((net) => `${net.address}:${this.port}`);
+    for (const helper of helpers) {
+      try {
+        const reply = await this.request(helper.address, { type: 'probe', targets: mine }, PING_MS * 2);
+        if ((reply.results ?? []).some((r) => r.status === 'ok' || r.status === 'self')) {
+          inbound = 'ok';
+          break;
+        }
+        inbound = 'blocked';
+      } catch {
+        // этот помощник не ответил — спросим следующего
+      }
+    }
+    this.savePeers();
+    return {
+      at: new Date(started).toISOString(),
+      device: { ...this.identity(), keyPrint: this.print },
+      subnets,
+      listening: Boolean(this.server?.listening),
+      discovery: Boolean(this.discoveryReady),
+      heard: heard.size,
+      peers: list.sort((a, b) => (a.status === 'ok') - (b.status === 'ok') || a.name.localeCompare(b.name, 'ru')),
+      ignoredSelf: self.length,
+      inbound,
+      lastOkAt: this.lastOkAt,
+      heals: this.heals,
+    };
   }
 
   /** Просит разослать изменения вскоре, собирая несколько правок в один обмен. */
@@ -364,8 +545,14 @@ class SyncNode {
 
   status() {
     const reached = new Set([...this.peers.values()].map((peer) => peer.address));
+    // Связь была, если обменялись сами или к нам обратились: панель за брандмауэром сама ходит к другим.
+    const lastSyncs = [...this.peers.values()].flatMap((p) => [Date.parse(p.lastSync ?? ''), p.contactAt ?? NaN]).filter(Number.isFinite);
     return {
       enabled: true,
+      keyPrint: this.print,
+      lastOkAt: Math.max(this.lastOkAt ?? 0, ...lastSyncs) || null,
+      now: this.clock(),
+      discovery: Boolean(this.discoveryReady),
       addresses: localNetworks().addresses,
       port: this.port,
       peers: [...this.peers.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru')),
@@ -376,4 +563,14 @@ class SyncNode {
   }
 }
 
-module.exports = { SyncNode, generateKey, seal, open, deriveKey, DEFAULT_PORT, localNetworks };
+/** Сведения об устройстве из его сообщения: версия программы и что оно умеет. */
+function about(from) {
+  if (!from) return {};
+  const out = {};
+  if (typeof from.version === 'string' && from.version) out.version = from.version.slice(0, 20);
+  if (from.edition === 'admin' || from.edition === 'client') out.edition = from.edition;
+  if (Array.isArray(from.caps)) out.caps = from.caps.filter((c) => typeof c === 'string').slice(0, 8);
+  return out;
+}
+
+module.exports = { SyncNode, generateKey, seal, open, deriveKey, keyPrint, sameSubnet, failure, DEFAULT_PORT, localNetworks, HEAL_MS };

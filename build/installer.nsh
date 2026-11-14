@@ -64,6 +64,15 @@
   Pop $calOutput
   nsExec::Exec 'netsh advfirewall firewall add rule name="${CAL_RUN_NAME}" dir=in action=allow program="$INSTDIR\${APP_EXECUTABLE_FILENAME}" enable=yes profile=any'
   Pop $calOutput
+  ; Порты обмена отдельно: правило на программу перестаёт действовать, если папку программы поменяли.
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis sync"'
+  Pop $calOutput
+  nsExec::Exec 'netsh advfirewall firewall add rule name="Kerdiis sync" dir=in action=allow protocol=TCP localport=47800,47880 enable=yes profile=any'
+  Pop $calOutput
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis discovery"'
+  Pop $calOutput
+  nsExec::Exec 'netsh advfirewall firewall add rule name="Kerdiis discovery" dir=in action=allow protocol=UDP localport=47801 enable=yes profile=any'
+  Pop $calOutput
 
   ; Автообновление. Программа стоит на весь компьютер, поэтому обновить её
   ; может только администратор: это делает системная задача, а не пользователь.
@@ -129,6 +138,10 @@
   DeleteRegValue HKLM "${CAL_RUN_KEY}" "${CAL_RUN_NAME}"
   DeleteRegValue HKLM "${CAL_RUN_KEY}" "${CAL_OLD_NAME}"
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${CAL_RUN_NAME}"'
+  Pop $R9
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis sync"'
+  Pop $R9
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis discovery"'
   Pop $R9
   ; При обновлении задачи и каталог нужны, в них выполняется сам процесс обновления.
   ${ifNot} ${isUpdated}

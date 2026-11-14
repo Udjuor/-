@@ -10,6 +10,7 @@ const { EventStore } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey, localNetworks } = require('./sync');
 const { StudentPortal, PORTAL_PORT } = require('./portal');
+const { firewallState, repairFirewall } = require('./netcheck');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
 function homeDir() {
@@ -163,6 +164,8 @@ async function restartSync() {
     peers: config.peers,
     peersFile: path.join(homeDir(), 'peers.json'),
     onChange: () => win?.webContents.send('events:changed'),
+    version: app.getVersion(),
+    edition,
   });
   try {
     await node.start();
@@ -590,6 +593,7 @@ function registerHandlers() {
     memoSigner: config.memoSigner,
     fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
+    platform: process.platform,
   }));
 
   ipcMain.handle('settings:save', (_e, settings) =>
@@ -670,6 +674,33 @@ function registerHandlers() {
     await sync?.round({ all: true });
   });
   ipcMain.handle('sync:generate-key', () => generateKey());
+  // Проверка и восстановление связи. Доступны и на панелях: там чаще всего и ломается.
+  ipcMain.handle('sync:diagnose', () => respond(async () => {
+    const windows = await firewallState(process.execPath);
+    if (!sync) return { enabled: false, problem: syncProblem, hasKey: Boolean(config.syncKey), windows, version: app.getVersion(), edition, name: config.deviceName };
+    return { enabled: true, ...(await sync.diagnose()), windows, manual: config.peers };
+  }));
+  ipcMain.handle('sync:add-peer', (_e, address) => respond(async () => {
+    if (!sync) throw Object.assign(new Error('sync off'), { code: 'sync-off' });
+    const result = await sync.addManual(address);
+    const plain = result.address.endsWith(':47800') ? result.address.slice(0, -6) : result.address;
+    if (!config.peers.includes(plain) && !config.peers.includes(result.address)) {
+      config = { ...config, peers: [...config.peers, plain] };
+      saveConfig(homeDir(), config);
+    }
+    return result;
+  }));
+  ipcMain.handle('sync:forget', () => respond(() => sync?.forgetStale() ?? 0));
+  ipcMain.handle('sync:restart', () => respond(async () => {
+    await restartSync();
+    await sync?.round({ all: true });
+    return Boolean(sync);
+  }));
+  ipcMain.handle('sync:repair-firewall', () => respond(async () => {
+    const state = await repairFirewall(process.execPath);
+    await restartSync();
+    return state;
+  }));
 
   ipcMain.handle('splash:skip', finishSplash);
 

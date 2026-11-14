@@ -168,6 +168,13 @@ const today = (() => {
   assert.match(await page.textContent('#preferences'), /клиент для панелей/);
   await page.click('#preferences [aria-label=Закрыть]');
 
+  // Индикатор связи есть и на панели: без ключа — «Обмен выключен», проверка объясняет почему.
+  await page.waitForSelector('#net[data-level="off"]:has-text("Обмен выключен")');
+  await page.click('#net');
+  await page.waitForSelector('#netcheck .netchecks li.bad:has-text("Ключ сети не введён")');
+  await shot('client-netcheck');
+  await page.click('#netcheck [aria-label=Закрыть]');
+
   await app.close();
   console.log('Клиент проверен');
 })().catch((err) => {

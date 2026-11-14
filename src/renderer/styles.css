@@ -866,6 +866,32 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .awards li button { margin-left: auto; }
 
 /* Узкий экран (ноутбук): компактнее заголовок, часы и вкладки. */
+/* Индикатор связи в шапке и проверка связи */
+.netstate { display: inline-flex; align-items: center; gap: .45rem; min-height: 2.6rem; padding: 0 .75rem; border: .05rem solid var(--border); border-radius: 999px; background: transparent; color: var(--fg); font-size: 1rem; white-space: nowrap; }
+.netdot { width: .8rem; height: .8rem; border-radius: 50%; background: var(--fg-muted); flex: none; }
+.netstate[data-level="good"] .netdot { background: #3fb950; box-shadow: 0 0 0 .2rem rgb(63 185 80 / .2); }
+.netstate[data-level="warn"] .netdot { background: var(--attention-fg); box-shadow: 0 0 0 .2rem var(--attention-subtle); }
+.netstate[data-level="bad"] { border-color: var(--danger-emphasis); color: var(--danger-fg); }
+.netstate[data-level="bad"] .netdot { background: var(--danger-fg); animation: netpulse 1.6s ease-in-out infinite; }
+@keyframes netpulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .netstate[data-level="bad"] .netdot { animation: none; } }
+.netbody { display: grid; gap: .9rem; }
+.netverdict { margin: 0; padding: .8rem 1rem; border-radius: .5rem; font-size: 1.2rem; font-weight: 600; }
+.netverdict.good { background: rgb(63 185 80 / .15); color: #3fb950; }
+.netverdict.warn { background: var(--attention-subtle); color: var(--attention-fg); }
+.netverdict.bad { background: var(--danger-subtle); color: var(--danger-fg); }
+.netchecks, .netpeers { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.netchecks li, .netpeers li { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; padding: .5rem .2rem; border-bottom: .05rem solid var(--border-muted); }
+.netchecks li > div, .netpeers li > div { display: grid; gap: .15rem; }
+.netmark { font-weight: 700; text-align: center; font-size: 1.15rem; }
+.netchecks .good .netmark, .netpeers .good .netmark { color: #3fb950; }
+.netchecks .warn .netmark { color: var(--attention-fg); }
+.netchecks .bad .netmark, .netpeers .bad .netmark { color: var(--danger-fg); }
+.netnote { color: var(--attention-fg); font-size: .95rem; }
+.netadd { display: flex; gap: .5rem; }
+.netadd input { flex: 1; max-width: 16rem; }
+.netactions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.netactions button { min-height: 2.6rem; padding: 0 .9rem; }
 @media (max-width: 1500px) {
   .topbar { gap: 1rem; padding: 0 .75rem; }
   .tools { gap: .5rem; }
@@ -876,4 +902,6 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 }
 @media (max-width: 1150px) {
   #clock { display: none; }
+  #net-text { display: none; }
+  .netstate { padding: 0 .7rem; }
 }

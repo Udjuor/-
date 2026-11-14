@@ -3834,7 +3834,8 @@ async function openSettings() {
               await refresh();
               button.disabled = false;
             },
-          }, t('Обменяться сейчас'))),
+          }, t('Обменяться сейчас')),
+          h('button', { type: 'button', class: 'plain', id: 's-netcheck', onclick: () => { dialog.close(); openNetCheck(); } }, t('Проверка связи'))),
         devices),
       ]),
       h('p', { class: 'help' }, current.edition === 'client' ? t('Версия программы: клиент для панелей.') : t('Версия программы: для преподавателей.')),
@@ -3866,6 +3867,221 @@ async function openSettings() {
   dialog.showModal();
 }
 
+/* Связь с другими устройствами: индикатор в шапке и проверка с восстановлением */
+
+const NET_GOOD_MS = 10 * 60_000;
+const NET_WARN_MS = 2 * 60 * 60_000;
+
+function agoText(ms) {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return t('только что');
+  if (minutes < 60) return t('{0} мин назад', [minutes]);
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return t('{0} ч назад', [hours]);
+  return t('{0} дн. назад', [Math.round(hours / 24)]);
+}
+
+/** Состояние связи для индикатора: good, warn, bad или off (обмен не настроен). */
+function netState(status) {
+  if (!status.enabled) {
+    return status.problem
+      ? { level: 'bad', text: t('Обмен не работает'), title: PROBLEMS[status.problem] ?? '' }
+      : { level: 'off', text: t('Обмен выключен'), title: t('Введите ключ сети, чтобы включить обмен.') };
+  }
+  const online = status.peers.filter((p) => p.status === 'ok').length;
+  const ago = status.lastOkAt ? (status.now ?? Date.now()) - status.lastOkAt : null;
+  const title = [
+    ago === null ? t('Обмена ещё не было') : t('Последний обмен {0}', [agoText(ago)]),
+    t('На связи устройств: {0} из {1}', [online, status.peers.length]),
+    t('Нажмите, чтобы проверить связь'),
+  ].join('\n');
+  if (ago !== null && ago <= NET_GOOD_MS) return { level: 'good', text: t('На связи'), title };
+  if (ago !== null && ago <= NET_WARN_MS) return { level: 'warn', text: t('Связь {0}', [agoText(ago)]), title };
+  return { level: 'bad', text: t('Нет связи'), title };
+}
+
+async function refreshNet() {
+  const status = await api.syncStatus();
+  const net = netState(status);
+  const button = $('net');
+  button.dataset.level = net.level;
+  button.title = net.title;
+  button.setAttribute('aria-label', `${net.text}. ${t('Проверка связи')}`);
+  $('net-text').textContent = net.text;
+}
+
+const PEER_RESULT = {
+  ok: () => t('На связи'),
+  timeout: () => t('Не отвечает: компьютер выключен, спит или его закрывает брандмауэр'),
+  refused: () => t('Компьютер включён, но Kerdiis на нём не запущен'),
+  unreachable: () => t('Нет пути по сети: устройство в другой сети или за роутером'),
+  'wrong-key': () => t('Другой ключ сети'),
+  outdated: () => t('Старая версия программы, обмен приостановлен'),
+  offline: () => t('Нет связи'),
+  unknown: () => t('Связи ещё не было'),
+};
+
+const editionName = (edition) => (edition === 'client' ? t('панель') : edition === 'admin' ? t('преподаватель') : '');
+
+/** Проверки по пунктам: что в порядке, что нет и что с этим делать. */
+function netChecks(report) {
+  const items = [];
+  const add = (level, title, text, advice) => items.push({ level, title, text, advice });
+  if (!report.enabled) {
+    add('bad', t('Обмен'), report.problem ? PROBLEMS[report.problem] ?? t('Обмен не запустился.') : t('Ключ сети не введён.'),
+      report.problem ? t('Нажмите «Перезапустить обмен». Если не помогло — перезапустите компьютер.') : t('Ключ сети вводит преподаватель в настройках.'));
+    return items;
+  }
+  add('good', t('Ключ сети'), t('Отпечаток ключа: {0}', [report.device.keyPrint]), t('На всех устройствах колледжа отпечаток должен быть одинаковым.'));
+  add(report.subnets.length ? 'good' : 'bad', t('Подключение к сети'),
+    report.subnets.length ? report.subnets.map((n) => `${n.name}: ${n.address} / ${n.netmask}`).join('; ') : t('Компьютер не подключён ни к одной сети.'),
+    report.subnets.length ? '' : t('Проверьте кабель или Wi-Fi.'));
+  add(report.listening && report.discovery ? 'good' : 'bad', t('Обмен на этом компьютере'),
+    report.listening ? t('Работает, порт {0}', [report.device.port]) : t('Не принимает подключения'),
+    report.listening && report.discovery ? '' : t('Нажмите «Перезапустить обмен».'));
+  add(report.heard ? 'good' : 'warn', t('Поиск устройств в своей сети'),
+    report.heard ? t('Отозвались на рассылку: {0}', [report.heard]) : t('Никто не отозвался на рассылку.'),
+    report.heard ? '' : t('Устройства в другой подсети или роутер не пропускает рассылку. Добавьте ниже адрес компьютера преподавателя с постоянным IP — обмен пойдёт напрямую.'));
+  const online = report.peers.filter((p) => p.status === 'ok');
+  add(online.length ? (online.length === report.peers.length ? 'good' : 'warn') : 'bad', t('Связь с устройствами'),
+    t('На связи: {0} из {1}', [online.length, report.peers.length]),
+    online.length ? '' : t('Ни одно устройство не отвечает. Проверьте, что компьютеры преподавателей включены, и добавьте адрес одного из них ниже.'));
+  if (report.inbound === 'blocked') {
+    add('bad', t('Другие видят этот компьютер'), t('Нет: другие устройства не могут подключиться к нему.'),
+      t('Обычно это брандмауэр Windows. Нажмите «Починить брандмауэр» — понадобится пароль администратора компьютера. Пока он не починен, этот компьютер сам забирает и отправляет данные раз в минуту.'));
+  } else if (report.inbound === 'ok') {
+    add('good', t('Другие видят этот компьютер'), t('Да'), '');
+  } else {
+    add('warn', t('Другие видят этот компьютер'), t('Не проверено: нет устройств на связи, через которые можно проверить.'), '');
+  }
+  const w = report.windows;
+  if (w && !w.error) {
+    const rulesOk = w.programRule === 'ok' && w.portRule && w.udpRule;
+    add(rulesOk ? 'good' : 'warn', t('Брандмауэр Windows'),
+      rulesOk ? t('Правила для Kerdiis на месте') : ({
+        missing: t('Нет правила для Kerdiis'),
+        'wrong-path': t('Правило есть, но на другую папку программы'),
+        disabled: t('Правило для Kerdiis выключено'),
+      }[w.programRule] ?? t('Нет правил для портов обмена')),
+      rulesOk ? '' : t('Нажмите «Починить брандмауэр».'));
+    const publicNets = w.profiles.filter((p) => p.category === 'Public');
+    if (publicNets.length) {
+      add('warn', t('Тип сети'), t('Общественная сеть: {0}', [publicNets.map((p) => p.alias || p.name).join(', ')]),
+        t('В общественной сети Windows строже закрывает входящие подключения. Если починка брандмауэра не помогла, попросите администратора сделать эту сеть частной.'));
+    }
+    if (w.localRulesBlocked) {
+      add('bad', t('Политика сети'), t('Политика колледжа запрещает свои правила брандмауэра.'), t('Нужен администратор сети: пусть разрешит Kerdiis.exe и порты 47800, 47801, 47880.'));
+    }
+  }
+  return items;
+}
+
+function netReportText(report, checks) {
+  const lines = [`Kerdiis ${report.device?.version ?? report.version ?? ''} · ${report.device?.name ?? report.name ?? ''} · ${editionName(report.device?.edition ?? report.edition)}`, report.at ?? new Date().toISOString(), ''];
+  for (const c of checks) lines.push(`${{ good: '✓', warn: '!', bad: '✗' }[c.level]} ${c.title}: ${c.text}${c.advice ? ` — ${c.advice}` : ''}`);
+  if (report.peers?.length) {
+    lines.push('');
+    for (const p of report.peers) lines.push(`${p.status === 'ok' ? '✓' : '✗'} ${p.name} (${p.address}${p.version ? `, ${p.version}` : ''}${p.edition ? `, ${editionName(p.edition)}` : ''}): ${PEER_RESULT[p.status]?.() ?? p.status}${p.ms != null ? `, ${p.ms} ms` : ''}${p.sameSubnet ? '' : `, ${t('другая подсеть')}`}`);
+  }
+  return lines.join('\n');
+}
+
+async function openNetCheck() {
+  const dialog = $('netcheck');
+  const body = h('div', { class: 'netbody' });
+  const message = h('p', { class: 'message', role: 'status' });
+  let report = null;
+  let checks = [];
+  const busy = (on) => { for (const b of dialog.querySelectorAll('button[data-act]')) b.disabled = on; };
+  const run = async (before) => {
+    busy(true);
+    body.replaceChildren(h('p', { class: 'help' }, t('Проверяем связь, это займёт до 15 секунд…')));
+    if (before) await before();
+    const result = await api.syncDiagnose();
+    report = result.ok ? result.value : { enabled: false, problem: 'failed', subnets: [], peers: [] };
+    checks = netChecks(report);
+    draw();
+    busy(false);
+    refreshNet();
+  };
+  const action = (act, label, work, cls = 'plain') => h('button', {
+    type: 'button',
+    class: cls,
+    'data-act': act,
+    onclick: async () => {
+      message.textContent = '';
+      await work();
+    },
+  }, label);
+  const peerRow = (p) => h('li', { class: `netpeer ${p.status === 'ok' ? 'good' : 'bad'}` },
+    h('span', { class: 'netmark', 'aria-hidden': 'true' }, p.status === 'ok' ? '✓' : '✗'),
+    h('div', {},
+      h('strong', {}, p.name),
+      h('span', { class: 'help' }, [p.address, editionName(p.edition), p.version && t('версия {0}', [p.version]), !p.sameSubnet && t('другая подсеть'), p.manual && t('адрес вручную')].filter(Boolean).join(' · ')),
+      h('span', {}, PEER_RESULT[p.status]?.() ?? p.status, p.status === 'ok' && p.ms != null ? ` · ${p.ms} ms` : ''),
+      p.version && report.device?.version && p.version !== report.device.version && h('span', { class: 'netnote' }, t('Версия отличается от этого компьютера ({0}) — обновите старую.', [report.device.version]))));
+  const draw = () => {
+    const worst = checks.some((c) => c.level === 'bad') ? 'bad' : checks.some((c) => c.level === 'warn') ? 'warn' : 'good';
+    const online = report.peers?.filter((p) => p.status === 'ok').length ?? 0;
+    const address = h('input', { type: 'text', id: 'net-address', placeholder: '10.0.2.15', inputmode: 'decimal', 'aria-label': t('Адрес компьютера') });
+    body.replaceChildren(
+      h('p', { class: `netverdict ${worst}` }, worst === 'good'
+        ? t('Связь в порядке: на связи {0} из {1}', [online, report.peers.length])
+        : worst === 'warn' ? t('Связь есть, но не со всеми: на связи {0} из {1}', [online, report.peers?.length ?? 0]) : t('Связи нет. Ниже — что не так и как починить.')),
+      h('ul', { class: 'netchecks' }, checks.map((c) => h('li', { class: c.level },
+        h('span', { class: 'netmark', 'aria-hidden': 'true' }, { good: '✓', warn: '!', bad: '✗' }[c.level]),
+        h('div', {}, h('strong', {}, c.title), h('span', {}, c.text), c.advice && h('span', { class: 'netnote' }, c.advice))))),
+      report.peers?.length > 0 && [h('h3', {}, t('Устройства')), h('ul', { class: 'netpeers' }, report.peers.map(peerRow))],
+      report.enabled && [
+        h('h3', {}, t('Связать с компьютером по адресу')),
+        h('p', { class: 'help' }, t('Если устройства в разных подсетях, укажите постоянный IP компьютера преподавателя: обмен пойдёт напрямую.')),
+        h('form', {
+          class: 'netadd',
+          onsubmit: async (e) => {
+            e.preventDefault();
+            busy(true);
+            const r = await api.syncAddPeer(address.value);
+            busy(false);
+            if (!r.ok) message.textContent = r.code === 'bad-address' ? t('Адрес вида 10.0.2.15') : t('Не удалось добавить адрес.');
+            else message.textContent = r.value.status === 'ok' ? t('Связь с {0} есть, обмен прошёл.', [r.value.address]) : t('Адрес добавлен, но {0} не отвечает: {1}', [r.value.address, PEER_RESULT[r.value.status]?.() ?? r.value.status]);
+            if (r.ok) await run();
+          },
+        }, address, h('button', { type: 'submit', class: 'plain', 'data-act': 'add' }, t('Связать'))),
+      ],
+    );
+  };
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Проверка связи')), h('p', { class: 'help' }, t('Проверяет сеть этого компьютера, связь с каждым устройством и доходят ли другие до него.'))),
+      closeButton(dialog)),
+    body,
+    h('div', { class: 'netactions' },
+      action('again', t('Проверить снова'), () => run(), 'primary'),
+      action('sync', t('Обменяться со всеми'), () => run(() => api.syncNow())),
+      action('restart', t('Перезапустить обмен'), () => run(() => api.syncRestart())),
+      state.settings.platform === 'win32' && action('firewall', t('Починить брандмауэр'), async () => {
+        busy(true);
+        message.textContent = t('Windows спросит разрешение администратора…');
+        const r = await api.syncRepairFirewall();
+        busy(false);
+        message.textContent = r.ok ? t('Правила брандмауэра обновлены.') : r.code === 'cancelled' ? t('Починка отменена: нужен пароль администратора компьютера.') : t('Не удалось починить брандмауэр: {0}', [r.message]);
+        await run();
+      }),
+      action('forget', t('Забыть старые адреса'), () => run(async () => { await api.syncForget(); })),
+      action('copy', t('Скопировать отчёт'), async () => {
+        try {
+          await navigator.clipboard.writeText(netReportText(report ?? {}, checks));
+          message.textContent = t('Отчёт скопирован: его можно вставить в сообщение.');
+        } catch {
+          message.textContent = t('Не удалось скопировать.');
+        }
+      })),
+    message,
+  );
+  if (!dialog.open) dialog.showModal();
+  await run();
+}
+
 /* Часы и фоновая работа */
 
 function tick() {
@@ -3888,7 +4104,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'quitask'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'quitask', 'netcheck'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -3903,6 +4119,7 @@ function wire() {
   $('today').addEventListener('click', () => { state.date = now().iso; render(); });
   $('add').addEventListener('click', () => openForm());
   $('settings').addEventListener('click', openSettings);
+  $('net').addEventListener('click', openNetCheck);
   $('theme').addEventListener('click', () => {
     api.setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
   });
@@ -3964,3 +4181,5 @@ async function start() {
 start();
 setInterval(tick, 1000);
 setInterval(refresh, POLL_MS);
+refreshNet();
+setInterval(refreshNet, 20_000);
