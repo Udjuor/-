@@ -4021,10 +4021,12 @@ async function openNetCheck() {
       h('span', {}, PEER_RESULT[p.status]?.() ?? p.status, p.status === 'ok' && p.ms != null ? ` · ${p.ms} ms` : ''),
       p.version && report.device?.version && p.version !== report.device.version && h('span', { class: 'netnote' }, t('Версия отличается от этого компьютера ({0}) — обновите старую.', [report.device.version]))));
   const draw = () => {
-    const worst = checks.some((c) => c.level === 'bad') ? 'bad' : checks.some((c) => c.level === 'warn') ? 'warn' : 'good';
     const online = report.peers?.filter((p) => p.status === 'ok').length ?? 0;
+    const total = report.peers?.length ?? 0;
+    // Итог по главному: связь со всеми — в порядке, даже если что-то ниже стоит проверить.
+    const worst = checks.some((c) => c.level === 'bad') ? 'bad' : online > 0 && online === total ? 'good' : 'warn';
     const address = h('input', { type: 'text', id: 'net-address', placeholder: '10.0.2.15', inputmode: 'decimal', 'aria-label': t('Адрес компьютера') });
-    body.replaceChildren(
+    body.replaceChildren(...[
       h('p', { class: `netverdict ${worst}` }, worst === 'good'
         ? t('Связь в порядке: на связи {0} из {1}', [online, report.peers.length])
         : worst === 'warn' ? t('Связь есть, но не со всеми: на связи {0} из {1}', [online, report.peers?.length ?? 0]) : t('Связи нет. Ниже — что не так и как починить.')),
@@ -4048,7 +4050,7 @@ async function openNetCheck() {
           },
         }, address, h('button', { type: 'submit', class: 'plain', 'data-act': 'add' }, t('Связать'))),
       ],
-    );
+    ].flat().filter(Boolean));
   };
   dialog.replaceChildren(
     h('div', { class: 'sheethead' },
