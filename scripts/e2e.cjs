@@ -1094,7 +1094,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await teacher.syncWith('127.0.0.1:47800');
   await page.click('#today');
   await page.click('[data-view=day]');
+  // Занятие через 18 минут: открывается сразу на «Начать занятие», карточка — по кнопке.
   await page.click('.block:has-text("Пара для отмены")', { timeout: 15000 });
+  await page.waitForSelector('#roll[open][data-stage="start"] #start-lesson');
+  await page.click('#roll .sheetfoot >> text=Карточка занятия');
   await page.waitForSelector('#details[open]');
   await page.click('#cancel-event');
   await page.fill('#cancel-reason', 'Преподаватель на больничном');
@@ -1217,6 +1220,32 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.equal(await page.locator('#journal .jentry.j-create-series').count(), 0, 'поиск по названию');
   await shot('journal');
   await page.click('#journal [aria-label=Закрыть]');
+
+  // Преподаватель на своём занятии: начать, отметить всех, снять отсутствующих, опоздавший по факту прихода.
+  await page.evaluate((date) => window.calendar.save({
+    title: 'Пара преподавателя', type: 'lesson', date, start: '11:30', end: '13:00', participants: ['Ефимов Глеб', 'Жукова Нина', 'Зайцев Олег', 'Ильина Вера'], devices: [],
+  }, null), day(0));
+  await page.click('.block:has-text("Пара преподавателя")', { timeout: 15000 });
+  await page.waitForSelector('#roll[open][data-stage="start"] .bigstart');
+  await shot('lesson-start');
+  await page.click('#start-lesson');
+  await page.waitForSelector('#roll[data-stage="call"] #mark-all:has-text("Отметить всех (4)")');
+  await page.click('#mark-all');
+  await page.waitForSelector('#roll .calltile[aria-pressed=true]:has-text("Ильина Вера")');
+  await page.click('#roll .calltile:has-text("Жукова Нина")');
+  await page.waitForSelector('#roll .calltile[aria-pressed=false]:has-text("Жукова Нина")');
+  await shot('lesson-call');
+  await page.click('#call-done');
+  await page.waitForSelector('#roll[data-stage="live"] .livebar:has-text("Ещё не пришли: 1")');
+  assert.match(await page.textContent('#roll .rolllist li:first-child'), /Жукова Нина/);
+  await shot('lesson-live');
+  // Пришла позже — отмечается нажатием на фамилию.
+  await page.click('.rollrow:has-text("Жукова Нина") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Жукова Нина") .rollname[aria-pressed=true]');
+  await page.click('#lock-report');
+  await page.click('#lock-confirm');
+  await page.waitForSelector('#roll .lockbanner:not([hidden])');
+  await page.click('#roll [aria-label=Закрыть]');
 
   // Индикатор связи и проверка связи: компьютер преподавателя на связи, лишний адрес — нет.
   await page.click('#net');

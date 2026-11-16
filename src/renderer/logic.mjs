@@ -427,6 +427,10 @@ function markedRow(event, name, mark, doc) {
 // Only lessons record lateness; events, practice and tasks are present or absent.
 export const countsLateness = (event) => event.type === 'lesson';
 
+/** Отметка присутствия ведётся только на занятиях и мероприятиях. Практика и задания — без отметки. */
+export const MARKED_TYPES = new Set(['lesson', 'event']);
+export const takesAttendance = (event) => MARKED_TYPES.has(event.type);
+
 /** Как часто повторяется событие. */
 export const REPEATS = [
   ['day', 'Каждый день'],
@@ -500,6 +504,45 @@ export const startDelay = (event, doc) => Math.floor((actualStart(event, doc) - 
 
 const minutesAfterStart = (event, doc, at) => Math.max(0, Math.floor((new Date(at) - actualStart(event, doc)) / 60000));
 
+/** Начать занятие можно за 30 минут до расписания и до 40-й минуты: так же проверяет хранилище. */
+export const START_EARLY_MINUTES = 30;
+
+const scheduledEnd = (event) => {
+  const [y, m, d] = event.date.split('-').map(Number);
+  return new Date(y, m - 1, d, ...event.end.split(':').map(Number));
+};
+
+/**
+ * Какой экран отметки показать преподавателю:
+ * start — занятие пора начинать, первым делом кнопка «Начать занятие»;
+ * call — занятие начато, идёт перекличка: все, кто на месте, отмечаются приходом к началу;
+ * live — перекличка закончена, опоздавших отмечают по факту прихода;
+ * list — обычный список: не занятие, не время, отменено или отчёт закрыт.
+ */
+export function rollStage(event, doc, nowMs, callDone = false) {
+  if (!countsLateness(event) || event.cancelled === true || doc?.lock || !event.participants.length) return 'list';
+  const scheduled = scheduledStart(event).getTime();
+  if (!doc?.start) {
+    const open = nowMs >= scheduled - START_EARLY_MINUTES * 60_000 && nowMs <= scheduled + ABSENT_FROM_MINUTE * 60_000;
+    return open ? 'start' : 'list';
+  }
+  if (nowMs > scheduledEnd(event).getTime()) return 'list';
+  const minutes = (nowMs - actualStart(event, doc).getTime()) / 60_000;
+  return !callDone && minutes < ABSENT_FROM_MINUTE ? 'call' : 'live';
+}
+
+/** Открывать ли занятие сразу на отметке, а не карточкой: сегодня, от 30 минут до начала и до конца. */
+export function lessonIsNow(event, doc, nowMs) {
+  if (!countsLateness(event) || event.cancelled === true || doc?.lock || !event.participants.length) return false;
+  return nowMs >= scheduledStart(event).getTime() - START_EARLY_MINUTES * 60_000 && nowMs <= scheduledEnd(event).getTime();
+}
+
+/** Что запишется, если студент войдёт сейчас: вовремя, опоздание или пропуск, и на сколько минут. */
+export function arrivalNow(event, doc, nowISO) {
+  const minutes = minutesAfterStart(event, doc, nowISO);
+  return { minutes, verdict: minutes >= ABSENT_FROM_MINUTE ? 'absent' : minutes >= LATE_FROM_MINUTE ? 'late' : 'ontime' };
+}
+
 /** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
 function tally(rows) {
   const count = (status) => rows.filter((row) => row.status === status).length;
@@ -536,7 +579,7 @@ export function buildReport({ events, attendance, students, groups, filters, now
   const pairs = [];
   const byStudent = new Map();
   const held = events
-    .filter((event) => hasEnded(event, nowISO, nowTime) && isHeld(event)
+    .filter((event) => hasEnded(event, nowISO, nowTime) && isHeld(event) && takesAttendance(event)
       && event.date >= filters.from && event.date <= filters.to
       && filters.types.includes(event.type)
       && (!filters.teacher || event.responsible === filters.teacher))
@@ -727,7 +770,7 @@ export function earlySignals({ events, attendance, students, groups, nowISO, now
   const weekFrom = addDays(nowISO, -6);
   const from = addDays(nowISO, -(SIGNAL_DAYS - 1));
   const held = events
-    .filter((event) => event.date >= from && isHeld(event) && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
+    .filter((event) => event.date >= from && isHeld(event) && takesAttendance(event) && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
     .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
   const rowsOf = new Map();
   for (const event of held) {

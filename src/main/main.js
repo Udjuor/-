@@ -480,13 +480,29 @@ function registerHandlers() {
     sync?.nudge();
     return doc;
   }));
+  // «Отметить всех» на перекличке: одной командой, приход — временем начала занятия.
+  ipcMain.handle('attendance:mark-all', (_e, eventId, names, at) => respond(async () => {
+    const admin = edition === 'admin';
+    const when = at && !Number.isNaN(Date.parse(at)) && Date.parse(at) <= clockNow() + 60_000 ? at : null;
+    let doc = null;
+    for (const name of (Array.isArray(names) ? names : []).slice(0, 500)) {
+      doc = await store.saveMark(eventId, String(name), 'present', { teacher: admin ? config.deviceName : null, student: !admin, at: when });
+    }
+    sync?.nudge();
+    return doc;
+  }));
   ipcMain.handle('attendance:start', (_e, eventId, at) => respond(async () => {
     const admin = edition === 'admin';
     const doc = await store.startLesson(eventId, { admin, at: admin ? at ?? null : null });
     sync?.nudge();
     return doc;
   }));
-  ipcMain.handle('attendance:lock', (_e, eventId, excused) => managed(async () => {
+  // Панель фиксирует отчёт только начатого занятия; исправления после фиксации — у преподавателя.
+  ipcMain.handle('attendance:lock', (_e, eventId, excused) => respond(async () => {
+    if (edition !== 'admin') {
+      const current = (await store.attendance()).find((doc) => doc.eventId === eventId);
+      if (!current?.start) throw Object.assign(new Error('not started'), { code: 'teacher-only' });
+    }
     const doc = await store.lockReport(eventId, config.deviceName, excused);
     sync?.nudge();
     return doc;

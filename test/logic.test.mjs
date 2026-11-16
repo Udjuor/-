@@ -151,7 +151,9 @@ test('снятая отметка считается отсутствующей'
 test('отчёт считает проведённые пары, причины, опоздания и проценты', () => {
   const events = [
     lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов', 'Петров', 'Сидоров', 'Гость']),
-    lesson('b', '2026-11-10', '09:00', '10:30', ['Иванов'], { type: 'practice' }),
+    lesson('b', '2026-11-10', '09:00', '10:30', ['Иванов']),
+    // Практика идёт без отметки: в отчёт о посещаемости не попадает.
+    lesson('p', '2026-11-07', '09:00', '10:30', ['Иванов'], { type: 'practice' }),
     lesson('future', '2026-11-11', '09:00', '10:30', ['Иванов']),
     lesson('today-later', '2026-11-10', '13:00', '14:00', ['Иванов']),
     lesson('old', '2026-10-30', '09:00', '10:30', ['Иванов']),
@@ -421,7 +423,7 @@ test('после фиксации освобождения не зависят �
 });
 
 test('больничный без справки предварительный, старые отметки считаются подтверждёнными', () => {
-  const event = { id: 'e', title: 'Пара', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера'] };
+  const event = { id: 'e', type: 'lesson', title: 'Пара', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря', 'Вера'] };
   const doc = { eventId: 'e', marks: {
     Аня: { status: 'sick', at: 'x', confirmed: false },
     Боря: { status: 'sick', at: 'x', confirmed: true },
@@ -599,4 +601,30 @@ test('занятие не состоялось: нет в отчёте, сигн
   assert.deepEqual(L.findConflicts(draft, events), [], 'люди и техника свободны');
   const task = { id: 't', type: 'task', title: 'Съёмка', date: '2026-11-05', start: '09:00', end: '10:30', participants: ['Иванов'], cancelled: true };
   assert.equal(L.excusedBy({ ...events[2], date: '2026-11-05' }, [task]).size, 0, 'отменённое задание не освобождает');
+});
+
+test('сценарий занятия: начать, перекличка, опоздавшие по факту, обычный список', async () => {
+  const L = await import('../src/renderer/logic.mjs');
+  const lesson = { id: 'x', type: 'lesson', date: '2026-11-16', start: '10:00', end: '11:30', participants: ['Иванов', 'Петров'] };
+  const at = (time) => new Date(`2026-11-16T${time}`).getTime();
+  assert.equal(L.rollStage(lesson, null, at('09:20')), 'list', 'рано');
+  assert.equal(L.rollStage(lesson, null, at('09:35')), 'start');
+  assert.equal(L.rollStage(lesson, null, at('10:39')), 'start');
+  assert.equal(L.rollStage(lesson, null, at('10:41')), 'list', 'после 40-й минуты кнопки нет');
+  const doc = { start: { at: new Date(at('10:05')).toISOString() } };
+  assert.equal(L.rollStage(lesson, doc, at('10:06')), 'call');
+  assert.equal(L.rollStage(lesson, doc, at('10:06'), true), 'live', 'перекличку закончили');
+  assert.equal(L.rollStage(lesson, doc, at('10:46')), 'live', 'с 40-й минуты сама переходит к опоздавшим');
+  assert.equal(L.rollStage(lesson, doc, at('11:31')), 'list');
+  assert.equal(L.rollStage({ ...lesson, cancelled: true }, null, at('09:50')), 'list');
+  assert.equal(L.rollStage({ ...lesson, type: 'event' }, null, at('09:50')), 'list');
+  assert.equal(L.rollStage(lesson, { ...doc, lock: { at: 'x' } }, at('10:20')), 'list');
+  assert.equal(L.lessonIsNow(lesson, null, at('09:40')), true);
+  assert.equal(L.lessonIsNow(lesson, null, at('11:40')), false);
+  assert.deepEqual(L.arrivalNow(lesson, doc, new Date(at('10:12')).toISOString()), { minutes: 7, verdict: 'ontime' });
+  assert.deepEqual(L.arrivalNow(lesson, doc, new Date(at('10:20')).toISOString()), { minutes: 15, verdict: 'late' });
+  assert.deepEqual(L.arrivalNow(lesson, doc, new Date(at('10:50')).toISOString()), { minutes: 45, verdict: 'absent' });
+  // Перекличка пишет приход временем начала: долгая перекличка не делает опоздавших.
+  const marked = L.rollCall(lesson, { ...doc, marks: { Иванов: { status: 'present', at: new Date(at('10:05')).toISOString() } } }, '2026-11-16', '10:25');
+  assert.equal(marked[0].late, 0);
 });

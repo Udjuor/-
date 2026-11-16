@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, prizeIcon, PRIZES } from './pet.mjs';
@@ -113,7 +113,7 @@ function eventBlock(item, range, dayView) {
   const block = h('button', {
     class: `block t-${event.type} ${status}${event.cancelled ? ' cancelled' : ''}${!dayView && columns > 1 ? ' narrow' : ''}`,
     'aria-label': eventLabel(event),
-    onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
+    onclick: (e) => { e.stopPropagation(); openEvent(event.id); },
   }, details);
   block.style.top = `calc(${(start / span) * 100}% + .08rem)`;
   block.style.height = `calc(${(length / span) * 100}% - .16rem)`;
@@ -209,7 +209,7 @@ function deadlineChip(event) {
   const late = deadlineState(event, moment()) === 'overdue';
   return h('button', {
     class: `chip deadlinechip t-${event.type}${late ? ' overdue' : ''}`,
-    onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
+    onclick: (e) => { e.stopPropagation(); openEvent(event.id); },
   }, t('Сдать до {0}: {1}', [event.deadline.slice(11), event.title]));
 }
 
@@ -218,7 +218,7 @@ function allDayChip(event) {
   return h('button', {
     class: `chip alldaychip t-${event.type} ${eventState(event, clock.iso, clock.time)}`,
     'aria-label': eventLabel(event),
-    onclick: (e) => { e.stopPropagation(); showDetails(event.id); },
+    onclick: (e) => { e.stopPropagation(); openEvent(event.id); },
   }, event.title);
 }
 
@@ -255,7 +255,7 @@ function renderMonth(board) {
       ...deadlinesOn(iso).map((event) => () => deadlineChip(event)),
       ...eventsOn(state.shown, iso).map((e) => () => h('button', {
         class: `chip t-${e.type} ${eventState(e, clock.iso, clock.time)}`,
-        onclick: (ev) => { ev.stopPropagation(); showDetails(e.id); },
+        onclick: (ev) => { ev.stopPropagation(); openEvent(e.id); },
       }, isAllDay(e) ? e.title : `${e.start} ${e.title}`)),
     ];
     const visible = items.length > fits ? items.slice(0, fitsWithMore) : items;
@@ -652,6 +652,16 @@ const roll = (event) => {
 
 const countPresent = (event) => roll(event).filter((row) => row.status === 'present').length;
 
+/**
+ * Нажатие на событие в календаре. Занятие, которое идёт сейчас или вот-вот начнётся,
+ * открывается сразу на отметке: первым делом «Начать занятие», потом перекличка.
+ */
+function openEvent(id) {
+  const event = state.allEvents.find((e) => e.id === id);
+  if (event && lessonIsNow(event, attendanceOf(event.id), Date.now())) openRoll(id);
+  else showDetails(id);
+}
+
 function showDetails(id) {
   const event = state.allEvents.find((e) => e.id === id);
   if (!event) return;
@@ -661,7 +671,7 @@ function showDetails(id) {
 
   const showActions = () => footer.replaceChildren(
     canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
-    event.participants.length > 0 && !event.cancelled && h('button', {
+    event.participants.length > 0 && !event.cancelled && takesAttendance(event) && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
@@ -2047,7 +2057,7 @@ const stampText = (at) => new Date(at).toLocaleString(locale(), { day: 'numeric'
 function openRoll(id) {
   const dialog = $('roll');
   const event = state.allEvents.find((e) => e.id === id);
-  if (!event) return;
+  if (!event || !takesAttendance(event)) return;
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
   const autoBox = h('div', { class: 'autobox', hidden: true });
@@ -2057,7 +2067,16 @@ function openRoll(id) {
   const failure = h('p', { class: 'error' });
   const log = h('section', { class: 'rollhistory', hidden: true });
   const footer = h('div', { class: 'sheetfoot' });
+  const stageBox = h('div', { class: 'stagebox' });
+  const liveBar = h('div', { class: 'livebar', hidden: true });
+  const searchField = h('div', { class: 'field' }, search);
   let confirming = false;
+  // «Список без начала»: студенты на панели отмечаются сами, пока преподаватель не пришёл.
+  let skipStart = false;
+  // Перекличка закончена: запоминается на этом устройстве, к ней можно вернуться до 40-й минуты.
+  const callKey = `kerdiis-call:${event.id}`;
+  const callDone = () => { try { return localStorage.getItem(callKey) === '1'; } catch { return false; } };
+  const setCallDone = (done) => { try { if (done) localStorage.setItem(callKey, '1'); else localStorage.removeItem(callKey); } catch { /* приватный режим */ } };
 
   const apply = (doc) => {
     state.attendance = [...state.attendance.filter((item) => item.eventId !== event.id), doc];
@@ -2119,6 +2138,11 @@ function openRoll(id) {
     }
   };
 
+  // Начать занятие и вести перекличку можно и на панели, и у преподавателя; пару вне колледжа — только у преподавателя.
+  function canStartHere() {
+    return !(event.offsite === true && !canManage());
+  }
+
   function drawStart(doc, locked, teacherMode) {
     const delay = startDelay(event, doc);
     const began = doc?.start ? clockTime(actualStart(event, doc).toISOString()) : null;
@@ -2153,25 +2177,125 @@ function openRoll(id) {
 
   function drawFooter(doc) {
     if (confirming) {
+      const missing = roll(event).filter((row) => !row.marked && !row.excusedFor && row.status === 'pending').length;
       footer.replaceChildren(
-        h('p', { class: 'message' }, t('Отчёт закроется для панелей. Кто не отмечен, станет отсутствующим. Исправить его можно будет только в версии для преподавателей.')),
+        h('p', { class: 'message' }, missing
+          ? t('Не отмечены: {0} — они станут отсутствующими. Отчёт закроется для панелей, исправить его можно будет только в версии для преподавателей.', [missing])
+          : t('Все отмечены. Отчёт закроется для панелей, исправить его можно будет только в версии для преподавателей.')),
         h('button', { type: 'button', class: 'plain', onclick: () => { confirming = false; draw(); } }, t('Отмена')),
         h('button', { type: 'button', class: 'primary', id: 'lock-confirm', onclick: lock }, t('Зафиксировать')),
       );
       return;
     }
-    if (isClient()) {
+    // На панели отчёт фиксируют после начала занятия, когда все отмечены.
+    if (isClient() && !doc?.start) {
       footer.replaceChildren(h('p', { class: 'message' }, t('Подтверждение справки, остальные причины и отчёт ведутся в версии для преподавателей.')));
       return;
     }
     footer.replaceChildren(...(doc?.lock ? [] : [
+      isClient() && h('p', { class: 'message' }, t('Справки и остальные причины — в версии для преподавателей.')),
       h('button', { type: 'button', class: 'primary', id: 'lock-report', onclick: () => { confirming = true; draw(); } }, t('Зафиксировать и отправить')),
-    ]));
+    ].filter(Boolean)));
+  }
+
+  const startIso = () => actualStart(event, attendanceOf(event.id)).toISOString();
+
+  // «Отметить всех»: каждый, кто ещё не отмечен и не освобождён, пришёл к началу.
+  const markAll = async (names) => {
+    const result = await api.markAll(event.id, names, startIso());
+    if (result.ok && result.value) {
+      failure.textContent = '';
+      apply(result.value);
+    } else if (!result.ok) refused(result);
+  };
+
+  /** Экран до начала: одна большая кнопка. */
+  function drawStartStage(rows) {
+    const excusedCount = rows.filter((row) => row.excusedFor).length;
+    stageBox.replaceChildren(h('div', { class: 'startstage' },
+      h('p', { class: 'stagetime' }, timeRange(event), event.place ? ` · ${event.place}` : ''),
+      h('p', {}, t('Студентов: {0}', [rows.length]), excusedCount ? ` · ${t('освобождены приказом: {0}', [excusedCount])}` : ''),
+      h('button', { type: 'button', class: 'primary bigstart', id: 'start-lesson', onclick: () => start() }, t('Начать занятие')),
+      h('p', { class: 'help' }, t('Нажмите, когда занятие фактически началось. Затем отметьте, кто на месте: они придут к началу. Опоздавших отметите позже, по факту прихода.'))));
+  }
+
+  /** Перекличка: крупные карточки, «Отметить всех», приход записывается временем начала. */
+  function drawCallStage(rows, doc) {
+    const open = rows.filter((row) => !row.marked && !row.excusedFor && row.status === 'pending');
+    const marked = rows.filter((row) => row.marked);
+    const began = clockTime(actualStart(event, doc).toISOString());
+    stageBox.replaceChildren(
+      h('div', { class: 'callhead' },
+        h('div', {},
+          h('p', { class: 'stagetime' }, t('Перекличка · занятие идёт с {0}', [began])),
+          h('p', { class: 'help' }, t('Отметьте, кто на месте. Всем им запишется приход в {0}, сколько бы ни шла перекличка.', [began]))),
+        h('div', { class: 'callactions' },
+          open.length > 0 && h('button', { type: 'button', class: 'primary', id: 'mark-all', onclick: () => markAll(open.map((row) => row.name)) }, marked.length ? t('Отметить оставшихся ({0})', [open.length]) : t('Отметить всех ({0})', [open.length])),
+          marked.length > 0 && open.length === 0 && h('span', { class: 'allmarked' }, t('Все отмечены. Снимите отметку с тех, кого нет.')))),
+      h('ul', { class: 'calltiles' }, rows.map((row) => {
+        const off = Boolean(row.excusedFor) || (!row.marked && row.status !== 'pending');
+        return h('li', {}, h('button', {
+          type: 'button',
+          class: `calltile${row.auto ? ' auto' : ''}`,
+          'aria-pressed': String(Boolean(row.marked)),
+          disabled: off,
+          onclick: () => (row.marked && !row.auto
+            ? setMark(row.name, null)
+            : setMark(row.name, 'present', { at: row.auto ? row.at : startIso() })),
+        }, h('strong', {}, row.name), h('span', {}, row.excusedFor
+          ? t('Освобождён: {0}', [row.excusedFor])
+          : row.auto ? t('Отметился с телефона, нажмите для подтверждения') : off ? rowNote(row) : row.marked ? t('На месте') : t('Нет'))));
+      })));
+  }
+
+  /** После переклички: что запишется опоздавшему, если он войдёт сейчас. */
+  function drawLiveBar(doc, rows) {
+    const arrival = arrivalNow(event, doc, new Date().toISOString());
+    const missing = rows.filter((row) => !row.marked && !row.excusedFor && row.status === 'pending').length;
+    liveBar.dataset.verdict = arrival.verdict;
+    liveBar.replaceChildren(
+      h('span', {}, t('Идёт {0}-я минута занятия.', [arrival.minutes + 1]), ' ', {
+        ontime: t('Вошедшему сейчас — вовремя.'),
+        late: t('Вошедшему сейчас — опоздание {0} мин.', [arrival.minutes]),
+        absent: t('Вошедшему сейчас — пропуск: прошло больше {0} минут.', [ABSENT_FROM_MINUTE - 1]),
+      }[arrival.verdict], missing ? ` ${t('Ещё не пришли: {0}. Нажмите на фамилию, когда студент войдёт.', [missing])}` : ''),
+      arrival.minutes < ABSENT_FROM_MINUTE && h('button', { type: 'button', class: 'plain', onclick: () => { setCallDone(false); draw(); } }, t('Вернуться к перекличке')));
   }
 
   function draw() {
     const rows = roll(event);
     const doc = attendanceOf(event.id);
+    let stage = canStartHere() ? rollStage(event, doc, Date.now(), callDone()) : 'list';
+    if (stage === 'start' && skipStart) stage = 'list';
+    dialog.dataset.stage = stage;
+    const staged = stage === 'start' || stage === 'call';
+    stageBox.hidden = !staged;
+    if (!staged) stageBox.replaceChildren();
+    for (const part of [startBox, summary, searchField, list, log]) part.hidden = staged;
+    liveBar.hidden = stage !== 'live';
+    if (stage === 'start') {
+      drawStartStage(rows);
+      footer.replaceChildren(
+        h('button', { type: 'button', class: 'plain', onclick: () => { dialog.close(); showDetails(event.id); } }, t('Карточка занятия')),
+        h('div', { class: 'spacer' }),
+        h('button', { type: 'button', class: 'plain', id: 'skip-start', onclick: () => { skipStart = true; draw(); } }, t('Список без начала занятия')));
+      return;
+    }
+    if (stage === 'call') {
+      const everyone = rows.every((row) => row.marked || row.excusedFor || row.status !== 'pending');
+      drawCallStage(rows, doc);
+      autoBox.hidden = true;
+      footer.replaceChildren(...[
+        h('button', { type: 'button', class: 'plain', onclick: () => { dialog.close(); showDetails(event.id); } }, t('Карточка занятия')),
+        h('div', { class: 'spacer' }),
+        h('button', { type: 'button', class: everyone ? 'plain' : 'primary', id: 'call-done', onclick: () => { setCallDone(true); draw(); } }, t('Перекличка закончена')),
+        // Все на месте — опоздавших не ждём, отчёт можно зафиксировать сразу.
+        everyone && h('button', { type: 'button', class: 'primary', id: 'lock-report', onclick: () => { setCallDone(true); confirming = true; draw(); } }, t('Зафиксировать и отправить')),
+      ].filter(Boolean));
+      if (confirming) drawFooter(doc);
+      return;
+    }
+    if (stage === 'live') drawLiveBar(doc, rows);
     const cancelled = event.cancelled === true;
     const teacherMode = canManage() && !cancelled;
     // Пару вне колледжа на панели не отмечают: только смотрят, что внёс преподаватель.
@@ -2204,7 +2328,10 @@ function openRoll(id) {
       : cancelled ? t('Занятие не состоялось. Отметки на нём не ставятся.')
       : away ? t('Пара проходит вне колледжа. Отметки вносит преподаватель в версии для преподавателей.') : '';
     const query = nameKey(search.value);
-    keepScroll(list, () => list.replaceChildren(...rows.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
+    // Во время занятия сверху те, кого ещё нет: их отмечают по факту прихода.
+    const waiting = (row) => (stage === 'live' && !row.marked && !row.excusedFor && row.status === 'pending' ? 0 : 1);
+    const ordered = [...rows].sort((a, b) => waiting(a) - waiting(b));
+    keepScroll(list, () => list.replaceChildren(...ordered.filter((row) => !query || nameKey(row.name).includes(query)).map((row) => {
       const settled = !row.excusedFor && !row.unconfirmed && !['present', 'pending', 'absent'].includes(row.status);
       return h('li', { class: `rollrow${row.excusedFor ? ' excused' : ''}` },
         h('button', {
@@ -2255,7 +2382,7 @@ function openRoll(id) {
         h('h2', {}, event.title),
         h('p', { class: 'help' }, `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
       closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, banner, startBox, summary, autoBox, failure, h('div', { class: 'field' }, search), list, log),
+    h('div', { class: 'sheetbody' }, banner, stageBox, liveBar, startBox, summary, autoBox, failure, searchField, list, log),
     footer,
   );
   dialog.showModal();

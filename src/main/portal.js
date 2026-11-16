@@ -169,6 +169,7 @@ class StudentPortal {
     for (const event of events) {
       if (event.date !== iso || !event.participants.some((name) => sameName(name, student.name))) continue;
       if (event.offsite || event.cancelled) continue; // пару в другом учреждении или отменённую с телефона не отметить
+      if (!L.takesAttendance(event)) continue; // практика и задания идут без отметки
       const state = L.eventState(event, iso, time);
       const soon = state === 'future' && L.toMinutes(event.start) - L.toMinutes(time) <= AUTO_MARK_BEFORE_MINUTES;
       if (state !== 'now' && !soon) continue;
@@ -189,7 +190,7 @@ class StudentPortal {
     const docs = await this.store.attendance();
     const docOf = new Map(docs.map((doc) => [doc.eventId, doc]));
     const mine = events.filter((event) => event.participants.some((name) => sameName(name, student.name)));
-    const row = (event) => L.rollCall(event, docOf.get(event.id), iso, time, events).find((r) => sameName(r.name, student.name));
+    const row = (event) => (L.takesAttendance(event) ? L.rollCall(event, docOf.get(event.id), iso, time, events).find((r) => sameName(r.name, student.name)) : null);
     const brief = (event) => ({
       id: event.id,
       title: event.title,

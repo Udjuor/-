@@ -600,6 +600,8 @@ class EventStore {
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
       const event = await this.readCurrent(eventId);
       if (event?.cancelled === true && status) throw new StoreError('cancelled', 'Занятие не состоялось');
+      // Отметка ведётся только на занятиях и мероприятиях.
+      if (status && event && !event.kind && !['lesson', 'event'].includes(event.type)) throw new StoreError('no-attendance', 'Отметки нет у практики и заданий');
       if (student) {
         if (event?.offsite === true) throw new StoreError('offsite', 'Пара проходит вне колледжа');
         // На панели отмечают приход, опоздание и предварительную болезнь. Остальное делает преподаватель.

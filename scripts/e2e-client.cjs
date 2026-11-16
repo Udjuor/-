@@ -25,6 +25,7 @@ const today = (() => {
   };
   put({ kind: 'group', name: 'ИС-21' });
   put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '19:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
+  put({ title: 'Пара с перекличкой', type: 'lesson', date: today, start: '00:10', end: '01:30', participants: ['Алексеев', 'Борисов', 'Волков'], devices: [] });
   put({ title: 'Концерт на панели', type: 'event', date: today, start: '19:00', end: '19:30', participants: ['Сидоров'], devices: [] });
   put({ title: 'Физкультура выездная', type: 'lesson', date: today, start: '04:00', end: '05:00', offsite: true, participants: ['Иванов', 'Петров'], devices: [] });
   const lockedId = put({ title: 'Закрытая пара', type: 'lesson', date: today, start: '06:00', end: '07:00', participants: ['Иванов'], devices: [] });
@@ -48,6 +49,8 @@ const today = (() => {
   app.windows().find((w) => w.url().endsWith('splash.html'))?.click('body').catch(() => {});
   await page.waitForSelector('.block:has-text("Пара на панели")');
   assert.equal((await page.evaluate(() => window.calendar.getSettings())).edition, 'client');
+  // Часы окна совпадают с часами программы: 00:20, занятие идёт с 00:05.
+  await page.clock.setFixedTime(new Date(`${today}T00:20`));
 
   const shot = (name) => (process.env.SHOTS ? page.screenshot({ path: path.join(process.env.SHOTS, `${name}.png`) }) : null);
   const refused = async (work) => assert.equal((await page.evaluate(work)).code, 'teacher-only');
@@ -105,14 +108,20 @@ const today = (() => {
   assert.doesNotMatch(await page.textContent('#roll'), /опоздан/i);
   await page.click('#roll [aria-label=Закрыть]');
 
-  // В карточке только просмотр, в отметках только своё присутствие.
+  // Занятие, которое идёт сейчас, открывается сразу кнопкой «Начать занятие».
   await page.click('.block:has-text("Пара на панели")');
+  await page.waitForSelector('#roll[open][data-stage="start"] #start-lesson');
+  await shot('client-start-stage');
+  // Карточка — только просмотр.
+  await page.click('#roll .sheetfoot >> text=Карточка занятия');
   await page.waitForSelector('#details[open]');
   for (const text of ['Изменить', 'Удалить', 'Служебная записка']) {
     assert.equal(await page.locator(`#details .plain:has-text("${text}")`).count(), 0, text);
   }
   await page.click('#details .primary');
-  await page.waitForSelector('#roll[open]');
+  // Пока преподавателя нет, студенты отмечаются сами по обычному списку.
+  await page.click('#skip-start');
+  await page.waitForSelector('#roll[open][data-stage="list"] .rollrow');
   assert.equal(await page.locator('.rollrow .reason:has-text("По приказу"), .rollrow .reason:has-text("Уважительная"), .certificate').count(), 0);
   assert.equal(await page.locator('#lock-report').count(), 0);
   await page.click('.rollrow:has-text("Иванов") .rollname');
@@ -126,8 +135,14 @@ const today = (() => {
   await page.click('.rollrow:has-text("Козлов") .reason:has-text("Болезнь")');
   await page.waitForSelector('.rollrow:has-text("Козлов"):has-text("Болезнь, ждём справку")');
   await page.waitForSelector('#ticker .notice-yellow:has-text("Козлов: предъявите справку")', { state: 'attached', timeout: 15000 });
-  // Преподаватель пришёл позже: после «Начать занятие» пришедший до него уже не опоздал.
+  // Преподаватель пришёл позже: после «Начать занятие» идёт перекличка, пришедший до него уже не опоздал.
   await page.click('#start-lesson');
+  await page.waitForSelector('#roll[data-stage="call"] .calltile[aria-pressed=true]:has-text("Иванов")');
+  await page.waitForSelector('#roll .calltile[disabled]:has-text("Сидоров")');
+  // Все отмечены или освобождены: можно сразу фиксировать, но мы ждём опоздавших.
+  await page.waitForSelector('#roll .sheetfoot #lock-report');
+  await page.click('#call-done');
+  await page.waitForSelector('#roll[data-stage="live"] .livebar');
   await page.waitForSelector('.startinfo:has-text("Занятие началось")');
   await page.waitForSelector('.rollrow:has-text("Петров"):has-text("не считается опозданием")');
   assert.equal(await page.locator('#start-lesson').count(), 0, 'начать можно один раз');
@@ -141,10 +156,37 @@ const today = (() => {
     const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
     return window.calendar.mark(event.id, 'Иванов', 'order', {});
   });
+  // Не начатое занятие панель не фиксирует.
   await refused(async () => {
-    const event = (await window.calendar.list()).value.find((item) => item.title === 'Пара на панели');
+    const event = (await window.calendar.list()).value.find((item) => item.title === 'Физкультура выездная');
     return window.calendar.lockReport(event.id);
   });
+
+  // Полный сценарий на панели: начать, «Отметить всех», снять отсутствующего, он пришёл позже, зафиксировать.
+  await page.click('.block:has-text("Пара с перекличкой")');
+  await page.waitForSelector('#roll[open][data-stage="start"]');
+  await page.click('#start-lesson');
+  await page.waitForSelector('#roll[data-stage="call"] #mark-all:has-text("Отметить всех (3)")');
+  await page.click('#mark-all');
+  await page.waitForSelector('#roll .calltile[aria-pressed=true]:has-text("Волков")');
+  await page.click('#roll .calltile:has-text("Волков")');
+  await page.waitForSelector('#roll .calltile[aria-pressed=false]:has-text("Волков")');
+  await shot('client-call');
+  assert.equal(await page.locator('#roll .sheetfoot #lock-report').count(), 0, 'не все отмечены — сначала перекличка');
+  await page.click('#call-done');
+  await page.waitForSelector('#roll[data-stage="live"] .livebar:has-text("Ещё не пришли: 1")');
+  // Кого нет — сверху списка.
+  assert.match(await page.textContent('#roll .rolllist li:first-child'), /Волков/);
+  await shot('client-live');
+  await page.click('.rollrow:has-text("Волков") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Волков") .rollname[aria-pressed=true]');
+  await page.click('#lock-report');
+  await page.waitForSelector('#lock-confirm');
+  assert.match(await page.textContent('#roll .sheetfoot'), /Все отмечены/);
+  await page.click('#lock-confirm');
+  await page.waitForSelector('#roll .lockbanner:has-text("Ауд. 101")');
+  assert.equal(await page.locator('#roll .rollname:not([disabled])').count(), 0, 'после фиксации панель не правит');
+  await page.click('#roll [aria-label=Закрыть]');
   assert.equal((await page.evaluate((id) => window.calendar.mark(id, 'Иванов', 'present', {}), lockedId)).code, 'locked');
 
   for (const call of [() => window.calendar.removeRange('2000-01-01', '2100-01-01', ['lesson']), () => window.calendar.backupNow(), () => window.calendar.restoreBackup('C:\\'), () => window.calendar.resetTemplate()]) {
