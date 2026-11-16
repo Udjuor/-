@@ -41,6 +41,8 @@ function saveConfig(homeDir, config) {
     `backupDir=${config.backupDir}`,
     `portal=${config.portal ? 1 : 0}`,
     `portalAddress=${config.portalAddress}`,
+    `remote=${config.remote ? 1 : 0}`,
+    `remoteUrl=${config.remoteUrl}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -50,6 +52,16 @@ function movedDataDir(dataDir, homeDir) {
   const old = path.join(path.dirname(homeDir), 'StudentCalendar');
   if (!dataDir || homeDir === old || !dataDir.startsWith(`${old}${path.sep}`) || fs.existsSync(dataDir)) return dataDir;
   return path.join(homeDir, dataDir.slice(old.length));
+}
+
+/** Адрес из интернета: только https и только адрес сайта, без пути. */
+function cleanRemoteUrl(value) {
+  try {
+    const url = new URL(String(value ?? '').trim());
+    return url.protocol === 'https:' && !url.username && !url.password ? url.origin : '';
+  } catch {
+    return '';
+  }
 }
 
 function loadConfig(homeDir) {
@@ -79,6 +91,9 @@ function loadConfig(homeDir) {
     portal: values.portal === '1',
     // Адрес для QR-кода, если у компьютера несколько сетей (например, сеть колледжа и Wi-Fi Kerdiis_FVT).
     portalAddress: /^\d{1,3}(\.\d{1,3}){3}$/.test(values.portalAddress ?? '') ? values.portalAddress : '',
+    // Расписание с телефона преподавателя и адрес, по которому страница открыта из интернета (например, KeenDNS).
+    remote: values.remote === '1',
+    remoteUrl: cleanRemoteUrl(values.remoteUrl),
     memoSigner: values.memoSigner || 'Семенов И. А.',
     backupDir: values.backupDir || path.join(homeDir, 'backups'),
   };
@@ -92,4 +107,4 @@ function loadConfig(homeDir) {
   return config;
 }
 
-module.exports = { loadConfig, saveConfig, parseIni, splitPeers, LANGUAGES };
+module.exports = { loadConfig, saveConfig, parseIni, splitPeers, cleanRemoteUrl, LANGUAGES };

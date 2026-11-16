@@ -1878,7 +1878,7 @@ function portalSection() {
         await draw();
       },
     });
-    box.replaceChildren(
+    box.replaceChildren(...[
       h('h3', { class: 'settinghead' }, t('Страница для студентов')),
       h('label', { class: 'check' }, toggle, t('Открыть страницу для студентов на этом компьютере')),
       h('p', { class: 'help' }, t('Студенты в Wi-Fi колледжа видят на телефоне свои занятия, задания, сроки и отметки, а преподаватель на панели видит, кто уже в колледже. Компьютер должен быть включён весь учебный день. Коды для телефонов выдаются в «Справочниках» у студента.')),
@@ -1897,8 +1897,91 @@ function portalSection() {
       status.running && status.addresses.length > 1 && h('p', { class: 'help' }, t('У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.')),
       status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880])),
       message,
-    );
+    ].filter(Boolean));
   };
+  draw();
+  return box;
+}
+
+/**
+ * Расписание с телефона преподавателя: включение, адрес из интернета, подключение телефона
+ * по одноразовому QR-коду и список подключённых телефонов.
+ */
+let remoteChanged = null;
+api.onRemoteChanged?.(() => remoteChanged?.());
+
+function remoteSection() {
+  const box = h('section', { class: 'setting', id: 's-remote' });
+  const message = h('p', { class: 'help', role: 'status' });
+  const pairBox = h('div', { class: 'remotepair' });
+  let timer = null;
+  const showPairing = async () => {
+    message.textContent = '';
+    const result = await api.remotePair();
+    if (!result.ok) {
+      message.textContent = t('Сначала включите расписание с телефона.');
+      return;
+    }
+    const [main, ...rest] = result.value.links;
+    const until = new Date(result.value.until);
+    pairBox.replaceChildren(
+      qrElement(main, t('QR-код для подключения телефона')),
+      h('div', {},
+        h('p', {}, t('Отсканируйте камерой телефона. Код одноразовый и действует 10 минут, до {0}.', [`${String(until.getHours()).padStart(2, '0')}:${String(until.getMinutes()).padStart(2, '0')}`])),
+        h('p', { class: 'help remotelink' }, main),
+        rest.length > 0 && h('p', { class: 'help' }, t('В сети колледжа также: {0}', [rest.map((link) => link.split('#')[0]).join(', ')])),
+        h('button', { type: 'button', class: 'plain', onclick: () => { pairBox.replaceChildren(); clearTimeout(timer); } }, t('Скрыть QR-код'))));
+    clearTimeout(timer);
+    timer = setTimeout(() => pairBox.replaceChildren(), 10 * 60_000);
+  };
+  const draw = async () => {
+    const result = await api.remoteStatus();
+    if (!result.ok) return;
+    const status = result.value;
+    const toggle = h('input', {
+      type: 'checkbox',
+      id: 's-remote-on',
+      checked: status.on,
+      onchange: async (e) => {
+        toggle.disabled = true;
+        const r = await api.remoteSet(e.target.checked);
+        message.textContent = r.ok && !r.value && e.target.checked ? t('Не удалось открыть страницу: порт {0} занят другой программой.', [47881]) : '';
+        if (!e.target.checked) pairBox.replaceChildren();
+        await draw();
+      },
+    });
+    const url = h('input', { id: 's-remote-url', type: 'url', value: status.remoteUrl, placeholder: 'https://kerdiis.keenetic.pro', autocomplete: 'off' });
+    box.replaceChildren(...[
+      h('h3', { class: 'settinghead' }, t('Телефон преподавателя')),
+      h('label', { class: 'check' }, toggle, t('Смотреть и править расписание с телефона')),
+      h('p', { class: 'help' }, t('Телефон подключается один раз по QR-коду с этого экрана. Без подключения страница ничего не показывает. Фамилии студентов на телефон не передаются: только группы и число участников.')),
+      status.running && [
+        h('p', {}, t('В сети колледжа: {0}', [status.urls.join(', ') || t('нет сети')])),
+        h('div', { class: 'field' },
+          h('label', { for: 's-remote-url' }, t('Адрес из интернета')),
+          h('div', { class: 'targets' }, url, h('button', {
+            type: 'button',
+            onclick: async () => {
+              const r = await api.remoteUrl(url.value);
+              message.textContent = r.ok && (r.value || !url.value.trim()) ? t('Адрес сохранён.') : t('Нужен адрес вида https://имя.keenetic.pro');
+              await draw();
+            },
+          }, t('Сохранить')))),
+        h('p', { class: 'help' }, t('Kerdiis сам в интернет не выходит. Чтобы открывать расписание не только в колледже, выпустите страницу через роутер: в Keenetic — KeenDNS, «Доступ к веб-приложениям домашней сети», компьютер {0}, порт {1}, только HTTPS. Затем впишите сюда полученный адрес.', [state.settings.deviceName, 47881])),
+        h('button', { type: 'button', class: 'primary', id: 's-remote-pair', onclick: showPairing }, t('Подключить телефон')),
+        pairBox,
+        status.phones.length > 0 && h('div', {},
+          h('h4', {}, t('Подключённые телефоны')),
+          h('ul', { class: 'remotephones' }, status.phones.map((phone) => h('li', {},
+            h('span', {}, h('strong', {}, phone.name), ' · ', t('был на связи {0}', [`${shortDay(phone.lastSeen.slice(0, 10))} ${new Date(phone.lastSeen).toTimeString().slice(0, 5)}`])),
+            h('button', { type: 'button', class: 'plain', onclick: async () => { await api.remoteForget(phone.id); await draw(); } }, t('Отключить')))))),
+      ],
+      status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47881])),
+      message,
+    ].flat().filter(Boolean));
+  };
+  // Телефон подключился: QR-код прячется, телефон появляется в списке.
+  remoteChanged = () => { if (box.isConnected) { pairBox.replaceChildren(); draw(); } };
   draw();
   return box;
 }
@@ -3931,6 +4014,7 @@ async function openSettings() {
       templateSection(),
       backupSection(),
       portalSection(),
+      remoteSection(),
       clearSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),

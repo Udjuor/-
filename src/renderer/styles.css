@@ -928,3 +928,10 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .livebar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; margin-bottom: .6rem; padding: .7rem 1rem; border-radius: .5rem; background: rgb(63 185 80 / .14); font-weight: 600; }
 .livebar[data-verdict="late"] { background: var(--attention-subtle); color: var(--attention-fg); }
 .livebar[data-verdict="absent"] { background: var(--danger-subtle); color: var(--danger-fg); }
+
+/* Телефон преподавателя */
+.remotepair:not(:empty) { display: flex; gap: 1rem; align-items: center; margin: .8rem 0; }
+.remotepair .qr { width: 13rem; height: 13rem; flex: none; background: #fff; padding: .5rem; border-radius: .4rem; }
+.remotelink { overflow-wrap: anywhere; font-family: var(--mono, monospace); }
+.remotephones { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.remotephones li { display: flex; gap: .6rem; align-items: center; justify-content: space-between; padding: .3rem 0; border-bottom: .05rem solid var(--border-muted); }

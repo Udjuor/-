@@ -724,7 +724,24 @@ export default {
     "Карточка занятия": "Lesson card",
     "Перекличка закончена": "Roll call done",
     "Отметить оставшихся ({0})": "Mark the rest ({0})",
-    "Список без начала занятия": "List without starting"
+    "Список без начала занятия": "List without starting",
+    "Сначала включите расписание с телефона.": "Turn on phone schedule access first.",
+    "QR-код для подключения телефона": "QR code to connect a phone",
+    "Отсканируйте камерой телефона. Код одноразовый и действует 10 минут, до {0}.": "Scan it with the phone camera. The code works once and for 10 minutes, until {0}.",
+    "В сети колледжа также: {0}": "Also on the college network: {0}",
+    "Скрыть QR-код": "Hide QR code",
+    "Телефон преподавателя": "Teacher phone",
+    "Смотреть и править расписание с телефона": "View and edit the schedule from a phone",
+    "Телефон подключается один раз по QR-коду с этого экрана. Без подключения страница ничего не показывает. Фамилии студентов на телефон не передаются: только группы и число участников.": "A phone connects once with the QR code from this screen. Without connecting, the page shows nothing. Student names are not sent to the phone, only groups and the number of participants.",
+    "В сети колледжа: {0}": "On the college network: {0}",
+    "Адрес из интернета": "Internet address",
+    "Адрес сохранён.": "Address saved.",
+    "Нужен адрес вида https://имя.keenetic.pro": "Enter an address like https://name.keenetic.pro",
+    "Kerdiis сам в интернет не выходит. Чтобы открывать расписание не только в колледже, выпустите страницу через роутер: в Keenetic — KeenDNS, «Доступ к веб-приложениям домашней сети», компьютер {0}, порт {1}, только HTTPS. Затем впишите сюда полученный адрес.": "Kerdiis does not go online by itself. To open the schedule outside the college, publish the page through the router: on Keenetic use KeenDNS, “Access to home network web apps”, computer {0}, port {1}, HTTPS only. Then enter the address you get here.",
+    "Подключить телефон": "Connect a phone",
+    "Подключённые телефоны": "Connected phones",
+    "был на связи {0}": "last seen {0}",
+    "Отключить": "Disconnect"
   },
   "plurals": {
     "events": {

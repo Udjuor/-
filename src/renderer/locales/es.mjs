@@ -724,7 +724,24 @@ export default {
     "Карточка занятия": "Ficha de la clase",
     "Перекличка закончена": "Pase de lista terminado",
     "Отметить оставшихся ({0})": "Marcar al resto ({0})",
-    "Список без начала занятия": "Lista sin empezar la clase"
+    "Список без начала занятия": "Lista sin empezar la clase",
+    "Сначала включите расписание с телефона.": "Primero active el horario desde el teléfono.",
+    "QR-код для подключения телефона": "Código QR para conectar el teléfono",
+    "Отсканируйте камерой телефона. Код одноразовый и действует 10 минут, до {0}.": "Escanéelo con la cámara del teléfono. El código es de un solo uso y vale 10 minutos, hasta las {0}.",
+    "В сети колледжа также: {0}": "También en la red del centro: {0}",
+    "Скрыть QR-код": "Ocultar código QR",
+    "Телефон преподавателя": "Teléfono del docente",
+    "Смотреть и править расписание с телефона": "Ver y editar el horario desde el teléfono",
+    "Телефон подключается один раз по QR-коду с этого экрана. Без подключения страница ничего не показывает. Фамилии студентов на телефон не передаются: только группы и число участников.": "El teléfono se conecta una vez con el código QR de esta pantalla. Sin conectar, la página no muestra nada. Los apellidos no se envían al teléfono: solo grupos y número de participantes.",
+    "В сети колледжа: {0}": "En la red del centro: {0}",
+    "Адрес из интернета": "Dirección desde internet",
+    "Адрес сохранён.": "Dirección guardada.",
+    "Нужен адрес вида https://имя.keenetic.pro": "Indique una dirección como https://nombre.keenetic.pro",
+    "Kerdiis сам в интернет не выходит. Чтобы открывать расписание не только в колледже, выпустите страницу через роутер: в Keenetic — KeenDNS, «Доступ к веб-приложениям домашней сети», компьютер {0}, порт {1}, только HTTPS. Затем впишите сюда полученный адрес.": "Kerdiis no sale a internet por sí mismo. Para abrir el horario fuera del centro, publique la página mediante el router: en Keenetic, KeenDNS, «Acceso a aplicaciones web de la red», equipo {0}, puerto {1}, solo HTTPS. Luego escriba aquí la dirección obtenida.",
+    "Подключить телефон": "Conectar teléfono",
+    "Подключённые телефоны": "Teléfonos conectados",
+    "был на связи {0}": "última conexión {0}",
+    "Отключить": "Desconectar"
   },
   "plurals": {
     "events": {

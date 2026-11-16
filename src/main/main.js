@@ -5,7 +5,8 @@ const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
+const { LANGUAGES, cleanRemoteUrl, loadConfig, saveConfig, splitPeers } = require('./config');
+const { TeacherRemote, REMOTE_PORT } = require('./remote');
 const { EventStore } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey, localNetworks } = require('./sync');
@@ -115,6 +116,45 @@ async function refreshPortalUrls() {
   await store.setPortal(portalUrls(portal.port), config.deviceName, true).catch(() => {});
   sync?.nudge();
 }
+
+/* Расписание с телефона преподавателя */
+let remote = null;
+let remoteProblem = null;
+
+async function restartRemote() {
+  const previous = remote;
+  remote = null;
+  remoteProblem = null;
+  await previous?.stop();
+  if (edition !== 'admin' || !config.remote) return;
+  const logic = await import(pathToFileURL(path.join(__dirname, '..', 'renderer', 'logic.mjs')).href);
+  const pad = (n) => String(n).padStart(2, '0');
+  const node = new TeacherRemote({
+    store,
+    logic,
+    phonesFile: path.join(homeDir(), 'phones.json'),
+    today: () => { const d = new Date(clockNow()); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; },
+    clock: clockNow,
+    port: process.env.KERDIIS_REMOTE_PORT ? Number(process.env.KERDIIS_REMOTE_PORT) : REMOTE_PORT,
+    name: config.deviceName,
+    onChange: (what) => {
+      if (what === 'events') {
+        sync?.nudge();
+        win?.webContents.send('events:changed');
+      }
+      win?.webContents.send('remote:changed');
+    },
+  });
+  try {
+    await node.start();
+    remote = node;
+  } catch (err) {
+    console.error('Телефон преподавателя не запущен:', err.message);
+    remoteProblem = err.code === 'EADDRINUSE' ? 'port-busy' : 'failed';
+  }
+}
+
+const remoteUrls = () => (remote ? localNetworks().addresses.map((address) => `http://${address}:${remote.port}/`) : []);
 
 /** Студенческая страница: запускается на компьютере преподавателя, если включена в настройках. */
 async function restartPortal() {
@@ -421,6 +461,31 @@ function registerHandlers() {
     return Boolean(portal) === config.portal;
   }));
   ipcMain.handle('portal:info', () => respond(() => store.portal()));
+  ipcMain.handle('remote:status', () => managed(() => ({
+    on: config.remote, running: Boolean(remote), problem: remoteProblem, urls: remoteUrls(), remoteUrl: config.remoteUrl, phones: remote?.list() ?? [],
+  })));
+  ipcMain.handle('remote:set', (_e, on) => managed(async () => {
+    config = { ...config, remote: on === true };
+    saveConfig(homeDir(), config);
+    await restartRemote();
+    return Boolean(remote);
+  }));
+  ipcMain.handle('remote:url', (_e, value) => managed(() => {
+    config = { ...config, remoteUrl: cleanRemoteUrl(value) };
+    saveConfig(homeDir(), config);
+    return config.remoteUrl;
+  }));
+  // Ссылка подключения: одноразовый код в адресе, QR-код показывается только на экране компьютера.
+  ipcMain.handle('remote:pair', () => managed(() => {
+    if (!remote) throw Object.assign(new Error('off'), { code: 'off' });
+    const { code, until } = remote.newPairing();
+    const bases = [...(config.remoteUrl ? [`${config.remoteUrl}/`] : []), ...remoteUrls()];
+    return { until, links: bases.map((base) => `${base}#pair=${code}`) };
+  }));
+  ipcMain.handle('remote:forget', (_e, id) => managed(async () => {
+    await remote?.forget(String(id));
+    return remote?.list() ?? [];
+  }));
   ipcMain.handle('presence:today', () => respond(() => {
     const d = new Date(clockNow());
     return store.presenceOn(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
@@ -744,7 +809,7 @@ if (!app.requestSingleInstanceLock()) {
     registerHandlers();
     createSplash();
     createWindow();
-    restartSync().then(restartPortal);
+    restartSync().then(restartPortal).then(restartRemote);
     setTimeout(dailyBackup, 60_000);
     setInterval(dailyBackup, 60 * 60_000);
     setInterval(refreshPortalUrls, 60_000);
@@ -757,6 +822,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     sync?.stop();
     portal?.stop();
+    remote?.stop();
   });
 
   app.on('window-all-closed', () => app.quit());

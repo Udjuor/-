@@ -76,7 +76,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString(), KERDIIS_PORTAL_PORT: '47890' },
+    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString(), KERDIIS_PORTAL_PORT: '47890', KERDIIS_REMOTE_PORT: '47891' },
   });
   const errors = [];
   // Панель-визитка: отдельное небольшое окно, потом главное.
@@ -111,7 +111,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
     await page.click(selector);
     await page.waitForSelector('#sections:not(:popover-open)', { state: 'attached' });
   };
-  const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });
+  const shot = (name, target = page) => target.screenshot({ path: path.join(shots, `${name}.png`) });
 
   await page.locator('.block').first().waitFor();
   assert.equal(await page.locator('.block').count(), 7, 'неделя показывает свои мероприятия');
@@ -1246,6 +1246,46 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#lock-confirm');
   await page.waitForSelector('#roll .lockbanner:not([hidden])');
   await page.click('#roll [aria-label=Закрыть]');
+
+  // Расписание с телефона преподавателя: включить, подключить телефон по QR, добавить пару с телефона.
+  await page.click('#settings');
+  await page.click('#s-remote-on');
+  await page.waitForSelector('#s-remote-pair');
+  await page.click('#s-remote-pair');
+  await page.waitForSelector('#s-remote .remotepair svg.qr');
+  const link = (await page.textContent('#s-remote .remotelink')).replace(/^http:\/\/[^/]+/, 'http://127.0.0.1:47891');
+  await shot('remote-settings');
+  await app.evaluate(async ({ BrowserWindow }, url) => {
+    const phone = new BrowserWindow({ width: 390, height: 844, show: true });
+    await phone.loadURL(url);
+  }, link);
+  let teacherPhone;
+  await until(async () => { teacherPhone = app.windows().find((w) => w.url().startsWith('http://127.0.0.1:47891')); return Boolean(teacherPhone); }, 'окно телефона');
+  await teacherPhone.waitForSelector('.nav');
+  await page.waitForSelector('#s-remote .remotephones li', { timeout: 15000 });
+  await teacherPhone.click('.fab');
+  await teacherPhone.fill('#r-title', 'Пара с телефона');
+  await teacherPhone.fill('#r-start', '15:00');
+  await teacherPhone.fill('#r-end', '16:30');
+  await teacherPhone.fill('#r-place', 'Ауд. 101');
+  await teacherPhone.click('.chips button >> nth=0');
+  await shot('remote-form', teacherPhone);
+  await teacherPhone.click('#r-save');
+  await teacherPhone.waitForSelector('.ev:has-text("Пара с телефона")');
+  await shot('remote-phone', teacherPhone);
+  // Окно программы обновляется само.
+  await page.click('#preferences [aria-label=Закрыть]');
+  await page.waitForSelector('.block:has-text("Пара с телефона")', { timeout: 15000 });
+  // Не состоялось — с телефона.
+  await teacherPhone.click('.ev:has-text("Пара с телефона")');
+  await teacherPhone.click('#sheet button:has-text("Не состоялось")');
+  await teacherPhone.fill('#r-reason', 'Перенос');
+  await teacherPhone.click('#sheet .primary:has-text("Не состоялось")');
+  await teacherPhone.waitForSelector('.ev.cancelled:has-text("Пара с телефона")');
+  // Без ключа страница ничего не отдаёт.
+  const stranger = await teacherPhone.evaluate(async () => (await fetch('/api/state', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } })).status);
+  assert.equal(stranger, 401);
+  await teacherPhone.close();
 
   // Индикатор связи и проверка связи: компьютер преподавателя на связи, лишний адрес — нет.
   await page.click('#net');
