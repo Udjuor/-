@@ -795,6 +795,8 @@ class EventStore {
     const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
     await fsp.writeFile(temp, JSON.stringify(record, null, 2), 'utf8');
     await fsp.rename(temp, target);
+    // Две записи подряд могут получить то же время изменения и размер: свою запись читаем заново.
+    this.cache.delete(path.basename(target));
   }
 
   async save(input, baseUpdatedAt = null, { journal = true } = {}) {
