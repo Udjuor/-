@@ -1046,13 +1046,22 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
 
   // Пропала папка: данные остаются на экране, программа сообщает об этом и восстанавливается.
   const parked = `${eventsDir}.parked`;
-  fs.renameSync(eventsDir, parked);
+  // В Windows папку может ненадолго держать антивирус или сама программа: повторяем переименование.
+  const rename = async (from, to) => {
+    for (let attempt = 0; ; attempt += 1) {
+      try { fs.renameSync(from, to); return; } catch (error) {
+        if (!['EPERM', 'EBUSY', 'EACCES'].includes(error.code) || attempt >= 20) throw error;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+  };
+  await rename(eventsDir, parked);
   fs.writeFileSync(eventsDir, '');
   await page.waitForSelector('#banner:not([hidden])', { timeout: 15000 });
   assert.ok((await page.locator('.block').count()) > 0, 'мероприятия остаются на экране');
   await shot('offline');
   fs.rmSync(eventsDir);
-  fs.renameSync(parked, eventsDir);
+  await rename(parked, eventsDir);
   await page.waitForSelector('#banner', { state: 'hidden', timeout: 15000 });
 
   await page.click('#settings');
