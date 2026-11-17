@@ -15,8 +15,6 @@ const $ = (id) => document.getElementById(id);
 const api = window.calendar;
 
 const state = {
-  presence: new Map(),
-  portal: null,
   view: 'week',
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
@@ -399,7 +397,6 @@ async function refresh() {
   await loadDirectory();
   await loadAttendance();
   await loadDevices();
-  await loadPresence();
   refreshPet();
   refreshTicker();
   refreshGear();
@@ -421,27 +418,8 @@ async function loadAttendance() {
   else redrawRoll?.();
 }
 
-/** Кто сегодня открыл студенческую страницу в сети колледжа, и где она открыта. */
-async function loadPresence() {
-  const [presence, info] = await Promise.all([api.presenceToday(), api.portalInfo()]);
-  if (presence.ok) {
-    const next = new Map(presence.value.map((p) => [nameKey(p.student), p.at]));
-    const changed = JSON.stringify([...next]) !== JSON.stringify([...state.presence]);
-    state.presence = next;
-    if (changed && $('roll').open) {
-      if (editingTime()) rollStale = true;
-      else redrawRoll?.();
-    }
-  }
-  if (info.ok) {
-    state.portal = info.value?.on ? info.value : null;
-    $('open-portal').hidden = !state.portal;
-    if ($('portal').open) drawPortal();
-  }
-}
-
-/** Как открыть страницу студента: QR-код и адрес. */
-function qrElement(text, label = t('QR-код страницы для студентов')) {
+/** QR-код для экрана. */
+function qrElement(text, label) {
   const { size, path } = qrPath(text);
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
@@ -459,30 +437,6 @@ function qrElement(text, label = t('QR-код страницы для студе
   dark.setAttribute('fill', '#000');
   svg.append(back, dark);
   return svg;
-}
-
-function drawPortal() {
-  const dialog = $('portal');
-  const urls = state.portal?.urls ?? [];
-  const url = urls[0];
-  dialog.replaceChildren(
-    h('div', { class: 'sheethead' },
-      h('div', {}, h('h2', {}, t('Страница для студентов')), h('p', { class: 'help' }, t('Свои занятия, задания, сроки и отметки на телефоне. Работает в Wi-Fi колледжа.'))),
-      closeButton(dialog)),
-    url
-      ? h('div', { class: 'portalbody' },
-        qrElement(url),
-        h('div', {},
-          h('p', { class: 'portalurl' }, url),
-          urls.length > 1 && h('p', { class: 'help' }, t('Другие адреса этого компьютера: {0}', [urls.slice(1).join(', ')])),
-          h('ol', { class: 'portalsteps' },
-            h('li', {}, t('Подключитесь к Wi-Fi колледжа.')),
-            h('li', {}, t('Наведите камеру телефона на QR-код или откройте адрес в браузере.')),
-            h('li', {}, t('Введите код от куратора и придумайте ник. Ник подтвердит куратор.')),
-            h('li', {}, t('Добавьте страницу на главный экран. Открывайте её, когда пришли в колледж: преподаватель увидит, что вы здесь.'))),
-          h('p', { class: 'help' }, t('Страницу открывает компьютер «{0}». Он должен быть включён.', [state.portal.device]))))
-      : h('p', { class: 'help' }, t('Страница для студентов сейчас выключена.')),
-  );
 }
 
 /** Ссылка СБП для поддержки проекта. Пока пусто, кнопка не показывается. */
@@ -505,11 +459,6 @@ function openDonate() {
         h('p', { class: 'help' }, t('Перевод идёт автору программы. Kerdiis работает одинаково, поддержали вы проект или нет.')))),
   );
   if (!dialog.open) dialog.showModal();
-}
-
-function openPortal() {
-  drawPortal();
-  $('portal').showModal();
 }
 
 /**
@@ -683,30 +632,6 @@ async function patchEvent(event, changes) {
   return result.value;
 }
 
-/** Заявка студента со страницы на телефоне: принять в участники с ролью или отклонить. */
-async function answerRequests(event, names, accept) {
-  const picked = (event.requests ?? []).filter((request) => names.includes(request.name));
-  const changes = { requests: event.requests.filter((request) => !names.includes(request.name)) };
-  if (accept) {
-    changes.participants = [...event.participants, ...picked.map((request) => request.name)];
-    changes.roles = { ...event.roles, ...Object.fromEntries(picked.filter((request) => request.role).map((request) => [request.name, request.role])) };
-  }
-  const saved = await patchEvent(event, changes);
-  if (saved) showDetails(saved.id);
-}
-
-function requestsSection(event) {
-  if (!event.signup || !canManage()) return null;
-  const requests = event.requests ?? [];
-  return h('section', { class: 'group requests' },
-    h('h3', {}, requests.length ? t('Заявки студентов: {0}', [requests.length]) : t('Заявок пока нет')),
-    requests.length > 0 && h('ul', { class: 'requestlist' }, requests.map((request) => h('li', {},
-      h('span', {}, request.role ? t('{0} — {1}', [request.name, request.role]) : request.name),
-      h('button', { class: 'plain', onclick: () => answerRequests(event, [request.name], true) }, t('Принять')),
-      h('button', { class: 'plain', onclick: () => answerRequests(event, [request.name], false) }, t('Отклонить'))))),
-    requests.length > 1 && h('button', { class: 'plain', id: 'accept-all', onclick: () => answerRequests(event, requests.map((r) => r.name), true) }, t('Принять всех')));
-}
-
 /** Решения и поручения собрания с отметкой выполнения. */
 function decisionsSection(event) {
   if (event.type !== 'meeting' || !event.decisions?.length) return null;
@@ -827,13 +752,11 @@ function showDetails(id) {
         event.repeat && !span ? fact(t('Повтор'), t('{0}, до {1}', [repeatLabel(event.repeat.every), shortDay(event.repeat.until)])) : [],
         fact(t('Подготовка'), prepText(event)),
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
-        event.signup ? fact(t('Запись студентов'), event.signup.limit ? t('открыта, мест: {0}', [event.signup.limit]) : t('открыта, без ограничения мест')) : [],
         excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
         fact(t('Место'), event.place),
         event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
-      requestsSection(event),
       decisionsSection(event),
       listGroup(t('Участники: {0}', [event.participants.length]), event.participants.map((name) => roleText(event, name)), true),
       listGroup(t('Техника'), event.equipment.map((name) => gearLabel(event, name)), false),
@@ -1003,7 +926,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); drawRoles(); showSignup(); drawDecisions(); updateConflicts(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); drawRoles(); drawDecisions(); updateConflicts(); },
   }, t(label))));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, t('Тип')), typeRow);
@@ -1104,20 +1027,6 @@ async function openForm(source = {}) {
     deadline.querySelector('label').textContent = deadlineLabel(draft.type);
   };
   showDeadline();
-
-  // Открытая запись: студенты подают заявку со своей страницы, преподаватель принимает.
-  const signupBox = h('input', { id: 'f-signup', type: 'checkbox', checked: Boolean(source.signup?.open) });
-  const limitInput = h('input', { id: 'f-limit', type: 'number', min: 0, max: 500, step: 1, inputmode: 'numeric', value: source.signup?.limit || '', placeholder: t('Без ограничения') });
-  const signupField = h('div', { class: 'field' },
-    h('label', { class: 'check' }, signupBox, t('Открыть запись для студентов')),
-    h('div', { class: 'limitrow' }, h('label', { for: 'f-limit' }, t('Мест')), limitInput),
-    h('p', { class: 'help' }, t('Мероприятие появится на страницах студентов в «Можно записаться». Студент выбирает роль и подаёт заявку, вы принимаете её в карточке мероприятия.')));
-  const showSignup = () => {
-    signupField.hidden = draft.type !== 'event';
-    limitInput.closest('.limitrow').hidden = !signupBox.checked;
-  };
-  signupBox.addEventListener('change', showSignup);
-  showSignup();
 
   // Решения и поручения собрания: что сделать, кто отвечает, к какому сроку.
   const decisionsBox = h('div', { class: 'field decisionsbox' });
@@ -1228,13 +1137,9 @@ async function openForm(source = {}) {
     // Правка не выводит событие из цепочки.
     seriesId: source.seriesId ?? '',
     repeat: source.repeat ?? null,
-    // Сдача, заявки и время создания меняются не в форме: правка их сохраняет.
+    // Сдача и время создания меняются не в форме: правка их сохраняет.
     handIn: source.handIn ?? {},
-    requests: source.requests ?? [],
     createdAt: source.createdAt ?? '',
-    signup: draft.type === 'event' && signupBox.checked
-      ? { open: true, limit: Math.max(0, Math.round(Number($('f-limit').value) || 0)) }
-      : null,
     decisions: draft.type === 'meeting' ? draft.decisions.filter((item) => item.text.trim()) : [],
   });
 
@@ -1462,7 +1367,7 @@ async function openForm(source = {}) {
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
         typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, targets,
-        participants.element, rolesBox, signupField, decisionsBox, equipment.element, ownBox, conflictBox,
+        participants.element, rolesBox, decisionsBox, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
           h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? '')))),
@@ -1657,7 +1562,7 @@ function openStockPicker({ event, values, qty, holders, done }) {
 
 /* Справочники */
 
-const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '', phone: null, code: null };
+const catalog = { tab: 'groups', groupId: null, editing: null, confirming: null, message: '' };
 
 const CATALOG_TABS = [
   ['groups', t('Группы и студенты')],
@@ -1786,69 +1691,6 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
     h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = ref.id; catalog.editing = null; drawCatalog(); } }, t('Удалить')));
 }
 
-/** Ник и телефон студента одной строкой под именем. */
-function studentPhoneDetail(student) {
-  const parts = [];
-  if (student.nick) parts.push(student.nickOk ? t('ник {0}', [student.nick]) : t('ник {0} ждёт подтверждения', [student.nick]));
-  if (student.phoneBound) parts.push(t('телефон привязан'));
-  else if (student.codeActive) parts.push(t('код выдан'));
-  return parts.join(', ') || null;
-}
-
-/** Ник, код привязки и отвязка телефона. Код показывается один раз. */
-function phonePanel(student) {
-  const save = async (changes) => {
-    catalog.message = '';
-    await commitCatalog(await api.saveRefs([{ ref: { ...student, ...changes }, base: student.updatedAt }]));
-  };
-  const nick = h('input', { id: 'c-nick', value: student.nick ?? '', maxlength: 20, autocomplete: 'off', placeholder: t('Ник'), 'aria-label': t('Ник') });
-  const code = catalog.code?.id === student.id ? catalog.code.code : null;
-  return h('li', { class: 'phonepanel' },
-    h('div', { class: 'adder' }, nick,
-      h('button', {
-        type: 'button',
-        onclick: () => {
-          const value = nick.value.trim();
-          if (value && !/^[\p{L}\p{N}_.-]{3,20}$/u.test(value)) {
-            catalog.message = t('Ник: от 3 до 20 букв или цифр, можно также _ . и -.');
-            drawCatalog();
-            return;
-          }
-          save({ nick: value, nickOk: Boolean(value) });
-        },
-      }, student.nick && !student.nickOk && nick.value === student.nick ? t('Подтвердить ник') : t('Сохранить ник'))),
-    h('p', { class: 'help' }, t('Ник видят студент на телефоне и преподаватели. ФИО на телефоне не показывается.')),
-    code
-      ? h('div', { class: 'phonecode' },
-        h('strong', { 'aria-label': t('Код для телефона') }, `${code.slice(0, 4)} ${code.slice(4)}`),
-        h('p', { class: 'help' }, t('Передайте код студенту. Код одноразовый и действует 14 дней. Больше он нигде не показывается.')))
-      : h('div', { class: 'targets' },
-        h('button', {
-          type: 'button',
-          id: 'c-phone-code',
-          onclick: async () => {
-            const result = await api.studentCode(student.id);
-            if (!result.ok) {
-              catalog.message = t('Не удалось создать код: {0}', [result.message]);
-              drawCatalog();
-              return;
-            }
-            catalog.code = { id: student.id, code: result.value };
-            await loadDirectory();
-            drawCatalog();
-          },
-        }, student.phoneBound ? t('Новый код (телефон сменился)') : t('Выдать код для телефона')),
-        student.phoneBound && h('button', {
-          type: 'button',
-          class: 'plain',
-          onclick: async () => {
-            await api.unbindPhone(student.id);
-            await loadDirectory();
-            drawCatalog();
-          },
-        }, t('Отвязать телефон'))),
-  );
-}
 
 function refList(rows, emptyText) {
   return rows.length ? h('ul', { class: 'reflist' }, rows) : h('p', { class: 'help' }, emptyText);
@@ -1881,18 +1723,12 @@ function groupsPane() {
         ? [
           addForm('c-add-student', t('Фамилия и имя или столбец из таблицы'),
             (text) => addRefs(text, 'student', members, { groupId: current.id })),
-          refList(members.flatMap((student) => [refRow(student, {
-            detail: studentPhoneDetail(student),
+          refList(members.map((student) => refRow(student, {
             extra: [h('button', {
               type: 'button',
               class: 'plain portfolioopen',
               onclick: () => openPortfolio(student.id),
             }, t('Портфолио')), h('button', {
-              type: 'button',
-              class: 'plain phonetoggle',
-              'aria-expanded': String(catalog.phone === student.id),
-              onclick: () => { catalog.phone = catalog.phone === student.id ? null : student.id; catalog.code = null; drawCatalog(); },
-            }, t('Телефон')), h('button', {
               type: 'button',
               class: 'plain owntoggle',
               'aria-pressed': String(student.ownCamera === true),
@@ -1901,7 +1737,7 @@ function groupsPane() {
                 await commitCatalog(await api.saveRefs([{ ref: { ...student, ownCamera: !student.ownCamera }, base: student.updatedAt }]));
               },
             }, t('Своя камера'))],
-          }), catalog.phone === student.id && phonePanel(student)].filter(Boolean)), t('В группе пока нет студентов.')),
+          })), t('В группе пока нет студентов.')),
         ]
         : h('p', { class: 'help' }, t('Сначала добавьте группу.'))));
 }
@@ -2012,8 +1848,6 @@ function rowNote(row) {
   }
   if (row.excusedFor) return t('По приказу: {0}', [row.excusedFor]);
   if (row.unconfirmed) return t('Болезнь, ждём справку');
-  const here = state.presence.get(nameKey(row.name));
-  if (row.status === 'pending' && here) return t('В колледже с {0}: открыл страницу студента. Нажмите на имя, чтобы отметить', [clockTime(here)]);
   return row.status === 'pending' ? t('Нажмите на имя, чтобы отметиться') : statusLabel(row.status);
 }
 
@@ -2061,136 +1895,6 @@ function templateSection() {
   return box;
 }
 
-/** Включение студенческой страницы на этом компьютере. */
-function portalSection() {
-  const box = h('section', { class: 'setting', id: 's-portal' });
-  const message = h('p', { class: 'help', role: 'status' });
-  const draw = async () => {
-    const status = await api.portalStatus();
-    const toggle = h('input', {
-      type: 'checkbox',
-      id: 's-portal-on',
-      checked: status.on,
-      onchange: async (e) => {
-        message.textContent = '';
-        toggle.disabled = true;
-        const result = await api.setPortal(e.target.checked);
-        if (!result.ok || !result.value) message.textContent = t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880]);
-        await loadPresence();
-        await draw();
-      },
-    });
-    box.replaceChildren(...[
-      h('h3', { class: 'settinghead' }, t('Страница для студентов')),
-      h('label', { class: 'check' }, toggle, t('Открыть страницу для студентов на этом компьютере')),
-      h('p', { class: 'help' }, t('Студенты в Wi-Fi колледжа видят на телефоне свои занятия, задания, сроки и отметки, а преподаватель на панели видит, кто уже в колледже. Компьютер должен быть включён весь учебный день. Коды для телефонов выдаются в «Справочниках» у студента.')),
-      status.running && h('p', {}, t('Адрес: {0}', [status.urls.join(', ') || t('нет сети')])),
-      status.running && status.addresses.length > 1 && h('label', { class: 'field' }, t('Адрес для QR-кода'),
-        h('select', {
-          id: 's-portal-address',
-          onchange: async (e) => {
-            await api.setPortalAddress(e.target.value);
-            await loadPresence();
-            await draw();
-          },
-        },
-        h('option', { value: '', selected: !status.addresses.includes(status.address) }, t('Автоматически')),
-        status.addresses.map((address) => h('option', { value: address, selected: address === status.address }, address)))),
-      status.running && status.addresses.length > 1 && h('p', { class: 'help' }, t('У компьютера несколько сетей. Выберите адрес в сети Wi-Fi для студентов: телефоны откроют страницу по QR-коду.')),
-      status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47880])),
-      message,
-    ].filter(Boolean));
-  };
-  draw();
-  return box;
-}
-
-/**
- * Расписание с телефона преподавателя: включение, адрес из интернета, подключение телефона
- * по одноразовому QR-коду и список подключённых телефонов.
- */
-let remoteChanged = null;
-api.onRemoteChanged?.(() => remoteChanged?.());
-
-function remoteSection() {
-  const box = h('section', { class: 'setting', id: 's-remote' });
-  const message = h('p', { class: 'help', role: 'status' });
-  const pairBox = h('div', { class: 'remotepair' });
-  let timer = null;
-  const showPairing = async () => {
-    message.textContent = '';
-    const result = await api.remotePair();
-    if (!result.ok) {
-      message.textContent = t('Сначала включите расписание с телефона.');
-      return;
-    }
-    const [main, ...rest] = result.value.links;
-    if (!main) {
-      message.textContent = t('У компьютера сейчас нет сети, QR-коду некуда вести. Подключите компьютер к сети колледжа или к Wi-Fi и нажмите ещё раз.');
-      return;
-    }
-    const until = new Date(result.value.until);
-    pairBox.replaceChildren(
-      qrElement(main, t('QR-код для подключения телефона')),
-      h('div', {},
-        h('p', {}, t('Отсканируйте камерой телефона. Код одноразовый и действует 10 минут, до {0}.', [`${String(until.getHours()).padStart(2, '0')}:${String(until.getMinutes()).padStart(2, '0')}`])),
-        h('p', { class: 'help remotelink' }, main),
-        rest.length > 0 && h('p', { class: 'help' }, t('В сети колледжа также: {0}', [rest.map((link) => link.split('#')[0]).join(', ')])),
-        h('button', { type: 'button', class: 'plain', onclick: () => { pairBox.replaceChildren(); clearTimeout(timer); } }, t('Скрыть QR-код'))));
-    clearTimeout(timer);
-    timer = setTimeout(() => pairBox.replaceChildren(), 10 * 60_000);
-  };
-  const draw = async () => {
-    const result = await api.remoteStatus();
-    if (!result.ok) return;
-    const status = result.value;
-    const toggle = h('input', {
-      type: 'checkbox',
-      id: 's-remote-on',
-      checked: status.on,
-      onchange: async (e) => {
-        toggle.disabled = true;
-        const r = await api.remoteSet(e.target.checked);
-        message.textContent = r.ok && !r.value && e.target.checked ? t('Не удалось открыть страницу: порт {0} занят другой программой.', [47881]) : '';
-        if (!e.target.checked) pairBox.replaceChildren();
-        await draw();
-      },
-    });
-    const url = h('input', { id: 's-remote-url', type: 'url', value: status.remoteUrl, placeholder: 'https://kerdiis.keenetic.pro', autocomplete: 'off' });
-    box.replaceChildren(...[
-      h('h3', { class: 'settinghead' }, t('Телефон преподавателя')),
-      h('label', { class: 'check' }, toggle, t('Смотреть и править расписание с телефона')),
-      h('p', { class: 'help' }, t('Телефон подключается один раз по QR-коду с этого экрана. Без подключения страница ничего не показывает. Фамилии студентов на телефон не передаются: только группы и число участников.')),
-      status.running && [
-        h('p', {}, t('В сети колледжа: {0}', [status.urls.join(', ') || t('нет сети')])),
-        h('div', { class: 'field' },
-          h('label', { for: 's-remote-url' }, t('Адрес из интернета')),
-          h('div', { class: 'targets' }, url, h('button', {
-            type: 'button',
-            onclick: async () => {
-              const r = await api.remoteUrl(url.value);
-              message.textContent = r.ok && (r.value || !url.value.trim()) ? t('Адрес сохранён.') : t('Нужен адрес вида https://имя.keenetic.pro');
-              await draw();
-            },
-          }, t('Сохранить')))),
-        h('p', { class: 'help' }, t('Kerdiis сам в интернет не выходит. Чтобы открывать расписание не только в колледже, выпустите страницу через роутер: в Keenetic — KeenDNS, «Доступ к веб-приложениям домашней сети», компьютер {0}, порт {1}, только HTTPS. Затем впишите сюда полученный адрес.', [state.settings.deviceName, 47881])),
-        h('button', { type: 'button', class: 'primary', id: 's-remote-pair', onclick: showPairing }, t('Подключить телефон')),
-        pairBox,
-        status.phones.length > 0 && h('div', {},
-          h('h4', {}, t('Подключённые телефоны')),
-          h('ul', { class: 'remotephones' }, status.phones.map((phone) => h('li', {},
-            h('span', {}, h('strong', {}, phone.name), ' · ', t('был на связи {0}', [`${shortDay(phone.lastSeen.slice(0, 10))} ${new Date(phone.lastSeen).toTimeString().slice(0, 5)}`])),
-            h('button', { type: 'button', class: 'plain', onclick: async () => { await api.remoteForget(phone.id); await draw(); } }, t('Отключить')))))),
-      ],
-      status.problem === 'port-busy' && h('p', { class: 'error' }, t('Не удалось открыть страницу: порт {0} занят другой программой.', [47881])),
-      message,
-    ].flat().filter(Boolean));
-  };
-  // Телефон подключился: QR-код прячется, телефон появляется в списке.
-  remoteChanged = () => { if (box.isConnected) { pairBox.replaceChildren(); draw(); } };
-  draw();
-  return box;
-}
 
 function backupSection() {
   const box = h('section', { class: 'setting', id: 's-backup' });
@@ -4373,8 +4077,6 @@ async function openSettings() {
       templateSection(),
       backupSection(),
       summarySection(),
-      portalSection(),
-      remoteSection(),
       clearSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
@@ -4676,7 +4378,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'netcheck', 'handin', 'rolestats'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4707,14 +4409,10 @@ function wire() {
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);
   $('open-signals').addEventListener('click', openSignals);
-  $('open-portal').addEventListener('click', openPortal);
   $('notices-open').addEventListener('click', openNotices);
   $('open-reports').addEventListener('click', openReports);
   $('open-catalog').addEventListener('click', () => {
     catalog.message = '';
-    // Код телефона показывается один раз: после закрытия справочника его больше не видно.
-    catalog.phone = null;
-    catalog.code = null;
     drawCatalog({ fromTop: true });
     $('catalog').showModal();
   });

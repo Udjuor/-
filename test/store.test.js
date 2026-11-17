@@ -524,62 +524,17 @@ test('журнал старше полугода удаляется и не пр
   assert.equal(await store.merge([{ ...old }]), 0);
 });
 
-test('телефон студента: код, привязка с ником, ключ, отвязка', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  let now = Date.parse('2026-11-10T00:30:00Z');
-  const store = new EventStore(dir, 'dev-1', { clock: () => now });
-  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
-  const anna = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
-  const boris = await store.saveRef({ kind: 'student', name: 'Борисов Илья', groupId: group.id, nick: 'Boris', nickOk: true });
-  const code = await store.studentCode(anna.id);
-  assert.match(code, /^\d{8}$/);
-  const raw = await store.readCurrent(anna.id);
-  assert.ok(!JSON.stringify(raw).includes(code), 'сам код не хранится');
-  let listed = (await store.directory()).find((r) => r.id === anna.id);
-  assert.equal(listed.codeActive, true);
-  assert.equal(listed.phoneCode, undefined, 'отпечаток не уходит в интерфейс');
-
-  await assert.rejects(store.bindPhone('00000000', 'Anna'), { code: 'bad-code' });
-  await assert.rejects(store.bindPhone(code, 'boris'), { code: 'nick-taken' });
-  await assert.rejects(store.bindPhone(code, 'a'), { code: 'bad-nick' });
-  const { token, student } = await store.bindPhone(code, 'Ануся');
-  assert.equal(student, 'Иванова Анна');
-  assert.equal((await store.studentByToken(token)).name, 'Иванова Анна');
-  await assert.rejects(store.bindPhone(code, 'Ануся2'), { code: 'bad-code' }, 'код одноразовый');
-  listed = (await store.directory()).find((r) => r.id === anna.id);
-  assert.deepEqual([listed.nick, listed.nickOk, listed.phoneBound, listed.codeActive], ['Ануся', false, true, false]);
-
-  // Правка справочника не стирает привязку, подтверждение ника — обычная правка.
-  await store.saveRef({ ...listed, nickOk: true }, listed.updatedAt);
-  assert.equal((await store.studentByToken(token)).nickOk, true);
-
-  // Подтверждённый ник при новой привязке не меняется; код живёт две недели.
-  const old = await store.studentCode(boris.id);
-  now += 15 * 86400000;
-  await assert.rejects(store.bindPhone(old, 'Other'), { code: 'bad-code' });
-  const fresh = await store.studentCode(boris.id);
-  await store.bindPhone(fresh, 'Other');
-  assert.equal((await store.directory()).find((r) => r.id === boris.id).nick, 'Boris');
-
-  await store.unbindPhone(anna.id);
-  assert.equal(await store.studentByToken(token), null);
-});
-
-test('«в колледже»: первая отметка за день остаётся, адрес страницы', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'presence-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const store = new EventStore(dir, 'dev-1');
-  const first = await store.markPresence('Иванова Анна', new Date(2026, 10, 10, 8, 52).toISOString());
-  await store.markPresence('Иванова Анна', new Date(2026, 10, 10, 12, 0).toISOString());
-  const list = await store.presenceOn('2026-11-10');
-  assert.equal(list.length, 1);
-  assert.equal(list[0].at, first.at);
-  assert.equal((await store.presenceOn('2026-11-11')).length, 0);
-  await store.setPortal(['http://10.0.5.12:47880'], 'Кабинет 214', true);
-  assert.deepEqual((await store.portal()).urls, ['http://10.0.5.12:47880']);
+test('записи страницы студента из прежних версий принимаются, но не мешают', async (t) => {
+  const dir = tempDir(t);
+  const old = { id: '11111111-2222-3333-4444-555555555555', kind: 'presence', student: 'Иванова Анна', date: '2026-11-10', at: '2026-11-10T00:52:00.000Z', updatedAt: '2026-11-10T00:52:00.000Z', updatedBy: 'x' };
+  fs.mkdirSync(path.join(dir, 'events'), { recursive: true });
+  const store = new EventStore(path.join(dir, 'events'), 'dev-1');
+  fs.writeFileSync(path.join(dir, 'events', `${old.id}.json`), JSON.stringify(old));
   assert.equal((await store.directory()).length, 0, 'служебные записи не в справочниках');
   assert.equal((await store.list()).length, 0, 'и не в событиях');
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
+  const anna = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id, nick: 'Ануся', nickOk: true, phoneKey: 'a'.repeat(64) });
+  assert.equal('nick' in anna || 'phoneKey' in anna, false, 'ник и ключ телефона больше не хранятся');
 });
 
 test('занятие не состоялось: причина хранится, отметки не ставятся, снять можно', async (t) => {
@@ -622,12 +577,8 @@ test('сдача, поручения, запись и заявки нормал�
   const meeting = await store.save({ ...sample, type: 'meeting', decisions: [{ text: ' Зал ', who: 'Павлов', due: '2026-11-20', done: true }, { text: '' }, { text: 'Без срока', due: 'потом' }] });
   assert.deepEqual(meeting.decisions.map((d) => [d.text, d.who, d.due, d.done]), [['Зал', 'Павлов', '2026-11-20', true], ['Без срока', '', '', false]]);
   assert.ok(meeting.decisions[0].id);
-  const ev = await store.save({ ...sample, type: 'event', participants: ['Иванов'], signup: { open: true, limit: 9999 }, requests: [{ name: 'Иванов', role: 'x' }, { name: 'Сидоров', role: 'Оператор', at: '2026-11-10T09:00' }, { name: 'сидоров' }] });
-  assert.deepEqual(ev.signup, { open: true, limit: 500 });
-  assert.deepEqual(ev.requests.map((r) => r.name), ['Сидоров'], 'участник и повтор отброшены');
-  const shut = await store.save({ ...ev, signup: { open: false } }, ev.updatedAt);
-  assert.equal(shut.signup, null);
-  assert.deepEqual(shut.requests, []);
+  const ev = await store.save({ ...sample, type: 'event', participants: ['Иванов'], signup: { open: true }, requests: [{ name: 'Сидоров' }] });
+  assert.equal('signup' in ev || 'requests' in ev, false, 'запись со страницы студента убрана');
   const again = await store.save({ ...task, title: 'Новое имя' }, task.updatedAt);
   assert.equal(again.createdAt, task.createdAt, 'время создания не меняется');
 });

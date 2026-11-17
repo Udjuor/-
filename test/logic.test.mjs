@@ -657,9 +657,9 @@ test('роль студента видна в событии и в портфо�
   assert.equal(p.items[0].role, 'Оператор');
 });
 
-test('сдача по студентам, должники, итоги по ролям, поручения и запись', () => {
+test('сдача по студентам, должники, итоги по ролям и поручения', () => {
   const task = { id: 't1', type: 'task', title: 'Монтаж', date: '2026-11-02', start: '10:00', end: '11:00', participants: ['Иванов', 'Петрова', 'Сидоров'], deadline: '2026-11-05T18:00', handIn: { 'Иванов': 'done', 'Петрова': 'rework' }, roles: { 'Иванов': 'Оператор' } };
-  const ev = { id: 'e1', type: 'event', title: 'Концерт', date: '2026-11-03', start: '15:00', end: '17:00', participants: ['Иванов', 'Петрова'], roles: { 'Иванов': 'Оператор', 'Петрова': 'Ведущий' }, signup: { open: true, limit: 3 }, requests: [{ name: 'Сидоров', role: '' }] };
+  const ev = { id: 'e1', type: 'event', title: 'Концерт', date: '2026-11-03', start: '15:00', end: '17:00', participants: ['Иванов', 'Петрова'], roles: { 'Иванов': 'Оператор', 'Петрова': 'Ведущий' } };
   const meeting = { id: 'm1', type: 'meeting', title: 'Совещание', date: '2026-11-04', start: '14:00', end: '15:00', participants: [], decisions: [
     { id: 'd1', text: 'Подготовить зал', who: 'Павлов', due: '2026-11-06', done: false },
     { id: 'd2', text: 'Отчёт', who: '', due: '', done: false },
@@ -676,11 +676,6 @@ test('сдача по студентам, должники, итоги по ро
   assert.deepEqual(stats.people.map((p) => [p.name, p.total, p.roles['Оператор'] ?? 0]), [['Иванов', 2, 2], ['Петрова', 1, 0]]);
   assert.equal(L.roleStats([task, ev], '2026-11-10', '2026-11-03').people[0].total, 1, 'с начала периода');
   assert.deepEqual(L.decisionList([meeting], '2026-11-07').map((x) => [x.item.text, x.state]), [['Подготовить зал', 'overdue'], ['Отчёт', 'later']]);
-  assert.equal(L.signupState(ev, 'Сидоров', '2026-11-01'), 'requested');
-  assert.equal(L.signupState(ev, 'иванов', '2026-11-01'), 'member');
-  assert.equal(L.signupState(ev, 'Новый', '2026-11-01'), 'open');
-  assert.equal(L.signupState({ ...ev, participants: ['a', 'b', 'c'] }, 'Новый', '2026-11-01'), 'full');
-  assert.equal(L.signupState(ev, 'Новый', '2026-11-04'), 'closed', 'прошедшее');
   const csv = L.weeklySummaryCsv({ events: [task], attendance: [], students: [], groups: [], from: '2026-11-02', to: '2026-11-08', nowISO: '2026-11-09', nowTime: '09:00',
     labels: { title: 'Сводка', groups: 'Группы', groupHeader: ['Группа'], absent: 'Пропуски', absentHeader: ['Студент'], certificates: 'Справки', certificatesHeader: ['Студент'], debts: 'Долги', debtsHeader: ['Студент', 'Долгов', 'Что'] } });
   assert.match(csv, /^﻿Сводка/);

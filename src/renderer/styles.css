@@ -821,19 +821,11 @@ dialog#welcome { width: min(40rem, 94vw); }
 .prizeslot { display: grid; gap: .3rem; }
 
 /* Студенческая страница: QR на панели и телефон в справочнике */
-#portal.sheet { width: min(64rem, 100vw); max-width: 100vw; }
-.portalbody { display: grid; grid-template-columns: minmax(12rem, 24rem) 1fr; gap: 1.5rem; align-items: start; padding: 1rem 1.25rem 1.25rem; }
-.portalbody .qr { width: 100%; height: auto; border-radius: .5rem; }
 .donate { color: var(--danger-fg, #f85149); }
 .donatebody { display: grid; justify-items: center; gap: 1rem; padding: 1.25rem; }
 .donatebody .qr { width: min(100%, 20rem); height: auto; border-radius: .5rem; }
 .donatebody > div { max-width: 32rem; }
-.portalurl { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 0 0 .75rem; }
 .portalsteps { list-style: decimal; margin: 0 0 1rem; padding-left: 1.6rem; display: grid; gap: .4rem; font-size: 1.1rem; }
-@media (max-width: 900px) { .portalbody { grid-template-columns: 1fr; } }
-.phonepanel { display: grid; gap: .5rem; padding: .6rem .8rem .8rem; margin: 0 0 .4rem; background: var(--canvas-subtle); border-radius: .4rem; }
-.phonepanel input { flex: 1 1 10rem; min-width: 0; min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.phonecode strong { display: block; font-size: 2.2rem; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 
 /* Отметки со страницы студента */
 .autobox { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; padding: .6rem .8rem; margin: 0 0 .6rem; border: .05rem solid var(--attention-border); background: var(--attention-subtle); border-radius: .4rem; }
@@ -931,11 +923,6 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .livebar[data-verdict="absent"] { background: var(--danger-subtle); color: var(--danger-fg); }
 
 /* Телефон преподавателя */
-.remotepair:not(:empty) { display: flex; gap: 1rem; align-items: center; margin: .8rem 0; }
-.remotepair .qr { width: 13rem; height: 13rem; flex: none; background: #fff; padding: .5rem; border-radius: .4rem; }
-.remotelink { overflow-wrap: anywhere; font-family: var(--mono, monospace); }
-.remotephones { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
-.remotephones li { display: flex; gap: .6rem; align-items: center; justify-content: space-between; padding: .3rem 0; border-bottom: .05rem solid var(--border-muted); }
 
 /* Роли участников в форме события */
 .rolelist { display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); gap: .35rem 1.2rem; margin: .3rem 0 0; padding: 0; list-style: none; }
@@ -944,17 +931,12 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .rolelist select { width: 100%; }
 
 /* Заявки студентов, поручения собраний, сдача по студентам */
-.requestlist, .decisionlist, .handlist, .decisionedit { margin: .4rem 0 0; padding: 0; list-style: none; display: grid; gap: .4rem; }
-.requestlist li { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-.requestlist li > span { flex: 1 1 14rem; }
-.requests > button { margin-top: .5rem; }
+.decisionlist, .handlist, .decisionedit { margin: .4rem 0 0; padding: 0; list-style: none; display: grid; gap: .4rem; }
 .decisionlist li { display: grid; gap: .1rem; }
 .decisionlist li.done span:not(.help) { color: var(--fg-muted); text-decoration: line-through; }
 .decisionlist .help { margin: 0 0 0 2.5rem; }
 .decisionedit li { display: grid; grid-template-columns: minmax(0, 1fr) 13rem 11rem auto; gap: .5rem; align-items: center; }
 .decisionsbox > .plain { justify-self: start; margin-top: .4rem; }
-.limitrow { display: flex; align-items: center; gap: .8rem; margin-top: .3rem; }
-.limitrow input { width: 9rem; }
 .handsum { font-weight: 600; }
 .handlist li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .35rem .5rem; border-radius: 8px; }
 .handlist li.hand-missing { background: var(--danger-subtle); }

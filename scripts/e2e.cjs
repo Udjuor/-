@@ -76,7 +76,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const app = await _electron.launch({
     executablePath: process.env.CAL_EXE,
     args: (process.env.CAL_ARGS || '').split(' ').filter(Boolean),
-    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString(), KERDIIS_PORTAL_PORT: '47890', KERDIIS_REMOTE_PORT: '47891' },
+    env: { ...process.env, KERDIIS_HOME: home, KERDIIS_CLOCK: new Date(2026, 10, 3, 9, 2).toISOString() },
   });
   const errors = [];
   // Панель-визитка: отдельное небольшое окно, потом главное.
@@ -1094,77 +1094,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#s-update'), process.platform === 'win32' ? /Последняя проверка обновлений|не удалось проверить/ : /Проверку запустить не удалось/);
   await page.click('#preferences [aria-label=Закрыть]');
 
-  // Страница для студентов: включить, показать QR, выдать код, привязать телефон.
-  await page.click('#settings');
-  await page.click('#s-portal-on');
-  await page.waitForSelector('#s-portal:has-text("47890")');
-  await page.click('#preferences [aria-label=Закрыть]');
-  await page.waitForSelector('#open-portal:not([hidden])', { state: 'attached', timeout: 15000 });
-  await openSection('#open-portal');
-  await page.waitForSelector('#portal[open] svg.qr');
-  await shot('portal');
-  await page.click('#portal [aria-label=Закрыть]');
-
-  // Открытая запись на мероприятие и задание со сдачей по студентам.
-  await teacherStore.save({ title: 'Фестиваль', type: 'event', date: day(1), start: '15:10', end: '16:50', participants: ['Борисов Илья'], devices: [deviceId], signup: { open: true, limit: 0 } });
+  // Задание со сдачей по студентам.
   await teacherStore.save({ title: 'Монтаж ролика', type: 'task', date: day(1), start: '10:00', end: '10:40', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId], deadline: `${day(1)}T18:00` });
-  await teacherStore.save({ title: 'Пара для телефона', type: 'lesson', date: day(0), start: '19:15', end: '19:55', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
-  await teacherStore.save({ title: 'Пара сейчас', type: 'lesson', date: day(0), start: '09:00', end: '10:00', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacher.syncWith('127.0.0.1:47800');
-  await openSection('#open-catalog');
-  await page.click('#catalog .tabs >> text=Группы и студенты');
-  await page.click('#catalog .refname:has-text("ИС-21")');
-  await page.click('#catalog .refrow:has-text("Васильева Дарья") .phonetoggle');
-  await page.click('#c-phone-code');
-  const phoneCode = (await page.textContent('.phonecode strong')).replace(/\s/g, '');
-  assert.match(phoneCode, /^\d{8}$/);
-  await shot('phone-code');
-  await page.click('#catalog [aria-label=Закрыть]');
-
-  // «Телефон» — отдельное окно того же Chromium, что в Electron: отдельный браузер на сервере сборки не скачивается.
-  const phoneOpened = app.waitForEvent('window');
-  await app.evaluate(({ BrowserWindow }) => {
-    const w = new BrowserWindow({ width: 390, height: 844, show: true });
-    w.loadURL('http://127.0.0.1:47890/');
-  });
-  const phone = await phoneOpened;
-  await phone.setViewportSize({ width: 390, height: 844 });
-  await phone.waitForSelector('#code');
-  await phone.fill('#code', phoneCode);
-  await phone.fill('#nick', 'Дашуля');
-  await phone.click('button[type=submit]');
-  await phone.waitForSelector('text=Вы в колледже с');
-  await phone.waitForSelector('.item:has-text("Пара для телефона")');
-  await phone.waitForSelector('.item:has-text("Монтаж ролика") .chip:has-text("До ")');
-  await phone.selectOption('.item:has-text("Фестиваль") select', 'Оператор');
-  await phone.click('.item:has-text("Фестиваль") button:has-text("Записаться")');
-  await phone.waitForSelector('.item:has-text("Фестиваль") .chip:has-text("Заявка отправлена: Оператор")');
-  assert.ok(!(await phone.content()).includes('Борисов'), 'имена других участников на телефон не попадают');
-  assert.ok(!(await phone.textContent('body')).includes('null'), 'пустые разделы не печатаются');
-  assert.ok(!(await phone.content()).includes('Васильева'), 'ФИО на телефоне нет');
-  await phone.screenshot({ path: path.join(shots, 'phone.png'), fullPage: true });
-  await phone.reload();
-  await phone.waitForSelector('text=Привет, Дашуля!');
-  await phone.close();
-
-  await page.waitForSelector('.block:has-text("Пара для телефона")', { timeout: 15000 });
-  await page.click('.block:has-text("Пара для телефона")');
-  await page.click('#details >> text=/Отметка/');
-  await page.waitForSelector('#roll[open] .rollrow:has-text("Васильева Дарья"):has-text("В колледже с")', { timeout: 15000 });
-  assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья"):has-text("В колледже с")').count(), 0);
-  await shot('roll-presence');
-  await page.click('#roll [aria-label=Закрыть]');
-
-  // Заявку студента преподаватель принимает в карточке мероприятия: участник с ролью.
-  await page.click('#next');
-  await page.click('.block:has-text("Фестиваль")', { timeout: 15000 });
-  await page.waitForSelector('#details[open] .requests li:has-text("Васильева Дарья — Оператор")', { timeout: 15000 });
-  await shot('signup-requests');
-  await page.click('#details .requests li:has-text("Васильева Дарья") button:has-text("Принять")');
-  await page.waitForSelector('#details[open] li:has-text("Васильева Дарья — Оператор")');
-  await page.waitForSelector('#details .requests h3:has-text("Заявок пока нет")');
-  await page.click('#details [aria-label=Закрыть]');
-  await page.click('#today');
+  await page.waitForSelector('#deadline-count:not([hidden])', { timeout: 15000 });
 
   // Сдача по студентам: в «Сроках сдачи» у задания «0 из 2».
   await page.click('#open-deadlines');
@@ -1179,26 +1112,6 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#deadlines tr:has-text("Монтаж ролика") .linkbutton:has-text("1 из 2")');
   await page.click('#deadlines [aria-label=Закрыть]');
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'Монтаж ролика' && e.handIn['Васильева Дарья'] === 'rework'), 'сдача по студентам на другом устройстве');
-
-  // Открыв страницу, студент сам отметился на идущей паре; преподаватель подтверждает.
-  await page.click('.block:has-text("Пара сейчас")');
-  await page.click('#details >> text=/Отметка/');
-  await page.waitForSelector('#roll[open] .rollrow:has-text("Васильева Дарья"):has-text("С телефона в")', { timeout: 15000 });
-  await page.waitForSelector('#roll .autobox:has-text("ждут подтверждения: 1")');
-  assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья") .confirmauto').count(), 0);
-  await shot('roll-auto');
-  await page.click('#roll .rollrow:has-text("Васильева Дарья") .confirmauto');
-  await page.waitForSelector('#roll .autobox', { state: 'hidden' });
-  assert.match(await page.textContent('#roll .rollrow:has-text("Васильева Дарья")'), /Отмечен в/);
-  await page.click('#roll [aria-label=Закрыть]');
-  await openSection('#open-catalog');
-  await page.click('#catalog .tabs >> text=Группы и студенты');
-  await page.click('#catalog .refname:has-text("ИС-21")');
-  await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля ждёт подтверждения")');
-  await page.click('#catalog .refrow:has-text("Васильева Дарья") .phonetoggle');
-  await page.click('.phonepanel button:has-text("Подтвердить ник")');
-  await page.waitForSelector('#catalog .refrow:has-text("Васильева Дарья"):has-text("ник Дашуля, телефон привязан")');
-  await page.click('#catalog [aria-label=Закрыть]');
 
   // Занятие не состоялось: причина, зачёркнутый блок, отметок нет.
   const toCancel = await teacherStore.save({ title: 'Пара для отмены', type: 'lesson', date: day(0), start: '12:00', end: '13:00', participants: ['Тестов Ученик33', 'Тестов Ученик34'] });
@@ -1292,7 +1205,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
     await shot(`topbar-${width}`);
   }
   await page.click('#open-sections');
-  await page.waitForSelector('#sections:popover-open #open-portal');
+  await page.waitForSelector('#sections:popover-open #open-catalog');
   await shot('sections-menu');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1359,46 +1272,6 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#lock-confirm');
   await page.waitForSelector('#roll .lockbanner:not([hidden])');
   await page.click('#roll [aria-label=Закрыть]');
-
-  // Расписание с телефона преподавателя: включить, подключить телефон по QR, добавить пару с телефона.
-  await page.click('#settings');
-  await page.click('#s-remote-on');
-  await page.waitForSelector('#s-remote-pair');
-  await page.click('#s-remote-pair');
-  await page.waitForSelector('#s-remote .remotepair svg.qr');
-  const link = (await page.textContent('#s-remote .remotelink')).replace(/^http:\/\/[^/]+/, 'http://127.0.0.1:47891');
-  await shot('remote-settings');
-  await app.evaluate(async ({ BrowserWindow }, url) => {
-    const phone = new BrowserWindow({ width: 390, height: 844, show: true });
-    await phone.loadURL(url);
-  }, link);
-  let teacherPhone;
-  await until(async () => { teacherPhone = app.windows().find((w) => w.url().startsWith('http://127.0.0.1:47891')); return Boolean(teacherPhone); }, 'окно телефона');
-  await teacherPhone.waitForSelector('.nav');
-  await page.waitForSelector('#s-remote .remotephones li', { timeout: 15000 });
-  await teacherPhone.click('.fab');
-  await teacherPhone.fill('#r-title', 'Пара с телефона');
-  await teacherPhone.fill('#r-start', '15:00');
-  await teacherPhone.fill('#r-end', '16:30');
-  await teacherPhone.fill('#r-place', 'Ауд. 101');
-  await teacherPhone.click('.chips button >> nth=0');
-  await shot('remote-form', teacherPhone);
-  await teacherPhone.click('#r-save');
-  await teacherPhone.waitForSelector('.ev:has-text("Пара с телефона")');
-  await shot('remote-phone', teacherPhone);
-  // Окно программы обновляется само.
-  await page.click('#preferences [aria-label=Закрыть]');
-  await page.waitForSelector('.block:has-text("Пара с телефона")', { timeout: 15000 });
-  // Не состоялось — с телефона.
-  await teacherPhone.click('.ev:has-text("Пара с телефона")');
-  await teacherPhone.click('#sheet button:has-text("Не состоялось")');
-  await teacherPhone.fill('#r-reason', 'Перенос');
-  await teacherPhone.click('#sheet .primary:has-text("Не состоялось")');
-  await teacherPhone.waitForSelector('.ev.cancelled:has-text("Пара с телефона")');
-  // Без ключа страница ничего не отдаёт.
-  const stranger = await teacherPhone.evaluate(async () => (await fetch('/api/state', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } })).status);
-  assert.equal(stranger, 401);
-  await teacherPhone.close();
 
   // Индикатор связи и проверка связи: компьютер преподавателя на связи, лишний адрес — нет.
   await page.click('#net');

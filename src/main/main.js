@@ -4,13 +4,10 @@ const { execFile } = require('node:child_process');
 const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
-const { LANGUAGES, cleanRemoteUrl, loadConfig, saveConfig, splitPeers } = require('./config');
-const { TeacherRemote, REMOTE_PORT } = require('./remote');
+const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
-const { SyncNode, generateKey, localNetworks } = require('./sync');
-const { StudentPortal, PORTAL_PORT } = require('./portal');
+const { SyncNode, generateKey } = require('./sync');
 const { firewallState, repairFirewall } = require('./netcheck');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
@@ -98,96 +95,6 @@ let edition = 'client';
 let sync = null;
 let syncProblem = null;
 
-let portal = null;
-let portalProblem = null;
-
-/** Адреса страницы. Выбранный в настройках адрес идёт первым: он попадает в QR-код. */
-const portalUrls = (port) => {
-  const addresses = localNetworks().addresses;
-  const chosen = addresses.includes(config.portalAddress) ? [config.portalAddress] : [];
-  return [...chosen, ...addresses.filter((address) => address !== config.portalAddress)].map((address) => `http://${address}:${port}/`);
-};
-
-/** Сеть могла смениться (подключили роутер): адреса на панелях обновляются сами. */
-async function refreshPortalUrls() {
-  if (!portal) return;
-  await store.setPortal(portalUrls(portal.port), config.deviceName, true).catch(() => {});
-  sync?.nudge();
-}
-
-/* Расписание с телефона преподавателя */
-let remote = null;
-let remoteProblem = null;
-
-async function restartRemote() {
-  const previous = remote;
-  remote = null;
-  remoteProblem = null;
-  await previous?.stop();
-  if (edition !== 'admin' || !config.remote) return;
-  const logic = await import(pathToFileURL(path.join(__dirname, '..', 'renderer', 'logic.mjs')).href);
-  const pad = (n) => String(n).padStart(2, '0');
-  const node = new TeacherRemote({
-    store,
-    logic,
-    phonesFile: path.join(homeDir(), 'phones.json'),
-    today: () => { const d = new Date(clockNow()); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; },
-    clock: clockNow,
-    port: process.env.KERDIIS_REMOTE_PORT ? Number(process.env.KERDIIS_REMOTE_PORT) : REMOTE_PORT,
-    name: config.deviceName,
-    onChange: (what) => {
-      if (what === 'events') {
-        sync?.nudge();
-        win?.webContents.send('events:changed');
-      }
-      win?.webContents.send('remote:changed');
-    },
-  });
-  try {
-    await node.start();
-    remote = node;
-  } catch (err) {
-    console.error('Телефон преподавателя не запущен:', err.message);
-    remoteProblem = err.code === 'EADDRINUSE' ? 'port-busy' : 'failed';
-  }
-}
-
-const remoteUrls = () => (remote ? localNetworks().addresses.map((address) => `http://${address}:${remote.port}/`) : []);
-
-/** Студенческая страница: запускается на компьютере преподавателя, если включена в настройках. */
-async function restartPortal() {
-  const previous = portal;
-  portal = null;
-  portalProblem = null;
-  await previous?.stop();
-  const wanted = edition === 'admin' && config.portal;
-  if (!wanted) {
-    if (previous) await store.setPortal([], config.deviceName, false).catch(() => {});
-    sync?.nudge();
-    return;
-  }
-  const logic = await import(pathToFileURL(path.join(__dirname, '..', 'renderer', 'logic.mjs')).href);
-  const node = new StudentPortal({
-    store,
-    logic,
-    clock: clockNow,
-    port: Number(process.env.KERDIIS_PORTAL_PORT) || PORTAL_PORT,
-    onChange: () => {
-      sync?.nudge();
-      win?.webContents.send('events:changed');
-    },
-  });
-  try {
-    const port = await node.start();
-    portal = node;
-    await store.setPortal(portalUrls(port), config.deviceName, true);
-    sync?.nudge();
-  } catch (err) {
-    console.error('Студенческая страница не запущена:', err.message);
-    portalProblem = err.code === 'EADDRINUSE' ? 'port-busy' : 'failed';
-    await node.stop();
-  }
-}
 
 async function restartSync() {
   const previous = sync;
@@ -429,66 +336,6 @@ function registerHandlers() {
   }));
   ipcMain.handle('journal:list', () => managed(() => store.changes()));
 
-  // Студенческая страница.
-  ipcMain.handle('portal:status', () => ({
-    on: config.portal,
-    running: Boolean(portal),
-    problem: portalProblem,
-    urls: portal ? portalUrls(portal.port) : [],
-    addresses: localNetworks().addresses,
-    address: config.portalAddress,
-  }));
-  ipcMain.handle('portal:address', (_e, address) => managed(async () => {
-    config = { ...config, portalAddress: localNetworks().addresses.includes(address) ? address : '' };
-    saveConfig(homeDir(), config);
-    await refreshPortalUrls();
-    return config.portalAddress;
-  }));
-  ipcMain.handle('portal:set', (_e, on) => managed(async () => {
-    config = { ...config, portal: on === true };
-    saveConfig(homeDir(), config);
-    await restartPortal();
-    return Boolean(portal) === config.portal;
-  }));
-  ipcMain.handle('portal:info', () => respond(() => store.portal()));
-  ipcMain.handle('remote:status', () => managed(() => ({
-    on: config.remote, running: Boolean(remote), problem: remoteProblem, urls: remoteUrls(), remoteUrl: config.remoteUrl, phones: remote?.list() ?? [],
-  })));
-  ipcMain.handle('remote:set', (_e, on) => managed(async () => {
-    config = { ...config, remote: on === true };
-    saveConfig(homeDir(), config);
-    await restartRemote();
-    return Boolean(remote);
-  }));
-  ipcMain.handle('remote:url', (_e, value) => managed(() => {
-    config = { ...config, remoteUrl: cleanRemoteUrl(value) };
-    saveConfig(homeDir(), config);
-    return config.remoteUrl;
-  }));
-  // Ссылка подключения: одноразовый код в адресе, QR-код показывается только на экране компьютера.
-  ipcMain.handle('remote:pair', () => managed(() => {
-    if (!remote) throw Object.assign(new Error('off'), { code: 'off' });
-    const { code, until } = remote.newPairing();
-    const bases = [...(config.remoteUrl ? [`${config.remoteUrl}/`] : []), ...remoteUrls()];
-    return { until, links: bases.map((base) => `${base}#pair=${code}`) };
-  }));
-  ipcMain.handle('remote:forget', (_e, id) => managed(async () => {
-    await remote?.forget(String(id));
-    return remote?.list() ?? [];
-  }));
-  ipcMain.handle('presence:today', () => respond(() => {
-    const d = new Date(clockNow());
-    return store.presenceOn(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
-  }));
-  ipcMain.handle('student:code', (_e, id) => managed(async () => {
-    const code = await store.studentCode(id);
-    sync?.nudge();
-    return code;
-  }));
-  ipcMain.handle('student:unbind', (_e, id) => managed(async () => {
-    await store.unbindPhone(id);
-    sync?.nudge();
-  }));
   // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.
   ipcMain.handle('events:remove-range', (_e, from, to, types) => managed(async () => {
     const backup = await makeBackup();
@@ -824,10 +671,9 @@ if (!app.requestSingleInstanceLock()) {
     registerHandlers();
     createSplash();
     createWindow();
-    restartSync().then(restartPortal).then(restartRemote);
+    restartSync();
     setTimeout(dailyBackup, 60_000);
     setInterval(dailyBackup, 60 * 60_000);
-    setInterval(refreshPortalUrls, 60_000);
     // Журнал старше полугода чистит каждое устройство: тогда старые записи не возвращаются при обмене.
     const prune = () => store.pruneChanges().catch((err) => console.error('Журнал не очищен:', err.message));
     setTimeout(prune, 90_000);
@@ -836,8 +682,6 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     sync?.stop();
-    portal?.stop();
-    remote?.stop();
   });
 
   app.on('window-all-closed', () => app.quit());

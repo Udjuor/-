@@ -761,8 +761,6 @@ export const JOURNAL_FIELD_LABELS = {
   roles: 'Роли',
   handIn: 'Сдача по студентам',
   decisions: 'Решения и поручения',
-  signup: 'Запись студентов',
-  requests: 'Заявки студентов',
 };
 
 export const JOURNAL_ACTIONS = {
@@ -946,17 +944,6 @@ export function decisionList(events, todayISO) {
   return items.sort((a, b) => order[a.state] - order[b.state] || (a.item.due || '9999').localeCompare(b.item.due || '9999'));
 }
 
-/* Запись на мероприятия */
-
-/** Можно ли студенту записаться: запись открыта, событие впереди, он не участник и не подал заявку. */
-export function signupState(event, name, todayISO) {
-  if (!event.signup?.open || !isHeld(event) || event.date < todayISO) return 'closed';
-  const key = nameKey(name);
-  if (event.participants.some((who) => nameKey(who) === key)) return 'member';
-  if ((event.requests ?? []).some((request) => nameKey(request.name) === key)) return 'requested';
-  if (event.signup.limit && event.participants.length >= event.signup.limit) return 'full';
-  return 'open';
-}
 
 /* Недельная сводка для учебной части */
 
