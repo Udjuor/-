@@ -23,6 +23,8 @@ const MAX_BODY = 2048;
 const BIND_FAILS = 20;
 const BIND_WINDOW_MS = 10 * 60_000;
 const UPCOMING_DAYS = 14;
+/** На сколько дней вперёд студент видит мероприятия с открытой записью. */
+const SIGNUP_DAYS = 30;
 /** За сколько минут до начала пары открытие страницы уже отмечает на ней. */
 const AUTO_MARK_BEFORE_MINUTES = 60;
 
@@ -38,7 +40,7 @@ const localParts = (ms) => {
   const d = new Date(ms);
   return { iso: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
 };
-const timeOf = (iso) => localParts(Date.parse(iso)).time;
+const timeOf = (iso) => (iso ? localParts(Date.parse(iso)).time : '');
 const sameName = (a, b) => a.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е') === b.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е');
 
 class StudentPortal {
@@ -116,6 +118,7 @@ class StudentPortal {
     }
     if (url.pathname === '/api/bind') return this.bind(req, res, body);
     if (url.pathname === '/api/open') return this.open(req, res);
+    if (url.pathname === '/api/signup') return this.signup(req, res, body);
     this.json(res, 404, { error: 'not-found' });
   }
 
@@ -154,6 +157,43 @@ class StudentPortal {
     const marked = await this.autoMark(student, now);
     if (!before || marked) this.onChange();
     this.json(res, 200, await this.summary(student, presence, now));
+  }
+
+  /** Заявка на мероприятие с открытой записью или её отзыв. Участником делает преподаватель. */
+  async signup(req, res, body) {
+    const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const student = await this.store.studentByToken(token);
+    if (!student) {
+      this.json(res, 401, { error: 'unbound' });
+      return;
+    }
+    const L = this.logic;
+    const { iso } = localParts(this.clock());
+    const event = (await this.store.list()).find((item) => item.id === String(body.eventId ?? ''));
+    if (!event) {
+      this.json(res, 404, { error: 'not-found' });
+      return;
+    }
+    const state = L.signupState(event, student.name, iso);
+    const others = (event.requests ?? []).filter((request) => !sameName(request.name, student.name));
+    if (body.cancel === true) {
+      if (state !== 'requested') {
+        this.json(res, 409, { error: state });
+        return;
+      }
+      await this.store.save({ ...event, requests: others }, event.updatedAt);
+    } else {
+      if (state !== 'open') {
+        this.json(res, 409, { error: state });
+        return;
+      }
+      const roles = (await this.store.directory()).filter((ref) => ref.kind === 'role').map((ref) => ref.name);
+      const role = roles.includes(body.role) ? body.role : '';
+      const at = `${iso}T${localParts(this.clock()).time}`;
+      await this.store.save({ ...event, requests: [...others, { name: student.name, role, at }] }, event.updatedAt);
+    }
+    this.onChange();
+    this.json(res, 200, await this.summary(student, null, this.clock()));
   }
 
   /**
@@ -198,6 +238,7 @@ class StudentPortal {
       typeName: L.typeName(event.type),
       // Роль студента в задании, практике или мероприятии: оператор, ведущий.
       role: L.roleOf(event, student.name),
+      createdAt: event.createdAt ?? '',
       date: event.date,
       start: event.start,
       end: event.end,
@@ -229,10 +270,30 @@ class StudentPortal {
       .sort((a, b) => a.date.localeCompare(b.date) || L.byTime(a, b))
       .map(brief);
 
+    // Сроки считаются по своей сдаче: сданное у студента пропадает, даже если другие ещё сдают.
     const deadlines = mine
-      .filter((event) => event.deadline && !event.cancelled && L.deadlineState(event, moment) !== 'done')
+      .filter((event) => event.deadline && !event.cancelled && L.studentDeadlineState(event, student.name, moment) !== 'done')
       .sort((a, b) => a.deadline.localeCompare(b.deadline))
-      .map((event) => ({ ...brief(event), deadline: event.deadline, state: L.deadlineState(event, moment) }));
+      .map((event) => ({ ...brief(event), deadline: event.deadline, state: L.studentDeadlineState(event, student.name, moment) }));
+
+    // Мероприятия с открытой записью на месяц вперёд. Имена других участников не передаются.
+    const signupUntil = L.addDays(iso, SIGNUP_DAYS);
+    const open = events
+      .filter((event) => event.date <= signupUntil && ['open', 'requested', 'full'].includes(L.signupState(event, student.name, iso)))
+      .sort((a, b) => a.date.localeCompare(b.date) || L.byTime(a, b))
+      .map((event) => {
+        const state = L.signupState(event, student.name, iso);
+        const request = (event.requests ?? []).find((item) => sameName(item.name, student.name));
+        return {
+          ...brief(event),
+          state,
+          requestedRole: request?.role ?? '',
+          left: event.signup.limit ? Math.max(0, event.signup.limit - event.participants.length) : null,
+        };
+      });
+    // После заявки страница обновляется без новой отметки прихода: время прихода берётся сохранённое.
+    const arrival = presence ?? (await this.store.presenceOn(iso)).find((p) => sameName(p.student, student.name));
+    const roles = (await this.store.directory()).filter((ref) => ref.kind === 'role').map((ref) => ref.name).sort((a, b) => a.localeCompare(b, 'ru'));
 
     const waiting = L.pendingCertificates(docs, events).find((person) => sameName(person.name, student.name));
 
@@ -263,11 +324,13 @@ class StudentPortal {
       },
       nick: student.nick,
       nickOk: student.nickOk,
-      here: timeOf(presence.at),
+      here: timeOf(arrival?.at),
       date: iso,
       today,
       upcoming,
       deadlines,
+      open,
+      roles,
       certificate: waiting ? { from: waiting.classes[0].event.date, classes: waiting.classes.length } : null,
       month,
     };

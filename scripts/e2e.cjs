@@ -795,6 +795,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const clicked = Date.now();
   await page.click('#s-backup-now');
   await page.waitForSelector('#s-backup:has-text("Копия сохранена")');
+  await page.waitForSelector('#backup-samedisk', { state: 'attached' });
+  // Сводка для учебной части сохраняется в свою папку одной кнопкой.
+  await page.click('#s-summary-this');
+  await page.waitForSelector('#s-summary:has-text("Сохранено: ")');
   await shot('backup');
   // Новая папка или та же секунда, что у ежедневной копии: тогда папка просто обновлена.
   const fresh = () => listCopies().filter((name) => !before.includes(name) || fs.statSync(path.join(backupDir, name)).mtimeMs >= clicked - 1000);
@@ -904,6 +908,11 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.fill('#f-start', '18:00');
   await page.fill('#f-end', '18:40');
   await page.fill('#f-place', 'Методкабинет');
+  assert.equal(await page.isVisible('#f-signup'), false, 'запись только у мероприятий');
+  await page.click('#add-decision');
+  await page.fill('#f-decision-0', 'Подготовить зал к дню открытых дверей');
+  await page.fill('.decisionedit li:first-child .dwho', 'Павлов С. Н.');
+  await page.fill('.decisionedit li:first-child .ddue', day(2));
   await page.click('#form .sheetfoot .primary');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await page.click('#tabs [data-tab="type:meeting"]');
@@ -913,6 +922,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
     assert.equal(await page.locator(`#details .sheetfoot button:has-text("${label}")`).count(), 0, `у собрания нет «${label}»`);
   }
   assert.doesNotMatch(await page.textContent('#details'), /false|true|undefined/);
+  await page.waitForSelector('#details .decisions li:has-text("Подготовить зал"):has-text("Павлов С. Н.")');
   await shot('meeting');
   await page.click('#details [aria-label=Закрыть]');
   await page.click('#tabs [data-tab="all"]');
@@ -945,6 +955,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#details[open] li:has-text("Ефимов Глеб — Оператор")');
   assert.equal(await page.locator('#details li:has-text("Жукова Нина —")').count(), 0);
   await page.click('#details [aria-label=Закрыть]');
+  // Итоги по ролям: кто сколько раз и в какой роли.
+  await openSection('#open-catalog');
+  await page.click('#catalog .tabs >> text=Роли');
+  await page.click('#open-rolestats');
+  await page.waitForSelector('#rolestats[open] tr:has-text("Ефимов Глеб"):has-text("1")');
+  await shot('rolestats');
+  await page.click('#rolestats [aria-label=Закрыть]');
+  await page.click('#catalog [aria-label=Закрыть]');
 
   // Сроки сдачи.
   await page.click('#today');
@@ -973,6 +991,8 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#open-deadlines');
   await page.waitForSelector('#deadlines[open]');
   assert.match(await page.textContent('#deadlines'), /Просрочено: 1[\s\S]*Сдача макета афиши[\s\S]*Задание/);
+  await page.waitForSelector('#deadlines h3:has-text("Поручения собраний: 1")');
+  assert.match(await page.textContent('#deadlines'), /Подготовить зал[\s\S]*Павлов С\. Н\./);
   await shot('deadlines');
   await page.click('#deadlines tr:has-text("Сдача макета афиши") >> text=Отметить сдачу');
   await page.waitForSelector('#deadlines h3:has-text("Сдано: 1")');
@@ -1085,6 +1105,9 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('portal');
   await page.click('#portal [aria-label=Закрыть]');
 
+  // Открытая запись на мероприятие и задание со сдачей по студентам.
+  await teacherStore.save({ title: 'Фестиваль', type: 'event', date: day(1), start: '15:10', end: '16:50', participants: ['Борисов Илья'], devices: [deviceId], signup: { open: true, limit: 0 } });
+  await teacherStore.save({ title: 'Монтаж ролика', type: 'task', date: day(1), start: '10:00', end: '10:40', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId], deadline: `${day(1)}T18:00` });
   await teacherStore.save({ title: 'Пара для телефона', type: 'lesson', date: day(0), start: '19:15', end: '19:55', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacherStore.save({ title: 'Пара сейчас', type: 'lesson', date: day(0), start: '09:00', end: '10:00', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId] });
   await teacher.syncWith('127.0.0.1:47800');
@@ -1112,6 +1135,11 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await phone.click('button[type=submit]');
   await phone.waitForSelector('text=Вы в колледже с');
   await phone.waitForSelector('.item:has-text("Пара для телефона")');
+  await phone.waitForSelector('.item:has-text("Монтаж ролика") .chip:has-text("До ")');
+  await phone.selectOption('.item:has-text("Фестиваль") select', 'Оператор');
+  await phone.click('.item:has-text("Фестиваль") button:has-text("Записаться")');
+  await phone.waitForSelector('.item:has-text("Фестиваль") .chip:has-text("Заявка отправлена: Оператор")');
+  assert.ok(!(await phone.content()).includes('Борисов'), 'имена других участников на телефон не попадают');
   assert.ok(!(await phone.textContent('body')).includes('null'), 'пустые разделы не печатаются');
   assert.ok(!(await phone.content()).includes('Васильева'), 'ФИО на телефоне нет');
   await phone.screenshot({ path: path.join(shots, 'phone.png'), fullPage: true });
@@ -1126,6 +1154,31 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.equal(await page.locator('#roll .rollrow:has-text("Борисов Илья"):has-text("В колледже с")').count(), 0);
   await shot('roll-presence');
   await page.click('#roll [aria-label=Закрыть]');
+
+  // Заявку студента преподаватель принимает в карточке мероприятия: участник с ролью.
+  await page.click('#next');
+  await page.click('.block:has-text("Фестиваль")', { timeout: 15000 });
+  await page.waitForSelector('#details[open] .requests li:has-text("Васильева Дарья — Оператор")', { timeout: 15000 });
+  await shot('signup-requests');
+  await page.click('#details .requests li:has-text("Васильева Дарья") button:has-text("Принять")');
+  await page.waitForSelector('#details[open] li:has-text("Васильева Дарья — Оператор")');
+  await page.waitForSelector('#details .requests h3:has-text("Заявок пока нет")');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.click('#today');
+
+  // Сдача по студентам: в «Сроках сдачи» у задания «0 из 2».
+  await page.click('#open-deadlines');
+  await page.click('#deadlines tr:has-text("Монтаж ролика") .linkbutton:has-text("0 из 2")');
+  await page.waitForSelector('#handin[open] .handlist li.hand-missing:has-text("Васильева Дарья")');
+  await page.click('#handin li:has-text("Васильева Дарья") button[data-status=rework]');
+  await page.waitForSelector('#handin .handlist li.hand-rework:has-text("Васильева Дарья")');
+  await page.click('#handin li:has-text("Борисов Илья") button[data-status=done]');
+  await page.waitForSelector('#handin .handsum:has-text("Сдали: 1, на доработке: 1, не сдали: 0")');
+  await shot('handin');
+  await page.click('#handin [aria-label=Закрыть]');
+  await page.waitForSelector('#deadlines tr:has-text("Монтаж ролика") .linkbutton:has-text("1 из 2")');
+  await page.click('#deadlines [aria-label=Закрыть]');
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Монтаж ролика' && e.handIn['Васильева Дарья'] === 'rework'), 'сдача по студентам на другом устройстве');
 
   // Открыв страницу, студент сам отметился на идущей паре; преподаватель подтверждает.
   await page.click('.block:has-text("Пара сейчас")');

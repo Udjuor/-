@@ -132,3 +132,9 @@ button:disabled { opacity: .6; }
 .stat span { font-size: .875rem; }
 
 details summary { cursor: pointer; color: var(--accent); margin: .4rem 0 .6rem; font-weight: 600; }
+
+/* Новое с прошлого захода и запись на мероприятия */
+.chip.new { background: var(--accent-strong); color: #fff; }
+.item > .signup { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.signup select { flex: 1 1 10rem; min-height: 2.75rem; border-radius: 10px; border: 1px solid var(--border); background: var(--canvas); color: var(--fg); padding: 0 .6rem; font: inherit; }
+.signup button { min-height: 2.75rem; }

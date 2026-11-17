@@ -5,6 +5,16 @@
   const app = document.getElementById('app');
   const hello = document.getElementById('hello');
 
+  // Когда студент заходил прошлый раз: всё, что появилось позже, помечается «Новое».
+  const SEEN = 'kerdiis-seen';
+  const seen = (() => {
+    let before = '';
+    try { before = localStorage.getItem(SEEN) ?? ''; localStorage.setItem(SEEN, new Date().toISOString()); } catch { /* приватный режим */ }
+    return before;
+  })();
+  const isNew = (item) => Boolean(seen && item.createdAt && item.createdAt > seen);
+  const newChip = (item) => isNew(item) && h('span', { class: 'chip new' }, 'Новое');
+
   const store = {
     get() {
       try { return localStorage.getItem(KEY) ?? ''; } catch { return ''; }
@@ -101,6 +111,40 @@
       item.status && h('span', { class: `chip ${STATUS_CLASS[item.status.code] ?? 'muted'}` }, item.status.text));
   }
 
+  const DEADLINE_CLASS = { overdue: 'bad', soon: 'warn', rework: 'warn' };
+  function deadlineChip(item) {
+    if (item.state === 'rework') return `На доработке, срок ${deadlineText(item.deadline)}`;
+    return item.state === 'overdue' ? `Срок прошёл ${deadlineText(item.deadline)}` : `До ${deadlineText(item.deadline)}`;
+  }
+
+  /** Мероприятие с открытой записью: выбор роли и заявка. Участником делает преподаватель. */
+  function signupItem(item, roles) {
+    const role = roles.length ? h('select', { 'aria-label': `Роль: ${item.title}` },
+      h('option', { value: '' }, 'Любая роль'), roles.map((name) => h('option', { value: name }, name))) : null;
+    const send = async (body) => {
+      const { status, data } = await post('/api/signup', { eventId: item.id, ...body }, store.get());
+      if (status === 200) render(data);
+      else showMine();
+    };
+    let action;
+    if (item.state === 'open') {
+      action = h('div', { class: 'signup' }, role,
+        h('button', { type: 'button', class: 'primary', onclick: () => send({ role: role?.value ?? '' }) }, 'Записаться'));
+    } else if (item.state === 'requested') {
+      action = h('div', { class: 'signup' },
+        h('span', { class: 'chip warn' }, item.requestedRole ? `Заявка отправлена: ${item.requestedRole}` : 'Заявка отправлена'),
+        h('button', { type: 'button', class: 'plain', onclick: () => send({ cancel: true }) }, 'Отозвать'));
+    } else {
+      action = h('span', { class: 'chip muted' }, 'Мест нет');
+    }
+    return h('li', { class: 'item wrap' },
+      h('div', { class: 'time' }, dateText(item.date), h('br'), `${item.start}–${item.end}`),
+      h('div', { class: 'what' }, h('strong', {}, item.title),
+        h('span', { class: 'muted small' }, [item.place, item.responsible, item.left != null && `свободно мест: ${item.left}`].filter(Boolean).join(', '))),
+      newChip(item),
+      action);
+  }
+
   function section(title, children, empty) {
     const list = children.filter(Boolean);
     return h('section', { class: 'card' }, h('h2', {}, title), list.length ? list : h('p', { class: 'muted' }, empty));
@@ -121,12 +165,14 @@
         [h('ul', { class: 'list' }, data.today.map(lessonItem))].filter(() => data.today.length), 'Сегодня у вас ничего нет.'),
       section('Сроки сдачи', data.deadlines.length ? [h('ul', { class: 'list' }, data.deadlines.map((item) => h('li', { class: 'item' },
         h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.role && `роль: ${item.role}`].filter(Boolean).join(', '))),
-        h('span', { class: `chip ${item.state === 'overdue' ? 'bad' : item.state === 'soon' ? 'warn' : 'muted'}` },
-          item.state === 'overdue' ? `Срок прошёл ${deadlineText(item.deadline)}` : `До ${deadlineText(item.deadline)}`))))] : [], 'Сроков сдачи нет.'),
+        newChip(item),
+        h('span', { class: `chip ${DEADLINE_CLASS[item.state] ?? 'muted'}` }, deadlineChip(item)))))] : [], 'Сроков сдачи нет.'),
+      data.open?.length > 0 && section('Можно записаться', [h('ul', { class: 'list' }, data.open.map((item) => signupItem(item, data.roles ?? [])))], ''),
       section('Задания и мероприятия на две недели', data.upcoming.length ? [h('ul', { class: 'list' }, data.upcoming.map((item) => h('li', { class: 'item' },
         h('div', { class: 'time' }, dateText(item.date), h('br'), `${item.start}–${item.end}`),
         h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.place, item.responsible].filter(Boolean).join(', ')),
-          item.role && h('span', { class: 'chip ok' }, `Ваша роль: ${item.role}`)))))] : [], 'Ближайших заданий и мероприятий нет.'),
+          item.role && h('span', { class: 'chip ok' }, `Ваша роль: ${item.role}`)),
+        newChip(item))))] : [], 'Ближайших заданий и мероприятий нет.'),
       portfolioCard(data.portfolio),
       h('section', { class: 'card' },
         h('h2', {}, 'Этот месяц'),

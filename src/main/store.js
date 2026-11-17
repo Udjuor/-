@@ -54,6 +54,51 @@ function cleanRoles(value, participants) {
   return roles;
 }
 
+/** Сдача по студентам: имя → 'done' (сдал) или 'rework' (на доработке). Нет записи — не сдал. */
+function cleanHandIn(value, participants) {
+  const listed = new Set(participants);
+  const handIn = {};
+  for (const [name, status] of Object.entries(value && typeof value === 'object' ? value : {})) {
+    if (listed.has(name) && HAND_IN.has(status)) handIn[name] = status;
+  }
+  return handIn;
+}
+
+/** Решения и поручения собрания: что сделать, кто отвечает, к какому сроку, выполнено ли. */
+function cleanDecisions(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 50).map((item) => ({
+    id: ID_RE.test(item?.id ?? '') ? item.id : crypto.randomUUID(),
+    text: String(item?.text ?? '').trim().slice(0, 300),
+    who: String(item?.who ?? '').trim().slice(0, 80),
+    due: DATE_RE.test(item?.due ?? '') ? item.due : '',
+    done: item?.done === true,
+  })).filter((item) => item.text);
+}
+
+/** Запись на мероприятие со страницы студента: открыта ли, сколько мест. */
+function cleanSignup(value) {
+  if (!value || value.open !== true) return null;
+  const limit = Number.isInteger(value.limit) && value.limit > 0 ? Math.min(value.limit, 500) : 0;
+  return { open: true, limit };
+}
+
+/** Заявки студентов: кто, на какую роль и когда. Участник заявки не подаёт, повторов нет. */
+function cleanRequests(value, participants) {
+  const listed = new Set(participants.map(nameKey));
+  const seen = new Set();
+  const requests = [];
+  for (const item of Array.isArray(value) ? value : []) {
+    const name = String(item?.name ?? '').trim().slice(0, 120);
+    const key = nameKey(name);
+    if (!name || listed.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    requests.push({ name, role: String(item?.role ?? '').trim().slice(0, 60), at: MOMENT_RE.test(item?.at ?? '') ? item.at : '' });
+  }
+  return requests.slice(0, 500);
+}
+
+const nameKey = (name) => String(name).toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+
 /** Приводит запись к единому виду. Возвращает null, если она непригодна. */
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -94,6 +139,12 @@ function normalizeEvent(raw) {
   const canHaveDeadline = event.type === 'task' || event.type === 'event';
   event.deadline = canHaveDeadline && MOMENT_RE.test(raw.deadline ?? '') ? raw.deadline : '';
   event.deadlineDone = event.deadline && MOMENT_RE.test(raw.deadlineDone ?? '') ? raw.deadlineDone : '';
+  event.handIn = event.deadline ? cleanHandIn(raw.handIn, event.participants) : {};
+  event.decisions = event.type === 'meeting' ? cleanDecisions(raw.decisions) : [];
+  event.signup = event.type === 'event' ? cleanSignup(raw.signup) : null;
+  event.requests = event.signup ? cleanRequests(raw.requests, event.participants) : [];
+  // Когда событие появилось: по этому времени страница студента помечает новое.
+  event.createdAt = /^\d{4}-\d{2}-\d{2}T/.test(raw.createdAt ?? '') ? String(raw.createdAt) : '';
   const valid =
     ID_RE.test(event.id) &&
     event.title &&
@@ -108,6 +159,7 @@ const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event', 'meeting']);
 const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
+const HAND_IN = new Set(['done', 'rework']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -323,7 +375,7 @@ const LOCKED_FIELDS = ['title', 'type', 'date', 'start', 'end', 'participants'];
 const CHANGE_DAYS = 180;
 
 /** Поля события, изменения которых попадают в журнал. Служебные метки не нужны. */
-const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'offsite', 'cancelled', 'cancelReason', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices'];
+const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'offsite', 'cancelled', 'cancelReason', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices', 'roles', 'handIn', 'decisions', 'signup', 'requests'];
 const CHANGE_ACTIONS = new Set(['create', 'edit', 'delete', 'create-series', 'delete-range', 'restore']);
 
 const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
@@ -759,6 +811,7 @@ class EventStore {
       await this.assertNotLocked(draft.id);
     }
     const event = { ...draft, updatedAt: nextStamp(current?.updatedAt) };
+    if (isNew && !event.createdAt) event.createdAt = new Date(this.clock()).toISOString();
     await this.write(event);
     if (journal) {
       const fields = eventDiff(current, event);

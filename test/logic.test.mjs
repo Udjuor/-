@@ -656,3 +656,33 @@ test('роль студента видна в событии и в портфо�
   const p = L.portfolio({ name: 'Иванов Пётр', events: [event], attendance: [], achievements: [], nowISO: '2026-11-10', nowTime: '12:00' });
   assert.equal(p.items[0].role, 'Оператор');
 });
+
+test('сдача по студентам, должники, итоги по ролям, поручения и запись', () => {
+  const task = { id: 't1', type: 'task', title: 'Монтаж', date: '2026-11-02', start: '10:00', end: '11:00', participants: ['Иванов', 'Петрова', 'Сидоров'], deadline: '2026-11-05T18:00', handIn: { 'Иванов': 'done', 'Петрова': 'rework' }, roles: { 'Иванов': 'Оператор' } };
+  const ev = { id: 'e1', type: 'event', title: 'Концерт', date: '2026-11-03', start: '15:00', end: '17:00', participants: ['Иванов', 'Петрова'], roles: { 'Иванов': 'Оператор', 'Петрова': 'Ведущий' }, signup: { open: true, limit: 3 }, requests: [{ name: 'Сидоров', role: '' }] };
+  const meeting = { id: 'm1', type: 'meeting', title: 'Совещание', date: '2026-11-04', start: '14:00', end: '15:00', participants: [], decisions: [
+    { id: 'd1', text: 'Подготовить зал', who: 'Павлов', due: '2026-11-06', done: false },
+    { id: 'd2', text: 'Отчёт', who: '', due: '', done: false },
+    { id: 'd3', text: 'Готово', who: '', due: '2026-11-01', done: true }] };
+  assert.deepEqual(L.handInSummary(task), { done: 1, rework: 1, missing: 1, total: 3 });
+  assert.equal(L.studentDeadlineState(task, 'иванов', '2026-11-06T09:00'), 'done');
+  assert.equal(L.studentDeadlineState(task, 'Петрова', '2026-11-06T09:00'), 'rework');
+  assert.equal(L.studentDeadlineState(task, 'Сидоров', '2026-11-06T09:00'), 'overdue');
+  assert.deepEqual(L.debtors([task], '2026-11-04T09:00'), [], 'до срока должников нет');
+  assert.deepEqual(L.debtors([task], '2026-11-06T09:00').map((p) => [p.name, p.items[0].status]), [['Петрова', 'rework'], ['Сидоров', 'missing']]);
+  assert.deepEqual(L.debtors([{ ...task, deadlineDone: '2026-11-06T08:00' }], '2026-11-06T09:00'), [], 'закрытый срок');
+  const stats = L.roleStats([task, ev, { ...ev, id: 'e2', date: '2026-12-01' }], '2026-11-10');
+  assert.deepEqual(stats.roles, ['Ведущий', 'Оператор']);
+  assert.deepEqual(stats.people.map((p) => [p.name, p.total, p.roles['Оператор'] ?? 0]), [['Иванов', 2, 2], ['Петрова', 1, 0]]);
+  assert.equal(L.roleStats([task, ev], '2026-11-10', '2026-11-03').people[0].total, 1, 'с начала периода');
+  assert.deepEqual(L.decisionList([meeting], '2026-11-07').map((x) => [x.item.text, x.state]), [['Подготовить зал', 'overdue'], ['Отчёт', 'later']]);
+  assert.equal(L.signupState(ev, 'Сидоров', '2026-11-01'), 'requested');
+  assert.equal(L.signupState(ev, 'иванов', '2026-11-01'), 'member');
+  assert.equal(L.signupState(ev, 'Новый', '2026-11-01'), 'open');
+  assert.equal(L.signupState({ ...ev, participants: ['a', 'b', 'c'] }, 'Новый', '2026-11-01'), 'full');
+  assert.equal(L.signupState(ev, 'Новый', '2026-11-04'), 'closed', 'прошедшее');
+  const csv = L.weeklySummaryCsv({ events: [task], attendance: [], students: [], groups: [], from: '2026-11-02', to: '2026-11-08', nowISO: '2026-11-09', nowTime: '09:00',
+    labels: { title: 'Сводка', groups: 'Группы', groupHeader: ['Группа'], absent: 'Пропуски', absentHeader: ['Студент'], certificates: 'Справки', certificatesHeader: ['Студент'], debts: 'Долги', debtsHeader: ['Студент', 'Долгов', 'Что'] } });
+  assert.match(csv, /^﻿Сводка/);
+  assert.match(csv, /Сидоров;1;Монтаж/);
+});

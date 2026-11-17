@@ -598,8 +598,40 @@ function registerHandlers() {
   ipcMain.handle('memo:template-reset', () => managed(() => fs.rm(customTemplate(), { force: true })));
   ipcMain.handle('backup:status', async () => {
     const last = (await backupList()).at(-1);
-    return { dir: config.backupDir, last: last ? last.slice(BACKUP_PREFIX.length) : null, problem: backupProblem };
+    // Копия на том же диске, что и данные, не спасёт при поломке компьютера.
+    const sameDisk = path.parse(path.resolve(config.backupDir)).root.toLowerCase() === path.parse(path.resolve(config.dataDir)).root.toLowerCase();
+    const days = last ? Math.floor((Date.now() - Date.parse(`${backupDate(last)}T00:00`)) / 86400000) : null;
+    return { dir: config.backupDir, last: last ? last.slice(BACKUP_PREFIX.length) : null, problem: backupProblem, sameDisk, days, admin: edition === 'admin' };
   });
+
+  // Сводка для учебной части.
+  const summaryDir = () => config.summaryDir || path.join(app.getPath('documents'), 'Kerdiis сводки');
+  ipcMain.handle('summary:status', () => ({ auto: config.summaryAuto, dir: summaryDir(), week: config.summaryWeek }));
+  ipcMain.handle('summary:set', (_e, auto) => managed(async () => {
+    config = { ...config, summaryAuto: auto === true };
+    saveConfig(homeDir(), config);
+    return config.summaryAuto;
+  }));
+  ipcMain.handle('summary:choose-dir', () => managed(async () => {
+    const result = await dialog.showOpenDialog(win, { defaultPath: summaryDir(), properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled) return null;
+    config = { ...config, summaryDir: result.filePaths[0] };
+    saveConfig(homeDir(), config);
+    return config.summaryDir;
+  }));
+  ipcMain.handle('summary:write', (_e, fileName, text, week) => managed(async () => {
+    const name = path.basename(String(fileName)).replace(/[<>:"/\\|?*]/g, '_');
+    if (!name.endsWith('.csv')) throw Object.assign(new Error('bad name'), { code: 'invalid' });
+    await fs.mkdir(summaryDir(), { recursive: true });
+    const file = path.join(summaryDir(), name);
+    await fs.writeFile(file, String(text), 'utf8');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(week ?? '')) {
+      config = { ...config, summaryWeek: week };
+      saveConfig(homeDir(), config);
+    }
+    return file;
+  }));
+  ipcMain.handle('summary:show', (_e, file) => shell.showItemInFolder(String(file)));
   ipcMain.handle('backup:now', () => managed(makeBackup));
   ipcMain.handle('backup:choose-dir', () => managed(async () => {
     const result = await dialog.showOpenDialog(win, { defaultPath: config.backupDir, properties: ['openDirectory', 'createDirectory'] });

@@ -9,7 +9,7 @@ const T = ru ? {
   offline: 'Нет связи с компьютером. Он должен быть включён, Kerdiis — запущен.', many: 'Слишком много неверных попыток. Подождите 10 минут.',
   prev: '← Раньше', next: 'Дальше →', today: 'Сегодня', none: 'Ничего нет', add: 'Добавить', newTitle: 'Новое событие', editTitle: 'Изменить',
   type: { lesson: 'Занятие', event: 'Мероприятие', practice: 'Практика', task: 'Задание', meeting: 'Собрание' }, title: 'Название', date: 'Дата', start: 'Начало', end: 'Конец', place: 'Место',
-  groups: 'Группы', groupsKeep: 'Группы не меняются, пока вы их не выберете', responsible: 'Ответственный', notes: 'Заметки', save: 'Сохранить', cancel: 'Отмена', close: 'Закрыть',
+  groups: 'Группы', groupsKeep: 'Группы не меняются, пока вы их не выберете', responsible: 'Ответственный', notes: 'Заметки', deadline: 'Срок сдачи', deadlineDone: 'Отмечено сданным. Новый срок откроет задание заново.', save: 'Сохранить', cancel: 'Отмена', close: 'Закрыть',
   notHeld: 'Не состоялось', held: 'Всё-таки состоялось', reason: 'Причина (не обязательно)', remove: 'Удалить', removeAsk: 'Удалить «{0}»?', yes: 'Да, удалить',
   saved: 'Сохранено', students: '{0} студ.', cancelled: 'Не состоялось', conflict: 'Событие уже изменили на другом устройстве. Обновите и повторите.',
   locked: 'Отчёт по занятию зафиксирован: время и состав меняются только на компьютере.', invalid: 'Проверьте название, дату и время.', failed: 'Не удалось сохранить: {0}', series: 'из цепочки',
@@ -20,7 +20,7 @@ const T = ru ? {
   offline: 'Cannot reach the computer. It must be on with Kerdiis running.', many: 'Too many wrong attempts. Wait 10 minutes.',
   prev: '← Earlier', next: 'Later →', today: 'Today', none: 'Nothing', add: 'Add', newTitle: 'New event', editTitle: 'Edit',
   type: { lesson: 'Lesson', event: 'Event', practice: 'Practice', task: 'Task', meeting: 'Meeting' }, title: 'Title', date: 'Date', start: 'Start', end: 'End', place: 'Place',
-  groups: 'Groups', groupsKeep: 'Groups stay as they are until you pick some', responsible: 'Responsible', notes: 'Notes', save: 'Save', cancel: 'Cancel', close: 'Close',
+  groups: 'Groups', groupsKeep: 'Groups stay as they are until you pick some', responsible: 'Responsible', notes: 'Notes', deadline: 'Due', deadlineDone: 'Marked as handed in. A new due date reopens it.', save: 'Save', cancel: 'Cancel', close: 'Close',
   notHeld: 'Did not take place', held: 'Took place after all', reason: 'Reason (optional)', remove: 'Delete', removeAsk: 'Delete “{0}”?', yes: 'Yes, delete',
   saved: 'Saved', students: '{0} students', cancelled: 'Did not take place', conflict: 'Someone changed this event on another device. Refresh and try again.',
   locked: 'The lesson report is locked: time and participants change only on the computer.', invalid: 'Check the title, date and time.', failed: 'Could not save: {0}', series: 'part of a series',
@@ -33,6 +33,9 @@ let state = null;
 let from = null;
 
 try { token = localStorage.getItem('kerdiis-remote') || ''; } catch { token = ''; }
+
+/** Срок сдачи бывает у заданий и мероприятий. */
+const DEADLINE_TYPES = ['task', 'event'];
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -142,7 +145,12 @@ function edit(event) {
   let groupIds = null; // null — участников не трогаем
   const error = h('p', { class: 'error', role: 'alert' });
   const types = h('div', { class: 'types' });
-  const drawTypes = () => fill(types, Object.entries(T.type).map(([id, label]) => h('button', { type: 'button', 'aria-pressed': String(draft.type === id), onclick: () => { draft.type = id; drawTypes(); } }, label)));
+  const drawTypes = () => {
+    fill(types, Object.entries(T.type).map(([id, label]) => h('button', { type: 'button', 'aria-pressed': String(draft.type === id), onclick: () => { draft.type = id; drawTypes(); } }, label)));
+    // Срок сдачи бывает у заданий и мероприятий.
+    if (deadlineField) deadlineField.hidden = !DEADLINE_TYPES.includes(draft.type);
+  };
+  let deadlineField = null;
   drawTypes();
   const chips = h('div', { class: 'chips' });
   const picked = new Set(event ? state.groups.filter((g) => event.groups.includes(g.name)).map((g) => g.id) : []);
@@ -154,6 +162,7 @@ function edit(event) {
   const read = () => {
     for (const key of ['title', 'date', 'start', 'end', 'place', 'responsible']) draft[key] = sheet.querySelector(`#r-${key}`).value.trim();
     draft.notes = sheet.querySelector('#r-notes').value.trim();
+    draft.deadline = DEADLINE_TYPES.includes(draft.type) ? sheet.querySelector('#r-deadline').value : '';
   };
   const run = async (route, body) => {
     error.textContent = '';
@@ -173,8 +182,8 @@ function edit(event) {
   };
   const save = () => {
     read();
-    const { id, type, title, date, start, end, place, responsible, notes } = draft;
-    run('/api/save', { event: { id, type, title, date, start, end, place, responsible, notes }, base: event?.updatedAt, groupIds: groupIds ?? (event ? undefined : []) });
+    const { id, type, title, date, start, end, place, responsible, notes, deadline } = draft;
+    run('/api/save', { event: { id, type, title, date, start, end, place, responsible, notes, deadline: deadline ?? '' }, base: event?.updatedAt, groupIds: groupIds ?? (event ? undefined : []) });
   };
   const footer = h('div', { class: 'actions' });
   const drawFooter = () => fill(footer,
@@ -204,6 +213,8 @@ function edit(event) {
       h('label', {}, T.date, input('date', { type: 'date' })),
       h('label', {}, T.start, input('start', { type: 'time' })),
       h('label', {}, T.end, input('end', { type: 'time' }))),
+    deadlineField = h('label', { hidden: !DEADLINE_TYPES.includes(draft.type) }, T.deadline, input('deadline', { type: 'datetime-local' }),
+      event?.deadlineDone && h('span', { class: 'muted' }, T.deadlineDone)),
     h('label', {}, T.place, input('place', { list: 'r-places', autocomplete: 'off' })), places,
     h('div', {}, h('label', {}, T.groups), chips, event && h('p', { class: 'muted' }, T.groupsKeep)),
     h('label', {}, T.responsible, input('responsible', { list: 'r-teachers', autocomplete: 'off' })), teachers,

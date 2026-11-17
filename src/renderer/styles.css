@@ -942,3 +942,30 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .rolelist li { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; align-items: center; gap: .6rem; }
 .rolelist label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rolelist select { width: 100%; }
+
+/* Заявки студентов, поручения собраний, сдача по студентам */
+.requestlist, .decisionlist, .handlist, .decisionedit { margin: .4rem 0 0; padding: 0; list-style: none; display: grid; gap: .4rem; }
+.requestlist li { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.requestlist li > span { flex: 1 1 14rem; }
+.requests > button { margin-top: .5rem; }
+.decisionlist li { display: grid; gap: .1rem; }
+.decisionlist li.done span:not(.help) { color: var(--fg-muted); text-decoration: line-through; }
+.decisionlist .help { margin: 0 0 0 2.5rem; }
+.decisionedit li { display: grid; grid-template-columns: minmax(0, 1fr) 13rem 11rem auto; gap: .5rem; align-items: center; }
+.decisionsbox > .plain { justify-self: start; margin-top: .4rem; }
+.limitrow { display: flex; align-items: center; gap: .8rem; margin-top: .3rem; }
+.limitrow input { width: 9rem; }
+.handsum { font-weight: 600; }
+.handlist li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .35rem .5rem; border-radius: 8px; }
+.handlist li.hand-missing { background: var(--danger-subtle); }
+.handlist li.hand-rework { background: var(--attention-subtle); }
+.handlist .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: none; }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--fg); padding: .5rem .9rem; min-height: 2.6rem; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on { background: var(--accent-emphasis); color: #fff; }
+.seg button[data-status="missing"].on { background: var(--danger-emphasis); }
+.seg button[data-status="rework"].on { background: var(--attention-fg); color: #000; }
+tr.late td { color: var(--danger-fg); }
+.rolestats td.num, .rolestats th.num { text-align: center; }
+@media (max-width: 900px) { .decisionedit li { grid-template-columns: 1fr 1fr; } }

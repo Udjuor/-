@@ -611,3 +611,23 @@ test('роли студентов: только у участников зада
   const again = await store.save({ ...saved, participants: ['Петров'] }, saved.updatedAt);
   assert.deepEqual(again.roles, {}, 'роль уходит вместе с участником');
 });
+
+test('сдача, поручения, запись и заявки нормализуются', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const task = await store.save({ ...sample, type: 'task', participants: ['Иванов', 'Петров'], deadline: '2026-11-12T18:00', handIn: { 'Иванов': 'done', 'Петров': 'bad', 'Чужой': 'done' } });
+  assert.deepEqual(task.handIn, { 'Иванов': 'done' });
+  assert.ok(task.createdAt);
+  const noDeadline = await store.save({ ...sample, type: 'task', participants: ['Иванов'], handIn: { 'Иванов': 'done' } });
+  assert.deepEqual(noDeadline.handIn, {}, 'без срока нечего сдавать');
+  const meeting = await store.save({ ...sample, type: 'meeting', decisions: [{ text: ' Зал ', who: 'Павлов', due: '2026-11-20', done: true }, { text: '' }, { text: 'Без срока', due: 'потом' }] });
+  assert.deepEqual(meeting.decisions.map((d) => [d.text, d.who, d.due, d.done]), [['Зал', 'Павлов', '2026-11-20', true], ['Без срока', '', '', false]]);
+  assert.ok(meeting.decisions[0].id);
+  const ev = await store.save({ ...sample, type: 'event', participants: ['Иванов'], signup: { open: true, limit: 9999 }, requests: [{ name: 'Иванов', role: 'x' }, { name: 'Сидоров', role: 'Оператор', at: '2026-11-10T09:00' }, { name: 'сидоров' }] });
+  assert.deepEqual(ev.signup, { open: true, limit: 500 });
+  assert.deepEqual(ev.requests.map((r) => r.name), ['Сидоров'], 'участник и повтор отброшены');
+  const shut = await store.save({ ...ev, signup: { open: false } }, ev.updatedAt);
+  assert.equal(shut.signup, null);
+  assert.deepEqual(shut.requests, []);
+  const again = await store.save({ ...task, title: 'Новое имя' }, task.updatedAt);
+  assert.equal(again.createdAt, task.createdAt, 'время создания не меняется');
+});

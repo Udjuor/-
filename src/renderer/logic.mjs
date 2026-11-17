@@ -758,6 +758,11 @@ export const JOURNAL_FIELD_LABELS = {
   deadline: 'Срок сдачи',
   deadlineDone: 'Сдано',
   devices: 'Устройства',
+  roles: 'Роли',
+  handIn: 'Сдача по студентам',
+  decisions: 'Решения и поручения',
+  signup: 'Запись студентов',
+  requests: 'Заявки студентов',
 };
 
 export const JOURNAL_ACTIONS = {
@@ -855,4 +860,138 @@ export function portfolio({ name, events, attendance, achievements, nowISO, nowT
     .sort((a, b) => b.date.localeCompare(a.date));
   const counts = Object.fromEntries(PORTFOLIO_TYPES.map((type) => [type, items.filter((item) => item.type === type).length]));
   return { items, awards, counts };
+}
+
+/* Сдача по студентам */
+
+/** Статусы сдачи у одного студента. Нет записи — не сдал. */
+export const HAND_IN_STATES = ['done', 'rework', 'missing'];
+
+export function handInOf(event, name) {
+  const key = nameKey(name);
+  for (const [who, status] of Object.entries(event.handIn ?? {})) if (nameKey(who) === key) return status;
+  return 'missing';
+}
+
+/** Сколько участников сдали, на доработке и не сдали. */
+export function handInSummary(event) {
+  const summary = { done: 0, rework: 0, missing: 0, total: event.participants.length };
+  for (const name of event.participants) summary[handInOf(event, name)] += 1;
+  return summary;
+}
+
+/** Срок у одного студента: его сдача важнее общего состояния задания. */
+export function studentDeadlineState(event, name, moment) {
+  const own = handInOf(event, name);
+  if (own === 'done') return 'done';
+  const common = deadlineState(event, moment);
+  if (own === 'rework' && common !== 'done') return 'rework';
+  return common;
+}
+
+/** Должники: студенты, у которых срок прошёл, а работа не сдана. Больше долгов — выше в списке. */
+export function debtors(events, moment) {
+  const people = new Map();
+  for (const event of events) {
+    if (!event.deadline || !isHeld(event) || event.deadlineDone || event.deadline > moment) continue;
+    for (const name of event.participants) {
+      if (handInOf(event, name) === 'done') continue;
+      const key = nameKey(name);
+      if (!people.has(key)) people.set(key, { name, items: [] });
+      people.get(key).items.push({ event, status: handInOf(event, name) });
+    }
+  }
+  return [...people.values()]
+    .map((person) => ({ ...person, items: person.items.sort((a, b) => a.event.deadline.localeCompare(b.event.deadline)) }))
+    .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name, 'ru'));
+}
+
+/* Итоги по ролям */
+
+/** Кто сколько раз и в какой роли участвовал. Только состоявшиеся события до указанного дня. */
+export function roleStats(events, untilISO, fromISO = '') {
+  const people = new Map();
+  const roles = new Set();
+  for (const event of events) {
+    if (!isHeld(event) || event.date > untilISO || (fromISO && event.date < fromISO)) continue;
+    for (const [name, role] of Object.entries(event.roles ?? {})) {
+      const key = nameKey(name);
+      if (!people.has(key)) people.set(key, { name, roles: {}, total: 0 });
+      const person = people.get(key);
+      person.roles[role] = (person.roles[role] ?? 0) + 1;
+      person.total += 1;
+      roles.add(role);
+    }
+  }
+  return {
+    roles: [...roles].sort((a, b) => a.localeCompare(b, 'ru')),
+    people: [...people.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ru')),
+  };
+}
+
+/* Поручения собраний */
+
+/** Невыполненные поручения со всех собраний: просроченные, на неделе, позже. */
+export function decisionList(events, todayISO) {
+  const items = [];
+  for (const event of events) {
+    if (event.type !== 'meeting' || !isHeld(event)) continue;
+    for (const item of event.decisions ?? []) {
+      if (item.done) continue;
+      const state = !item.due ? 'later' : item.due < todayISO ? 'overdue' : item.due <= addDays(todayISO, 7) ? 'soon' : 'later';
+      items.push({ event, item, state });
+    }
+  }
+  const order = { overdue: 0, soon: 1, later: 2 };
+  return items.sort((a, b) => order[a.state] - order[b.state] || (a.item.due || '9999').localeCompare(b.item.due || '9999'));
+}
+
+/* Запись на мероприятия */
+
+/** Можно ли студенту записаться: запись открыта, событие впереди, он не участник и не подал заявку. */
+export function signupState(event, name, todayISO) {
+  if (!event.signup?.open || !isHeld(event) || event.date < todayISO) return 'closed';
+  const key = nameKey(name);
+  if (event.participants.some((who) => nameKey(who) === key)) return 'member';
+  if ((event.requests ?? []).some((request) => nameKey(request.name) === key)) return 'requested';
+  if (event.signup.limit && event.participants.length >= event.signup.limit) return 'full';
+  return 'open';
+}
+
+/* Недельная сводка для учебной части */
+
+
+/**
+ * Сводка за неделю одним файлом для Excel: посещаемость по группам, пропуски без причины,
+ * кто должен справку и кто не сдал работы в срок.
+ */
+export function weeklySummaryCsv({ events, attendance, students, groups, from, to, nowISO, nowTime, labels }) {
+  const report = buildReport({ events, attendance, students, groups, filters: { from, to, types: [...MARKED_TYPES] }, nowISO, nowTime });
+  const certificates = pendingCertificates(attendance, events);
+  const debts = debtors(events, `${nowISO}T${nowTime}`);
+  const L = labels;
+  const blank = [];
+  const rows = [
+    [L.title],
+    blank,
+    [L.groups],
+    L.groupHeader,
+    ...report.groups.map((g) => [g.name, g.total, g.present, g.late, g.absent, g.sick, g.noCertificate, g.order, g.excused, g.percent ?? '']),
+    blank,
+    [L.absent],
+    L.absentHeader,
+    ...report.students.filter((s) => s.absent > 0 || s.late > 0)
+      .sort((a, b) => b.absent - a.absent || b.late - a.late || a.name.localeCompare(b.name, 'ru'))
+      .map((s) => [s.name, s.group, s.absent, s.late, s.total]),
+    blank,
+    [L.certificates],
+    L.certificatesHeader,
+    ...certificates.map((person) => [person.name, person.classes.length, person.classes[0]?.event.date ?? '']),
+    blank,
+    [L.debts],
+    L.debtsHeader,
+    ...debts.map((person) => [person.name, person.items.length, person.items.map(({ event }) => event.title).join('; ')]),
+  ];
+  const width = Math.max(...rows.map((row) => row.length));
+  return toCsv(rows[0].concat(Array(width - 1).fill('')), rows.slice(1));
 }

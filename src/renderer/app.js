@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
@@ -671,6 +671,58 @@ function openEvent(id) {
   else showDetails(id);
 }
 
+/** Сохраняет изменение события и обновляет календарь. Возвращает новую запись или null. */
+async function patchEvent(event, changes) {
+  const result = await api.save({ ...event, ...changes }, event.updatedAt);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return null;
+  }
+  setEvents([...state.allEvents.filter((x) => x.id !== result.value.id), result.value]);
+  render();
+  return result.value;
+}
+
+/** Заявка студента со страницы на телефоне: принять в участники с ролью или отклонить. */
+async function answerRequests(event, names, accept) {
+  const picked = (event.requests ?? []).filter((request) => names.includes(request.name));
+  const changes = { requests: event.requests.filter((request) => !names.includes(request.name)) };
+  if (accept) {
+    changes.participants = [...event.participants, ...picked.map((request) => request.name)];
+    changes.roles = { ...event.roles, ...Object.fromEntries(picked.filter((request) => request.role).map((request) => [request.name, request.role])) };
+  }
+  const saved = await patchEvent(event, changes);
+  if (saved) showDetails(saved.id);
+}
+
+function requestsSection(event) {
+  if (!event.signup || !canManage()) return null;
+  const requests = event.requests ?? [];
+  return h('section', { class: 'group requests' },
+    h('h3', {}, requests.length ? t('Заявки студентов: {0}', [requests.length]) : t('Заявок пока нет')),
+    requests.length > 0 && h('ul', { class: 'requestlist' }, requests.map((request) => h('li', {},
+      h('span', {}, request.role ? t('{0} — {1}', [request.name, request.role]) : request.name),
+      h('button', { class: 'plain', onclick: () => answerRequests(event, [request.name], true) }, t('Принять')),
+      h('button', { class: 'plain', onclick: () => answerRequests(event, [request.name], false) }, t('Отклонить'))))),
+    requests.length > 1 && h('button', { class: 'plain', id: 'accept-all', onclick: () => answerRequests(event, requests.map((r) => r.name), true) }, t('Принять всех')));
+}
+
+/** Решения и поручения собрания с отметкой выполнения. */
+function decisionsSection(event) {
+  if (event.type !== 'meeting' || !event.decisions?.length) return null;
+  const toggle = async (id) => {
+    const saved = await patchEvent(event, { decisions: event.decisions.map((item) => (item.id === id ? { ...item, done: !item.done } : item)) });
+    if (saved) showDetails(saved.id);
+  };
+  return h('section', { class: 'group decisions' },
+    h('h3', {}, t('Решения и поручения: {0}', [event.decisions.length])),
+    h('ul', { class: 'decisionlist' }, event.decisions.map((item) => h('li', { class: item.done ? 'done' : '' },
+      h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: item.done, disabled: !canManage(), onchange: () => toggle(item.id) }),
+        h('span', {}, item.text)),
+      h('span', { class: 'help' }, [item.who, item.due && t('до {0}', [shortDay(item.due)])].filter(Boolean).join(', '))))));
+}
+
 function showDetails(id) {
   const event = state.allEvents.find((e) => e.id === id);
   if (!event) return;
@@ -694,6 +746,11 @@ function showDetails(id) {
         }
       },
     }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
+    canManage() && event.deadline && event.participants.length > 0 && h('button', {
+      class: 'plain',
+      id: 'open-handin',
+      onclick: () => { dialog.close(); openHandIn(event.id); },
+    }, t('Сдача: {0} из {1}', [handInSummary(event).done, event.participants.length])),
     canManage() && memoApplies(event) && !event.cancelled && h('button', { class: 'plain', onclick: () => { dialog.close(); createMemo(event); } }, t('Служебная записка')),
     canManage() && (event.cancelled
       ? h('button', { class: 'plain', id: 'uncancel', onclick: () => setCancelled(event, false) }, t('Всё-таки состоялось'))
@@ -770,11 +827,14 @@ function showDetails(id) {
         event.repeat && !span ? fact(t('Повтор'), t('{0}, до {1}', [repeatLabel(event.repeat.every), shortDay(event.repeat.until)])) : [],
         fact(t('Подготовка'), prepText(event)),
         event.deadline ? fact(deadlineLabel(event.type), deadlineFact(event)) : [],
+        event.signup ? fact(t('Запись студентов'), event.signup.limit ? t('открыта, мест: {0}', [event.signup.limit]) : t('открыта, без ограничения мест')) : [],
         excused.length ? fact(t('Освобождены по приказу'), excused.map((row) => `${row.name} (${row.excusedFor})`).join(', ')) : [],
         fact(t('Место'), event.place),
         event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
+      requestsSection(event),
+      decisionsSection(event),
       listGroup(t('Участники: {0}', [event.participants.length]), event.participants.map((name) => roleText(event, name)), true),
       listGroup(t('Техника'), event.equipment.map((name) => gearLabel(event, name)), false),
       event.ownCameras.length > 0 && listGroup(t('Со своей камерой'), event.ownCameras, false),
@@ -923,6 +983,7 @@ async function openForm(source = {}) {
     qty: { ...(source.equipmentQty ?? {}) },
     devices: [...(source.devices ?? [])],
     roles: { ...(source.roles ?? {}) },
+    decisions: (source.decisions ?? []).map((item) => ({ ...item })),
     // С панели добавляют только практику и мероприятия.
     type: source.type ?? (isClient() ? 'event' : 'lesson'),
   };
@@ -942,7 +1003,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); drawRoles(); updateConflicts(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); drawRoles(); showSignup(); drawDecisions(); updateConflicts(); },
   }, t(label))));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, t('Тип')), typeRow);
@@ -1044,6 +1105,48 @@ async function openForm(source = {}) {
   };
   showDeadline();
 
+  // Открытая запись: студенты подают заявку со своей страницы, преподаватель принимает.
+  const signupBox = h('input', { id: 'f-signup', type: 'checkbox', checked: Boolean(source.signup?.open) });
+  const limitInput = h('input', { id: 'f-limit', type: 'number', min: 0, max: 500, step: 1, inputmode: 'numeric', value: source.signup?.limit || '', placeholder: t('Без ограничения') });
+  const signupField = h('div', { class: 'field' },
+    h('label', { class: 'check' }, signupBox, t('Открыть запись для студентов')),
+    h('div', { class: 'limitrow' }, h('label', { for: 'f-limit' }, t('Мест')), limitInput),
+    h('p', { class: 'help' }, t('Мероприятие появится на страницах студентов в «Можно записаться». Студент выбирает роль и подаёт заявку, вы принимаете её в карточке мероприятия.')));
+  const showSignup = () => {
+    signupField.hidden = draft.type !== 'event';
+    limitInput.closest('.limitrow').hidden = !signupBox.checked;
+  };
+  signupBox.addEventListener('change', showSignup);
+  showSignup();
+
+  // Решения и поручения собрания: что сделать, кто отвечает, к какому сроку.
+  const decisionsBox = h('div', { class: 'field decisionsbox' });
+  function drawDecisions() {
+    decisionsBox.hidden = draft.type !== 'meeting';
+    if (decisionsBox.hidden) return;
+    const people = [...new Set([...refsOf('teacher').map((ref) => ref.name), ...draft.participants])];
+    decisionsBox.replaceChildren(
+      h('span', { class: 'label' }, t('Решения и поручения')),
+      h('datalist', { id: 'decision-people' }, people.map((name) => h('option', { value: name }))),
+      h('ul', { class: 'decisionedit' }, draft.decisions.map((item, index) => h('li', {},
+        h('input', { 'aria-label': t('Поручение'), class: 'dtext', id: `f-decision-${index}`, maxlength: 300, value: item.text, placeholder: t('Что сделать'), oninput: (e) => { item.text = e.target.value; } }),
+        h('input', { 'aria-label': t('Кому'), class: 'dwho', list: 'decision-people', maxlength: 80, value: item.who, placeholder: t('Кому'), oninput: (e) => { item.who = e.target.value.trim(); } }),
+        h('input', { 'aria-label': t('Срок'), class: 'ddue', type: 'date', value: item.due, onchange: (e) => { item.due = e.target.value; } }),
+        h('button', { type: 'button', class: 'icon', 'aria-label': t('Убрать: {0}', [item.text || t('поручение')]), onclick: () => { draft.decisions.splice(index, 1); drawDecisions(); } }, '×')))),
+      h('button', {
+        type: 'button',
+        class: 'plain',
+        id: 'add-decision',
+        onclick: () => {
+          draft.decisions.push({ id: crypto.randomUUID(), text: '', who: '', due: '', done: false });
+          drawDecisions();
+          $(`f-decision-${draft.decisions.length - 1}`)?.focus();
+        },
+      }, t('Добавить поручение')),
+      h('p', { class: 'help' }, t('Невыполненные поручения видны в «Сроках сдачи», отметить выполнение можно там или в карточке собрания.')));
+  }
+  drawDecisions();
+
   const place = field(t('Место'), 'f-place', { value: source.place ?? '', autocomplete: 'off' }, 'half');
   place.append(attachSuggest(place.querySelector('input'), () => state.allEvents.map((e) => e.place), (value) => {
     $('f-place').value = value;
@@ -1125,6 +1228,14 @@ async function openForm(source = {}) {
     // Правка не выводит событие из цепочки.
     seriesId: source.seriesId ?? '',
     repeat: source.repeat ?? null,
+    // Сдача, заявки и время создания меняются не в форме: правка их сохраняет.
+    handIn: source.handIn ?? {},
+    requests: source.requests ?? [],
+    createdAt: source.createdAt ?? '',
+    signup: draft.type === 'event' && signupBox.checked
+      ? { open: true, limit: Math.max(0, Math.round(Number($('f-limit').value) || 0)) }
+      : null,
+    decisions: draft.type === 'meeting' ? draft.decisions.filter((item) => item.text.trim()) : [],
   });
 
   const updateConflicts = () => {
@@ -1351,7 +1462,7 @@ async function openForm(source = {}) {
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
         typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, targets,
-        participants.element, rolesBox, equipment.element, ownBox, conflictBox,
+        participants.element, rolesBox, signupField, decisionsBox, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
           h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? '')))),
@@ -1817,6 +1928,43 @@ function equipmentPane() {
     })), t('Добавьте технику, чтобы выбирать её в событиях.')));
 }
 
+/* Итоги по ролям */
+
+/** Начало учебного года: 1 сентября текущего или прошлого года. */
+const schoolYearStart = (iso) => (iso.slice(5) >= '09-01' ? `${iso.slice(0, 4)}-09-01` : `${Number(iso.slice(0, 4)) - 1}-09-01`);
+
+/** Кто сколько раз и в какой роли участвовал: видно, что одни и те же студенты делают всё. */
+function openRoleStats() {
+  const dialog = $('rolestats');
+  let period = 'year';
+  const draw = () => {
+    const today = moment().slice(0, 10);
+    const from = period === 'year' ? schoolYearStart(today) : period === 'month' ? `${today.slice(0, 7)}-01` : '';
+    const { roles, people } = roleStats(state.allEvents, today, from);
+    const groupOf = new Map(refsOf('student').map((s) => [s.name, refsOf('group').find((g) => g.id === s.groupId)?.name ?? '']));
+    dialog.replaceChildren(
+      h('div', { class: 'sheethead' }, h('h2', {}, t('Итоги по ролям')), closeButton(dialog)),
+      h('div', { class: 'tabs', role: 'group', 'aria-label': t('Период') },
+        [['month', t('Этот месяц')], ['year', t('Учебный год')], ['all', t('Всё время')]].map(([id, label]) =>
+          h('button', { type: 'button', class: period === id ? 'active' : '', 'aria-pressed': String(period === id), onclick: () => { period = id; draw(); } }, label))),
+      h('div', { class: 'sheetbody' },
+        people.length
+          ? h('div', { class: 'tablewrap' }, h('table', { class: 'rolestats' },
+            h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, t('Студент')), h('th', { scope: 'col' }, t('Группа')),
+              roles.map((role) => h('th', { scope: 'col', class: 'num' }, role)), h('th', { scope: 'col', class: 'num' }, t('Всего')))),
+            h('tbody', {}, people.map((person) => h('tr', {},
+              h('td', {}, person.name),
+              h('td', {}, groupOf.get(person.name) ?? ''),
+              roles.map((role) => h('td', { class: 'num' }, person.roles[role] ? String(person.roles[role]) : '')),
+              h('td', { class: 'num' }, h('b', {}, String(person.total))))))))
+          : h('p', { class: 'help' }, t('За этот период ролей не было. Роли назначаются в форме задания, практики или мероприятия.')),
+        people.length > 0 && h('p', { class: 'help' }, t('Студентов с ролями: {0}. Считаются состоявшиеся события до сегодняшнего дня.', [people.length]))),
+    );
+  };
+  draw();
+  dialog.showModal();
+}
+
 function drawCatalog({ fromTop = false } = {}) {
   const dialog = $('catalog');
   const scrolled = fromTop ? 0 : dialog.querySelector('.sheetbody')?.scrollTop ?? 0;
@@ -1825,7 +1973,10 @@ function drawCatalog({ fromTop = false } = {}) {
     : catalog.tab === 'equipment'
       ? equipmentPane()
       : catalog.tab === 'role'
-        ? simplePane('role', t('Например: оператор, ведущий, фотограф'), t('Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.'))
+        ? [
+          h('button', { class: 'plain', id: 'open-rolestats', onclick: openRoleStats }, t('Итоги по ролям')),
+          simplePane('role', t('Например: оператор, ведущий, фотограф'), t('Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.')),
+        ]
         : simplePane('teacher', t('Фамилия и инициалы или столбец из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Справочники')), closeButton(dialog)),
@@ -2049,6 +2200,8 @@ function backupSection() {
       h('h3', { class: 'settinghead' }, t('Резервные копии')),
       h('p', {}, last),
       status.problem ? h('p', { class: 'error' }, t('Последняя копия не создана: {0}', [status.problem])) : '',
+      status.admin && status.days !== null && status.days >= 2 && h('p', { class: 'error', id: 'backup-stale' }, t('Копия не делалась {0}. Проверьте, доступна ли папка.', [tp('days', status.days)])),
+      status.sameDisk && h('p', { class: 'notice', id: 'backup-samedisk' }, t('Копии лежат на том же диске, что и данные. Если компьютер сломается, пропадут и они. Выберите сетевую папку или флешку.')),
       h('p', { class: 'help backupdir' }, t('Папка: {0}', [status.dir])),
       h('div', { class: 'targets' },
         h('button', { type: 'button', id: 's-backup-now', onclick: async (e) => {
@@ -2796,6 +2949,83 @@ async function exportReport() {
   else if (result.value) toast(t('Отчёт сохранён.'));
 }
 
+/* Сводка за неделю для учебной части */
+
+const SUMMARY_LABELS = () => ({
+  groups: t('Посещаемость по группам'),
+  groupHeader: [t('Группа'), t('Отметок'), t('Пришли'), t('Опоздания'), t('Без причины'), t('Болезнь'), t('Без справки'), t('По приказу'), t('Уважительная'), t('Посещаемость, %')],
+  absent: t('Пропуски без причины и опоздания'),
+  absentHeader: [t('Студент'), t('Группа'), t('Без причины'), t('Опоздания'), t('Отметок')],
+  certificates: t('Ждём справку'),
+  certificatesHeader: [t('Студент'), t('Занятий'), t('С какого дня')],
+  debts: t('Не сдали работы в срок'),
+  debtsHeader: [t('Студент'), t('Долгов'), t('Что не сдано')],
+});
+
+/** Сводка с понедельника по воскресенье указанной недели. */
+function weeklySummary(monday) {
+  const clock = now();
+  const sunday = addDays(monday, 6);
+  const text = weeklySummaryCsv({
+    events: state.allEvents,
+    attendance: state.attendance,
+    students: refsOf('student'),
+    groups: refsOf('group'),
+    from: monday,
+    to: sunday,
+    nowISO: clock.iso,
+    nowTime: clock.time,
+    labels: { ...SUMMARY_LABELS(), title: t('Сводка Kerdiis за неделю с {0} по {1}', [shortDay(monday), shortDay(sunday)]) },
+  });
+  return { text, fileName: t('Сводка за неделю {0} – {1}.csv', [monday, sunday]) };
+}
+
+/** По понедельникам версия для администратора сама сохраняет сводку за прошлую неделю. */
+async function autoSummary() {
+  if (state.settings?.edition !== 'admin' || !state.allEvents.length) return;
+  const status = await api.summaryStatus();
+  if (!status.auto) return;
+  const lastMonday = addDays(weekStart(now().iso), -7);
+  if (status.week >= lastMonday) return;
+  const { text, fileName } = weeklySummary(lastMonday);
+  const result = await api.summaryWrite(fileName, text, lastMonday);
+  if (result.ok) toast(t('Сводка за прошлую неделю сохранена в папку сводок.'));
+}
+
+function summarySection() {
+  const box = h('section', { class: 'setting', id: 's-summary' });
+  const message = h('p', { class: 'help', role: 'status' });
+  const draw = async () => {
+    const status = await api.summaryStatus();
+    const auto = h('input', { id: 's-summary-auto', type: 'checkbox', checked: status.auto, disabled: state.settings.edition !== 'admin' });
+    auto.addEventListener('change', async () => { await api.summarySet(auto.checked); draw(); });
+    const save = async (monday) => {
+      const { text, fileName } = weeklySummary(monday);
+      const result = await api.summaryWrite(fileName, text, '');
+      message.replaceChildren(result.ok
+        ? h('span', {}, t('Сохранено: {0}. ', [fileName]), h('button', { type: 'button', class: 'linkbutton', onclick: () => api.summaryShow(result.value) }, t('Показать в папке')))
+        : t('Сводка не сохранена. Проверьте, доступна ли папка.'));
+    };
+    const thisMonday = weekStart(now().iso);
+    box.replaceChildren(
+      h('h3', { class: 'settinghead' }, t('Сводка для учебной части')),
+      h('p', {}, t('Файл для Excel: посещаемость по группам, пропуски без причины, кто должен справку и кто не сдал работы в срок.')),
+      h('label', { class: 'check' }, auto, t('Сохранять сводку за прошлую неделю каждый понедельник')),
+      state.settings.edition !== 'admin' && h('p', { class: 'help' }, t('Сама сводка сохраняется только в версии для администратора. Здесь её можно сохранить кнопкой.')),
+      status.week && h('p', { class: 'help' }, t('Последняя сохранённая: неделя с {0}.', [shortDay(status.week)])),
+      h('p', { class: 'help backupdir' }, t('Папка: {0}', [status.dir])),
+      h('div', { class: 'targets' },
+        h('button', { type: 'button', id: 's-summary-last', onclick: () => save(addDays(thisMonday, -7)) }, t('Сводка за прошлую неделю')),
+        h('button', { type: 'button', id: 's-summary-this', onclick: () => save(thisMonday) }, t('За эту неделю')),
+        h('button', { type: 'button', onclick: async () => { const r = await api.summaryChooseDir(); if (r.ok && r.value) draw(); } }, t('Выбрать папку'))),
+      message,
+      h('p', { class: 'help' }, t('Удобно выбрать общую сетевую папку учебной части: файл появится там сам, отправлять его не нужно.')),
+    );
+  };
+  draw();
+  return box;
+}
+
 function openReports() {
   const dialog = $('reports');
   const clock = now();
@@ -3336,17 +3566,110 @@ function deadlineTable(title, events, late = false) {
   return h('section', { class: 'petsection' },
     h('h3', { class: late ? 'deadlinelate' : '' }, t('{0}: {1}', [title, events.length])),
     h('div', { class: 'tablewrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, [t('Событие'), t('Что сдать'), t('Срок'), t('Ответственный'), t('Участники'), ''].map((name) => h('th', { scope: 'col' }, name)))),
+      h('thead', {}, h('tr', {}, [t('Событие'), t('Что сдать'), t('Срок'), t('Ответственный'), t('Сдали'), ''].map((name) => h('th', { scope: 'col' }, name)))),
       h('tbody', {}, events.map((event) => h('tr', {},
         h('td', {}, h('button', { class: 'linkbutton', onclick: () => { $('deadlines').close(); showDetails(event.id); } }, event.title)),
         h('td', {}, event.type === 'task' ? t('Задание') : t('Материалы')),
         h('td', {}, event.deadlineDone ? t('{0}. Сдано: {1}', [momentText(event.deadline), momentText(event.deadlineDone)]) : momentText(event.deadline)),
         h('td', {}, event.responsible || t('Не указан')),
-        h('td', {}, String(event.participants.length)),
+        h('td', {}, event.participants.length
+          ? (canManage()
+            ? h('button', { class: 'linkbutton', onclick: () => openHandIn(event.id) }, t('{0} из {1}', [handInSummary(event).done, event.participants.length]))
+            : t('{0} из {1}', [handInSummary(event).done, event.participants.length]))
+          : '—'),
         h('td', {}, canManage() && h('button', {
           class: 'plain',
           onclick: () => setDeadlineDone(event, !event.deadlineDone),
         }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')))))))));
+}
+
+/* Сдача по студентам */
+
+const handInLabel = (status) => ({ done: t('Сдал'), rework: t('На доработке'), missing: t('Не сдал') })[status];
+
+/** Кто из участников сдал работу. Каждое нажатие сохраняется сразу. */
+function openHandIn(id) {
+  const dialog = $('handin');
+  const draw = () => {
+    const event = state.allEvents.find((e) => e.id === id);
+    if (!event) return dialog.close();
+    const summary = handInSummary(event);
+    const setStatus = async (names, status) => {
+      const handIn = { ...event.handIn };
+      for (const name of names) {
+        if (status === 'missing') delete handIn[name];
+        else handIn[name] = status;
+      }
+      if (await patchEvent(event, { handIn })) draw();
+    };
+    // Сначала те, кто ещё не сдал: их куратор ищет глазами.
+    const order = { missing: 0, rework: 1, done: 2 };
+    const names = [...event.participants].sort((a, b) => order[handInOf(event, a)] - order[handInOf(event, b)] || a.localeCompare(b, 'ru'));
+    const body = h('div', { class: 'sheetbody' },
+      h('p', { class: 'help' }, t('{0}. Срок: {1}', [event.title, deadlineFact(event)])),
+      h('p', { class: 'handsum' }, t('Сдали: {0}, на доработке: {1}, не сдали: {2}', [summary.done, summary.rework, summary.missing])),
+      h('ul', { class: 'handlist' }, names.map((name) => {
+        const status = handInOf(event, name);
+        return h('li', { class: `hand-${status}` },
+          h('span', { class: 'who' }, roleText(event, name)),
+          h('div', { class: 'seg', role: 'group', 'aria-label': name },
+            ['done', 'rework', 'missing'].map((option) => h('button', {
+              type: 'button',
+              class: option === status ? 'on' : '',
+              'aria-pressed': String(option === status),
+              'data-status': option,
+              onclick: () => option !== status && setStatus([name], option),
+            }, handInLabel(option)))));
+      })));
+    const top = dialog.querySelector('.sheetbody')?.scrollTop ?? 0;
+    dialog.replaceChildren(
+      h('div', { class: 'sheethead' }, h('h2', {}, t('Сдача по студентам')), closeButton(dialog)),
+      body,
+      h('div', { class: 'sheetfoot' },
+        summary.done < summary.total && h('button', { class: 'plain', id: 'handin-all', onclick: () => setStatus(event.participants, 'done') }, t('Все сдали')),
+        h('div', { class: 'spacer' }),
+        h('button', {
+          class: event.deadlineDone ? 'plain' : 'primary',
+          onclick: async () => { if (await setDeadlineDone(event, !event.deadlineDone)) draw(); },
+        }, event.deadlineDone ? t('Вернуть в работу') : t('Закрыть срок'))),
+    );
+    body.scrollTop = top;
+  };
+  draw();
+  if (!dialog.open) dialog.showModal();
+}
+
+/** Должники по всем заданиям: у кого срок прошёл, а работа не сдана. */
+function debtorTable() {
+  const people = debtors(state.events, moment());
+  if (!people.length) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', { class: 'deadlinelate' }, t('Должники: {0}', [people.length])),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, [t('Студент'), t('Долги'), t('Что не сдано')].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, people.map((person) => h('tr', {},
+        h('td', {}, person.name),
+        h('td', {}, String(person.items.length)),
+        h('td', {}, person.items.map(({ event, status }) => (status === 'rework' ? t('{0} (на доработке)', [event.title]) : event.title)).join('; '))))))));
+}
+
+/** Невыполненные поручения собраний. */
+function decisionTable() {
+  const items = decisionList(state.events, moment().slice(0, 10));
+  if (!items.length) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Поручения собраний: {0}', [items.length])),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, [t('Поручение'), t('Кому'), t('Срок'), t('Собрание'), ''].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, items.map(({ event, item, state: when }) => h('tr', { class: when === 'overdue' ? 'late' : '' },
+        h('td', {}, item.text),
+        h('td', {}, item.who || t('Не указан')),
+        h('td', {}, item.due ? (when === 'overdue' ? t('{0}, просрочено', [shortDay(item.due)]) : shortDay(item.due)) : t('Без срока')),
+        h('td', {}, h('button', { class: 'linkbutton', onclick: () => { $('deadlines').close(); showDetails(event.id); } }, event.title)),
+        h('td', {}, canManage() && h('button', {
+          class: 'plain',
+          onclick: () => patchEvent(event, { decisions: event.decisions.map((x) => (x.id === item.id ? { ...x, done: true } : x)) }).then(drawDeadlines),
+        }, t('Выполнено')))))))));
 }
 
 /** Одна справка закрывает все занятия, на которых студент числится больным. */
@@ -3375,9 +3698,11 @@ function drawDeadlines() {
   if (!box) return;
   const list = deadlineList(state.events, moment());
   const certificates = certificateTable();
-  const empty = !certificates && !Object.values(list).some((events) => events.length);
+  const empty = !certificates && !decisionList(state.events, moment().slice(0, 10)).length && !Object.values(list).some((events) => events.length);
   const sections = [
     certificates,
+    debtorTable(),
+    decisionTable(),
     empty && h('p', { class: 'help' }, t('Сроков пока нет. Укажите срок сдачи в задании или мероприятии.')),
     deadlineTable(t('Просрочено'), list.overdue, true),
     deadlineTable(t('Сегодня и завтра'), list.soon),
@@ -4043,6 +4368,7 @@ async function openSettings() {
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
       templateSection(),
       backupSection(),
+      summarySection(),
       portalSection(),
       remoteSection(),
       clearSection(),
@@ -4346,7 +4672,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'netcheck'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'netcheck', 'handin', 'rolestats'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4414,6 +4740,7 @@ async function start() {
   tick();
   await refresh();
   if (!state.settings.setupDone) openWelcome();
+  setTimeout(autoSummary, 90_000);
 }
 
 start();
@@ -4421,3 +4748,4 @@ setInterval(tick, 1000);
 setInterval(refresh, POLL_MS);
 refreshNet();
 setInterval(refreshNet, 20_000);
+setInterval(autoSummary, 60 * 60_000);

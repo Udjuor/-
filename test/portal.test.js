@@ -141,3 +141,58 @@ test('пара вне колледжа: с телефона и с панели �
   const doc = (await store.attendance()).find((d) => d.eventId === lone.id);
   assert.equal(logic.rollCall(lone, doc, '2026-11-10', '12:00')[0].status, 'absent', 'после фиксации — без причины');
 });
+
+test('запись на мероприятие: заявка с ролью, отзыв, участнику и при закрытой записи нельзя', async (t) => {
+  const { store, call } = await setup(t);
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
+  const anna = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
+  await store.saveRef({ kind: 'role', name: 'Оператор' });
+  const open = await store.save({ type: 'event', title: 'Концерт', date: '2026-11-20', start: '15:00', end: '17:00', participants: ['Петров Олег'], signup: { open: true, limit: 3 } });
+  const closed = await store.save({ type: 'event', title: 'Закрытое', date: '2026-11-20', start: '18:00', end: '19:00', participants: [] });
+  const token = (await call('/api/bind', { code: await store.studentCode(anna.id), nick: 'Ануся' })).data.token;
+
+  const first = await call('/api/open', {}, token);
+  assert.deepEqual(first.data.open.map((e) => [e.title, e.state, e.left]), [['Концерт', 'open', 2]]);
+  assert.deepEqual(first.data.roles, ['Оператор']);
+  assert.equal(JSON.stringify(first.data).includes('Петров'), false, 'чужие имена не передаются');
+
+  const sent = await call('/api/signup', { eventId: open.id, role: 'Оператор' }, token);
+  assert.equal(sent.status, 200);
+  assert.equal(sent.data.open[0].state, 'requested');
+  assert.equal(sent.data.open[0].requestedRole, 'Оператор');
+  let event = (await store.list()).find((e) => e.id === open.id);
+  assert.deepEqual(event.requests.map((r) => [r.name, r.role]), [['Иванова Анна', 'Оператор']]);
+  assert.equal((await call('/api/signup', { eventId: open.id }, token)).status, 409, 'вторая заявка не нужна');
+
+  const withdrawn = await call('/api/signup', { eventId: open.id, cancel: true }, token);
+  assert.equal(withdrawn.data.open[0].state, 'open');
+  event = (await store.list()).find((e) => e.id === open.id);
+  assert.deepEqual(event.requests, []);
+
+  assert.equal((await call('/api/signup', { eventId: closed.id }, token)).status, 409);
+  await call('/api/signup', { eventId: open.id, role: 'Чужая роль' }, token);
+  event = (await store.list()).find((e) => e.id === open.id);
+  assert.equal(event.requests[0].role, '', 'роль только из справочника');
+  await store.save({ ...event, participants: [...event.participants, 'Иванова Анна'], requests: [] }, event.updatedAt);
+  assert.deepEqual((await call('/api/open', {}, token)).data.open, [], 'участник больше не видит запись');
+  assert.equal((await call('/api/signup', { eventId: open.id }, 'f'.repeat(64))).status, 401);
+});
+
+test('сроки студента идут по его сдаче, новое помечено временем создания', async (t) => {
+  const { store, call } = await setup(t);
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21' });
+  const anna = await store.saveRef({ kind: 'student', name: 'Иванова Анна', groupId: group.id });
+  const task = await store.save({ type: 'task', title: 'Монтаж', date: '2026-11-09', start: '10:00', end: '11:00', participants: ['Иванова Анна', 'Петров Олег'], deadline: '2026-11-09T18:00' });
+  assert.match(task.createdAt, /^2026-11-10T/);
+  const token = (await call('/api/bind', { code: await store.studentCode(anna.id), nick: 'Ануся' })).data.token;
+  let data = (await call('/api/open', {}, token)).data;
+  assert.deepEqual(data.deadlines.map((d) => [d.title, d.state]), [['Монтаж', 'overdue']]);
+  assert.ok(data.deadlines[0].createdAt);
+  await store.save({ ...task, handIn: { 'Иванова Анна': 'rework' } }, task.updatedAt);
+  data = (await call('/api/open', {}, token)).data;
+  assert.equal(data.deadlines[0].state, 'rework');
+  const current = (await store.list()).find((e) => e.id === task.id);
+  await store.save({ ...current, handIn: { 'Иванова Анна': 'done' } }, current.updatedAt);
+  data = (await call('/api/open', {}, token)).data;
+  assert.deepEqual(data.deadlines, [], 'сданное у студента пропадает из сроков');
+});

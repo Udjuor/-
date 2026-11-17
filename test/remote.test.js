@@ -106,3 +106,20 @@ test('запрос с чужого сайта отклоняется, невер
   const bad = await s.call('/api/save', { event: { type: 'party', title: 'x', date: '2026-11-18', start: '10:00', end: '11:00' } }, token);
   assert.equal(bad.status, 409);
 });
+
+test('срок сдачи с телефона: задаётся у задания, новый срок снимает отметку «сдано»', async (t) => {
+  const s = await setup(t);
+  const token = await pairPhone(s);
+  const added = await s.call('/api/save', { event: { type: 'task', title: 'Монтаж', date: '2026-11-18', start: '10:00', end: '11:30', deadline: '2026-11-20T18:00' }, groupIds: [s.group.id] }, token);
+  assert.equal(added.status, 200, JSON.stringify(added.data));
+  let event = (await s.store.list()).find((e) => e.id === added.data.id);
+  assert.equal(event.deadline, '2026-11-20T18:00');
+  event = await s.store.save({ ...event, deadlineDone: '2026-11-19T12:00', roles: { 'Иванов Иван': 'Оператор' } }, event.updatedAt);
+  const state = await s.call('/api/state', {}, token);
+  assert.equal(state.data.events[0].deadlineDone, true);
+  await s.call('/api/save', { event: { id: event.id, type: 'task', title: 'Монтаж', date: '2026-11-18', start: '10:00', end: '11:30', deadline: '2026-11-25T18:00' }, base: event.updatedAt }, token);
+  event = (await s.store.list()).find((e) => e.id === event.id);
+  assert.equal(event.deadline, '2026-11-25T18:00');
+  assert.equal(event.deadlineDone, '');
+  assert.deepEqual(event.roles, { 'Иванов Иван': 'Оператор' }, 'роли с телефона не теряются');
+});

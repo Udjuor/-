@@ -44,6 +44,9 @@ function saveConfig(homeDir, config) {
     `portalAddress=${config.portalAddress}`,
     `remote=${config.remote ? 1 : 0}`,
     `remoteUrl=${config.remoteUrl}`,
+    `summaryAuto=${config.summaryAuto ? 1 : 0}`,
+    `summaryDir=${config.summaryDir}`,
+    `summaryWeek=${config.summaryWeek}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -98,6 +101,10 @@ function loadConfig(homeDir) {
     remoteUrl: cleanRemoteUrl(values.remoteUrl),
     memoSigner: values.memoSigner || 'Семенов И. А.',
     backupDir: values.backupDir || path.join(homeDir, 'backups'),
+    // Сводка для учебной части: сама сохраняется по понедельникам за прошлую неделю.
+    summaryAuto: values.summaryAuto === '1',
+    summaryDir: values.summaryDir || '',
+    summaryWeek: /^\d{4}-\d{2}-\d{2}$/.test(values.summaryWeek ?? '') ? values.summaryWeek : '',
   };
   if (!values.deviceId) {
     try {

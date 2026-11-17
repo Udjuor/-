@@ -24,7 +24,7 @@ const PAIR_MS = 10 * 60_000;
 const FAILS = 20;
 const FAILS_WINDOW_MS = 10 * 60_000;
 /** Поля, которые можно менять с телефона. Остальное (техника, панели, цепочки) остаётся как было. */
-const EDITABLE = ['type', 'title', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'notes'];
+const EDITABLE = ['type', 'title', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'notes', 'deadline'];
 const TYPES = ['lesson', 'event', 'practice', 'task', 'meeting'];
 const DAYS = 14;
 
@@ -236,7 +236,7 @@ class TeacherRemote {
       .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
       .map((e) => ({
         id: e.id, updatedAt: e.updatedAt, type: e.type, title: e.title, date: e.date, start: e.start, end: e.end, allDay: e.allDay,
-        place: e.place, responsible: e.responsible, notes: e.notes, cancelled: e.cancelled === true, cancelReason: e.cancelReason ?? '',
+        place: e.place, responsible: e.responsible, notes: e.notes, deadline: e.deadline ?? '', deadlineDone: Boolean(e.deadlineDone), cancelled: e.cancelled === true, cancelReason: e.cancelReason ?? '',
         groups: groupOf(e), count: e.participants.length, series: Boolean(e.seriesId),
       }));
     return {
@@ -272,6 +272,8 @@ class TeacherRemote {
     const existing = input.id ? list.find((e) => e.id === input.id) : null;
     if (input.id && !existing) throw Object.assign(new Error('gone'), { code: 'not-found' });
     const event = existing ? { ...existing, ...fields } : { participants: [], equipment: [], devices: [], ...fields };
+    // Новый срок открывает задание заново: прежняя отметка «сдано» относилась к старому сроку.
+    if (existing && 'deadline' in fields && fields.deadline !== existing.deadline) event.deadlineDone = '';
     if (Array.isArray(groupIds)) event.participants = await this.participantsOf(groupIds.map(String).slice(0, 50));
     const saved = await this.store.save(event, existing ? base ?? existing.updatedAt : null);
     this.onChange('events');
