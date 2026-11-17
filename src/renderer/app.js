@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
@@ -41,6 +41,13 @@ function keepScroll(node, work) {
   if (box) box.scrollTop = top;
 }
 
+/** Условные части разметки (`cond && h(...)`) дают false: на экран он не должен попасть никогда. */
+const shown = (nodes) => nodes.flat(Infinity).filter((c) => c != null && c !== false && c !== true);
+for (const name of ['append', 'prepend', 'replaceChildren']) {
+  const native = Element.prototype[name];
+  Element.prototype[name] = function appendVisible(...nodes) { return native.apply(this, shown(nodes)); };
+}
+
 /** Создаёт элемент. Текст всегда попадает как текст, а не как разметка. */
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -50,7 +57,7 @@ function h(tag, props = {}, ...children) {
     else if (value === true) el.setAttribute(key, '');
     else if (value !== false && value != null) el.setAttribute(key, value);
   }
-  el.append(...children.flat().filter((c) => c != null && c !== false));
+  el.append(...children);
   return el;
 }
 
@@ -274,8 +281,8 @@ function renderMonth(board) {
 /** Что можно добавить с панели. Занятия и задания ведут преподаватели. */
 const PANEL_TYPES = ['practice', 'event'];
 
-const TYPE_TABS = ['task', 'practice', 'event'];
-const typeTabLabel = (type) => ({ task: t('Задания'), practice: t('Практика'), event: t('Мероприятия') })[type];
+const TYPE_TABS = ['task', 'practice', 'event', 'meeting'];
+const typeTabLabel = (type) => ({ task: t('Задания'), practice: t('Практика'), event: t('Мероприятия'), meeting: t('Собрания') })[type];
 const TAB_KEY = 'kerdiis-tab';
 
 function readTab() {
@@ -675,8 +682,7 @@ function showDetails(id) {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
-    // Занятию без техники техническое задание не нужно.
-    event.type !== 'lesson' && h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
+    hasPaper(event) && h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
     canManage() && event.deadline && h('button', {
       class: 'plain',
       onclick: async () => {
@@ -1155,18 +1161,24 @@ async function openForm(source = {}) {
 
   const participants = listInput(t('Участники'), 'f-participants',
     t('Фамилия и имя, можно вставить список из таблицы'), draft.participants, updateConflicts,
-    (changed) => pickInto(draft.participants, {
-      title: t('Студенты'),
-      sections: [
-        ...refsOf('group').map((group) => ({
-          name: group.name,
-          items: groupMembers(group, refsOf('group'), refsOf('student')).map((s) => s.name),
-        })),
-      ],
-      busy: busyNames('person'),
-      empty: t('Список студентов пуст. Добавьте группы и студентов в разделе «Справочники».'),
-      selectAll: t('Всех студентов'),
-    })(changed), { suggest: people });
+    (changed) => {
+      // На собрание, совещание и брифинг чаще зовут преподавателей: они идут первыми.
+      const meeting = draft.type === 'meeting';
+      const teachers = refsOf('teacher').map((ref) => ref.name);
+      pickInto(draft.participants, {
+        title: meeting ? t('Участники') : t('Студенты'),
+        sections: [
+          ...(meeting && teachers.length ? [{ name: t('Преподаватели'), items: teachers }] : []),
+          ...refsOf('group').map((group) => ({
+            name: group.name,
+            items: groupMembers(group, refsOf('group'), refsOf('student')).map((s) => s.name),
+          })),
+        ],
+        busy: busyNames('person'),
+        empty: t('Список студентов пуст. Добавьте группы и студентов в разделе «Справочники».'),
+        selectAll: meeting ? null : t('Всех студентов'),
+      })(changed);
+    }, { suggest: people });
   const equipment = listInput(t('Техника'), 'f-equipment',
     t('Например, проектор'), draft.equipment, updateConflicts,
     (changed) => openStockPicker({
@@ -2087,26 +2099,6 @@ function clearSection() {
     actions,
     message,
     h('p', { class: 'help' }, t('Например, чтобы очистить календарь после окончания семестра. Если удалили лишнее, его можно вернуть кнопкой «Вернуть удалённое из копии».')));
-}
-
-/* Окно */
-
-function showWindowButtons(full) {
-  $('minimize').hidden = !full;
-  $('quit').hidden = !full;
-}
-
-/** Палец на доске легко задеть: закрытие подтверждается. */
-function askQuit() {
-  const dialog = $('quitask');
-  dialog.replaceChildren(
-    h('div', { class: 'sheethead' }, h('h2', {}, t('Закрыть программу?')), closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, h('p', {}, t('Календарь пропадёт с экрана до следующего запуска. Он запустится сам при следующем входе в Windows.'))),
-    h('div', { class: 'sheetfoot' },
-      h('button', { type: 'button', class: 'plain', onclick: () => dialog.close() }, t('Отмена')),
-      h('button', { type: 'button', class: 'primary', id: 'quit-confirm', onclick: () => api.quit() }, t('Закрыть'))),
-  );
-  dialog.showModal();
 }
 
 /* Версии программы */
@@ -3925,7 +3917,6 @@ async function openSettings() {
   const memoFrom = h('input', { id: 's-memo-from', value: current.memoFrom, autocomplete: 'off', maxlength: 60 });
   const memoSigner = h('input', { id: 's-memo-signer', value: current.memoSigner, autocomplete: 'off', maxlength: 60 });
   const showAll = h('input', { id: 's-all', type: 'checkbox', checked: current.showAll });
-  const fullscreen = h('input', { id: 's-fullscreen', type: 'checkbox', checked: current.fullscreen });
   let theme = current.theme;
   const themeRow = h('div', { class: 'targets', role: 'group', 'aria-labelledby': 'l-theme' });
   const drawThemes = () => themeRow.replaceChildren(...[['dark', t('Тёмная')], ['light', t('Светлая')], ['system', t('Как в Windows')]].map(([id, label]) =>
@@ -3968,7 +3959,6 @@ async function openSettings() {
         syncKey: key.value,
         peers: peers.value,
         showAll: showAll.checked,
-        fullscreen: fullscreen.checked,
         theme,
         memoFrom: memoFrom.value,
         memoSigner: memoSigner.value,
@@ -4029,8 +4019,7 @@ async function openSettings() {
         h('p', { class: 'help' }, t('Нужны, только если устройства не находят друг друга сами, например 10.0.2.15, 10.0.3.7. Достаточно одного адреса: остальные передадутся автоматически.'))),
       h('div', { class: 'setting' },
         h('label', { class: 'check' }, showAll, t('Показывать мероприятия всех устройств')),
-        h('p', { class: 'help' }, t('Включите на компьютерах преподавателей.')),
-        h('label', { class: 'check' }, fullscreen, t('Открывать на весь экран'))),
+        h('p', { class: 'help' }, t('Включите на компьютерах преподавателей.'))),
       h('section', { class: 'setting' },
         h('div', { class: 'grouphead' },
           h('h3', {}, t('Устройства в сети')),
@@ -4317,7 +4306,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'quitask', 'netcheck'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'portal', 'netcheck'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4359,9 +4348,6 @@ function wire() {
     drawCatalog({ fromTop: true });
     $('catalog').showModal();
   });
-  $('minimize').addEventListener('click', () => api.minimize());
-  $('quit').addEventListener('click', askQuit);
-  api.onFullscreen(showWindowButtons);
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });
   }
@@ -4382,7 +4368,6 @@ async function start() {
   wire();
   state.settings = await api.getSettings();
   applyEdition();
-  showWindowButtons(state.settings.fullscreen);
   applySize(state.settings.uiSize);
   api.onChanged(refresh);
   render();

@@ -628,3 +628,20 @@ test('сценарий занятия: начать, перекличка, оп�
   const marked = L.rollCall(lesson, { ...doc, marks: { Иванов: { status: 'present', at: new Date(at('10:05')).toISOString() } } }, '2026-11-16', '10:25');
   assert.equal(marked[0].late, 0);
 });
+
+test('собрание: без отметок, тех. задания, записки и портфолио, с пары не освобождает', () => {
+  const meeting = { id: 'm1', type: 'meeting', title: 'Брифинг перед днём открытых дверей', date: '2026-11-03', start: '09:00', end: '10:00', participants: ['Иванов', 'Сидорова А. П.'], equipment: [] };
+  const lesson = { id: 'l1', type: 'lesson', title: 'Пара', date: '2026-11-03', start: '09:00', end: '10:30', participants: ['Иванов'], equipment: [] };
+  assert.equal(L.typeName('meeting'), 'Собрание');
+  assert.equal(L.takesAttendance(meeting), false);
+  assert.equal(L.hasPaper(meeting), false);
+  assert.equal(L.hasPaper(lesson), false);
+  assert.equal(L.hasPaper({ ...meeting, type: 'event' }), true);
+  assert.equal(L.memoApplies(meeting), false);
+  const p = L.portfolio({ name: 'Иванов', events: [meeting], attendance: [], achievements: [], nowISO: '2026-11-10', nowTime: '12:00' });
+  assert.deepEqual(p.items, []);
+  assert.equal('meeting' in p.counts, false);
+  const row = L.rollCall(lesson, null, '2026-11-03', '11:00', [meeting, lesson]).find((r) => r.name === 'Иванов');
+  assert.equal(row.excusedFor, undefined, 'собрание проходит вне занятий');
+  assert.equal(L.findConflicts(meeting, [lesson])[0]?.name, 'Иванов', 'пересечение с парой видно в форме');
+});

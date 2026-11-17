@@ -307,6 +307,7 @@ export const EVENT_TYPES = [
   ['practice', 'Практика'],
   ['task', 'Задание'],
   ['event', 'Мероприятие'],
+  ['meeting', 'Собрание'],
 ];
 
 export const typeName = (type) => (EVENT_TYPES.find(([id]) => id === type) ?? EVENT_TYPES[3])[1];
@@ -667,7 +668,13 @@ const memoFields = (event) => [
 ];
 
 /** Записка нужна всем, кроме обычных занятий, если есть кого освобождать. */
-export const memoApplies = (event) => event.type !== 'lesson' && event.participants.length > 0;
+/** Собрание проходит вне занятий: служебная записка об освобождении ему не нужна. */
+export const memoApplies = (event) => !NO_MEMO_TYPES.has(event.type) && event.participants.length > 0;
+const NO_MEMO_TYPES = new Set(['lesson', 'meeting']);
+
+/** Техническое задание бывает у мероприятий, практики и заданий; у занятий и собраний его нет. */
+export const PAPER_TYPES = ['practice', 'task', 'event'];
+export const hasPaper = (event) => PAPER_TYPES.includes(event.type);
 
 /** Новая записка нужна, если изменилось то, что в ней написано. */
 export function needsMemo(saved, previous) {

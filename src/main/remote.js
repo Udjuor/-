@@ -25,7 +25,7 @@ const FAILS = 20;
 const FAILS_WINDOW_MS = 10 * 60_000;
 /** Поля, которые можно менять с телефона. Остальное (техника, панели, цепочки) остаётся как было. */
 const EDITABLE = ['type', 'title', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'notes'];
-const TYPES = ['lesson', 'event', 'practice', 'task'];
+const TYPES = ['lesson', 'event', 'practice', 'task', 'meeting'];
 const DAYS = 14;
 
 const HEADERS = {

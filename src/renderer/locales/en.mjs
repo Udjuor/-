@@ -741,7 +741,9 @@ export default {
     "Подключить телефон": "Connect a phone",
     "Подключённые телефоны": "Connected phones",
     "был на связи {0}": "last seen {0}",
-    "Отключить": "Disconnect"
+    "Отключить": "Disconnect",
+    "Собрание": "Meeting",
+    "Собрания": "Meetings"
   },
   "plurals": {
     "events": {

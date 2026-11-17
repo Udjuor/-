@@ -91,7 +91,7 @@ function normalizeEvent(raw) {
   return valid ? event : null;
 }
 
-const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event']);
+const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event', 'meeting']);
 const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice', 'achievement']);

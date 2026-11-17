@@ -444,13 +444,13 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   });
   await page.click('#settings');
   await page.waitForSelector('#preferences[open]');
-  assert.equal(await page.locator('#preferences .langs button').count(), 7);
+  assert.equal(await page.locator('#preferences .langs button').count(), 3);
   const langWidths = await page.locator('#preferences .langs button').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().width)));
   assert.equal(new Set(langWidths).size, 1, 'кнопки языка одного размера');
   await shot('settings-langs');
-  await page.click('#preferences .langs button[aria-label="日本語"]');
+  await page.click('#preferences .langs button[aria-label="English"]');
   await until(async () => app.evaluate(() => globalThis.relaunched === true), 'перезапуск при смене языка');
-  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /lang=ja/);
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /lang=en/);
   await page.click('#preferences .langs button[aria-label="Русский"]');
   await until(() => /lang=ru/.test(fs.readFileSync(path.join(home, 'config.ini'), 'utf8')), 'возврат языка');
   await page.click('#preferences [aria-label=Закрыть]');
@@ -778,14 +778,9 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#gear tbody'), /Камера/);
   await page.click('#gear [aria-label=Закрыть]');
 
-  // Кнопки окна видны только на весь экран, закрытие подтверждается.
-  const full = (await page.evaluate(() => window.calendar.getSettings())).fullscreen;
-  assert.equal(await page.isVisible('#quit'), full);
-  if (full) {
-    await page.click('#quit');
-    await page.waitForSelector('#quitask[open]');
-    await page.click('#quitask >> text=Отмена');
-  }
+  // Программа работает в обычном окне: своих кнопок «Свернуть» и «Закрыть» нет.
+  assert.equal(await page.locator('#quit, #minimize').count(), 0);
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isFullScreen())), false);
 
   // Резервная копия и возврат удалённого.
   await page.click('#settings');
@@ -896,6 +891,28 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('.alldaychip:has-text("День открытых дверей")');
   await page.waitForSelector('#details:has-text("Весь день, 08:30–20:00")');
   await page.click('#details [aria-label=Закрыть]');
+
+  // Собрание: совещание вне занятий, без отметок, тех. задания и записки.
+  await page.click('#today');
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.click('#form .targets button.t-meeting');
+  await page.fill('#f-title', 'Совещание кураторов');
+  await page.fill('#f-start', '18:00');
+  await page.fill('#f-end', '18:40');
+  await page.fill('#f-place', 'Методкабинет');
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await page.click('#tabs [data-tab="type:meeting"]');
+  await page.click('.block.t-meeting:has-text("Совещание кураторов")');
+  await page.waitForSelector('#details[open]:has-text("Собрание")');
+  for (const label of ['Тех. задание', 'Служебная записка', 'Отметка']) {
+    assert.equal(await page.locator(`#details .sheetfoot button:has-text("${label}")`).count(), 0, `у собрания нет «${label}»`);
+  }
+  assert.doesNotMatch(await page.textContent('#details'), /false|true|undefined/);
+  await shot('meeting');
+  await page.click('#details [aria-label=Закрыть]');
+  await page.click('#tabs [data-tab="all"]');
 
   // Сроки сдачи.
   await page.click('#today');
@@ -1100,6 +1117,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#roll .sheetfoot >> text=Карточка занятия');
   await page.waitForSelector('#details[open]');
   assert.equal(await page.locator('#details button:has-text("Тех. задание")').count(), 0, 'у занятия нет технического задания');
+  assert.doesNotMatch(await page.textContent('#details .sheetfoot'), /false|true|undefined/, 'в кнопках нет служебных слов');
   await page.click('#cancel-event');
   await page.fill('#cancel-reason', 'Преподаватель на больничном');
   await shot('cancel-form');
@@ -1323,7 +1341,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const skipHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-e2e-skip-'));
   const skipped = await firstRun(skipHome);
   await skipped.wizard.waitForSelector('#welcome[open]');
-  assert.equal(await skipped.wizard.locator('#welcome .langs button').count(), 7, 'выбор языка в мастере');
+  assert.equal(await skipped.wizard.locator('#welcome .langs button').count(), 3, 'выбор языка в мастере');
   await skipped.wizard.click('#welcome >> text=Пропустить настройку');
   await skipped.wizard.waitForSelector('#welcome', { state: 'hidden' });
   await until(() => /setupDone=1/.test(fs.readFileSync(path.join(skipHome, 'config.ini'), 'utf8')), 'пропуск мастера');

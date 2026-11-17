@@ -2,22 +2,14 @@
 // остаётся читаемым. Значения подставляются в {0}, {1}, поэтому перевод может
 // менять порядок слов.
 import en from './locales/en.mjs';
-import es from './locales/es.mjs';
-import ja from './locales/ja.mjs';
-import ko from './locales/ko.mjs';
-import zh from './locales/zh.mjs';
 
 export const LANGUAGES = [
   ['ru', 'Русский'],
   ['en', 'English'],
-  ['es', 'Español'],
-  ['zh', '中文'],
-  ['ja', '日本語'],
-  ['ko', '한국어'],
 ];
 
-const LOCALES = { ru: 'ru-RU', en: 'en-GB', es: 'es-ES', zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR' };
-const DICTIONARIES = { en, es, zh, ja, ko };
+const LOCALES = { ru: 'ru-RU', en: 'en-GB' };
+const DICTIONARIES = { en };
 
 const RU_PLURALS = {
   people: { one: '{n} участник', few: '{n} участника', many: '{n} участников', other: '{n} участника' },
@@ -27,7 +19,7 @@ const RU_PLURALS = {
   pairsHeld: { one: 'Проведена: {n} пара', few: 'Проведено: {n} пары', many: 'Проведено: {n} пар', other: 'Проведено: {n} пары' },
 };
 
-let current = globalThis.window?.calendar?.language ?? 'ru';
+let current = LOCALES[globalThis.window?.calendar?.language] ? globalThis.window.calendar.language : 'ru';
 
 export const language = () => current;
 export const locale = () => LOCALES[current];

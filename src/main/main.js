@@ -43,12 +43,10 @@ const SPLASH_MS = 4500;
 /** Главное окно показывается, когда визитка отработала и само окно готово. */
 function revealMain() {
   if (!splashDone || !mainReady || !win) return;
-  // Полный экран только здесь: заданный при создании окна, он показал бы его раньше панели.
-  // И только после показа: на скрытом окне панель задач Windows остаётся поверх нижней строки.
-  if (!config.fullscreen) win.maximize();
+  // Программа работает в обычном окне, развёрнутом на весь рабочий стол.
+  win.maximize();
   win.show();
   win.focus();
-  if (config.fullscreen) win.setFullScreen(true);
 }
 
 function finishSplash() {
@@ -225,6 +223,7 @@ function createWindow() {
     show: false,
     backgroundColor: '#0d1117',
     title: 'Kerdiis',
+    fullscreenable: false,
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -244,15 +243,6 @@ function createWindow() {
     console.error('Страница завершилась:', details.reason);
     if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.reload();
   });
-  win.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'F11') {
-      win.setFullScreen(!win.isFullScreen());
-      event.preventDefault();
-    }
-  });
-  // Свои кнопки «Свернуть» и «Закрыть» нужны только на весь экран: в окне есть обычная рамка.
-  win.on('enter-full-screen', () => win.webContents.send('window:fullscreen', true));
-  win.on('leave-full-screen', () => win.webContents.send('window:fullscreen', false));
   win.on('closed', () => {
     win = null;
   });
@@ -672,7 +662,6 @@ function registerHandlers() {
     setupDone: config.setupDone,
     memoFrom: config.memoFrom,
     memoSigner: config.memoSigner,
-    fullscreen: win ? win.isFullScreen() : config.fullscreen,
     version: app.getVersion(),
     platform: process.platform,
   }));
@@ -691,14 +680,12 @@ function registerHandlers() {
         syncKey,
         peers: splitPeers(settings.peers),
         showAll: Boolean(settings.showAll),
-        fullscreen: Boolean(settings.fullscreen),
         theme: settings.theme ?? config.theme,
         memoFrom: String(settings.memoFrom ?? '').trim() || config.memoFrom,
         memoSigner: String(settings.memoSigner ?? '').trim() || config.memoSigner,
       };
       saveConfig(homeDir(), config);
       nativeTheme.themeSource = config.theme;
-      if (win) win.setFullScreen(config.fullscreen);
       if (syncChanged) await restartSync();
     }),
   );
@@ -785,10 +772,6 @@ function registerHandlers() {
 
   ipcMain.handle('splash:skip', finishSplash);
 
-  ipcMain.handle('window:minimize', () => {
-    if (win) win.minimize();
-  });
-  ipcMain.handle('window:quit', () => app.quit());
 }
 
 if (!app.requestSingleInstanceLock()) {

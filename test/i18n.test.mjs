@@ -68,8 +68,7 @@ test('множественные числа и подстановки', () => {
   assert.equal(tp('people', 1), '1 participant');
   assert.equal(tp('people', 3), '3 participants');
   assert.equal(t('Здоровье {0} из 100', [70]), 'Health 70 of 100');
-  setLanguage('ja');
-  assert.equal(tp('students', 2), '学生 2 名');
+  assert.equal(tp('students', 2), '2 students');
   assert.equal(t('Несуществующая фраза'), 'Несуществующая фраза');
   setLanguage('ru');
   assert.equal(t('Здоровье {0} из 100', [70]), 'Здоровье 70 из 100');

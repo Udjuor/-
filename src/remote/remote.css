@@ -1,6 +1,6 @@
 :root {
   --bg: #0d1117; --panel: #161b22; --line: #30363d; --fg: #e6edf3; --muted: #8b949e; --accent: #2f81f7; --danger: #f85149;
-  --lesson: #2f81f7; --event: #3fb950; --practice: #a371f7; --task: #d29922;
+  --lesson: #2f81f7; --event: #3fb950; --practice: #a371f7; --task: #d29922; --meeting: #39a5ad;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -22,7 +22,7 @@ button.danger { color: var(--danger); }
 .day.today { color: var(--accent); font-weight: 700; }
 .ev { display: grid; grid-template-columns: 4px 1fr; gap: 10px; width: 100%; text-align: left; padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; }
 .ev::before { content: ''; border-radius: 2px; background: var(--c, var(--accent)); }
-.ev.t-lesson { --c: var(--lesson); } .ev.t-event { --c: var(--event); } .ev.t-practice { --c: var(--practice); } .ev.t-task { --c: var(--task); }
+.ev.t-lesson { --c: var(--lesson); } .ev.t-event { --c: var(--event); } .ev.t-practice { --c: var(--practice); } .ev.t-task { --c: var(--task); } .ev.t-meeting { --c: var(--meeting); }
 .ev .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
 .ev .title { font-weight: 600; }
 .ev .meta { font-size: 13px; color: var(--muted); }

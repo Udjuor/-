@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const LANGUAGES = ['auto', 'ru', 'en', 'es', 'zh', 'ja', 'ko'];
+const LANGUAGES = ['auto', 'ru', 'en'];
+/** Языки прежних версий: такие устройства переходят на английский. */
+const DROPPED_LANGUAGES = ['es', 'zh', 'ja', 'ko'];
 
 function parseIni(text) {
   const values = {};
@@ -26,7 +28,6 @@ function saveConfig(homeDir, config) {
   const lines = [
     '[calendar]',
     `dataDir=${config.dataDir}`,
-    `fullscreen=${config.fullscreen ? 1 : 0}`,
     `deviceId=${config.deviceId}`,
     `deviceName=${config.deviceName}`,
     `syncKey=${config.syncKey}`,
@@ -74,7 +75,6 @@ function loadConfig(homeDir) {
   }
   const config = {
     dataDir: movedDataDir(values.dataDir, homeDir) || path.join(homeDir, 'data'),
-    fullscreen: values.fullscreen === undefined ? true : values.fullscreen === '1',
     deviceId: values.deviceId || crypto.randomUUID(),
     deviceName: values.deviceName || os.hostname(),
     syncKey: values.syncKey || '',
@@ -85,7 +85,9 @@ function loadConfig(homeDir) {
     // Уже работающие устройства остаются на русском, новые определяют язык по Windows.
     // Мастер первого запуска: не для работающих устройств и не для установки с готовым ключом.
     setupDone: values.setupDone === undefined ? Boolean(values.deviceId || values.syncKey) : values.setupDone === '1',
-    lang: LANGUAGES.includes(values.lang) ? values.lang : (values.deviceId ? 'ru' : 'auto'),
+    lang: LANGUAGES.includes(values.lang) ? values.lang
+      : DROPPED_LANGUAGES.includes(values.lang) ? 'en'
+      : (values.deviceId ? 'ru' : 'auto'),
     memoFrom: values.memoFrom || 'Семенова И. А.',
     // Студенческая страница на этом компьютере (только версия для преподавателей).
     portal: values.portal === '1',
