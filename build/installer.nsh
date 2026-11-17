@@ -67,7 +67,7 @@
   ; Порты обмена отдельно: правило на программу перестаёт действовать, если папку программы поменяли.
   nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis sync"'
   Pop $calOutput
-  nsExec::Exec 'netsh advfirewall firewall add rule name="Kerdiis sync" dir=in action=allow protocol=TCP localport=47800,47880 enable=yes profile=any'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="Kerdiis sync" dir=in action=allow protocol=TCP localport=47800,47880,47881 enable=yes profile=any'
   Pop $calOutput
   nsExec::Exec 'netsh advfirewall firewall delete rule name="Kerdiis discovery"'
   Pop $calOutput

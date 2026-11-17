@@ -64,7 +64,7 @@ const repairScript = (exePath) => [
   `netsh advfirewall firewall delete rule name="${RULE}"`,
   `netsh advfirewall firewall add rule name="${RULE}" dir=in action=allow program="${exePath}" enable=yes profile=any`,
   `netsh advfirewall firewall delete rule name="${PORT_RULE}"`,
-  `netsh advfirewall firewall add rule name="${PORT_RULE}" dir=in action=allow protocol=TCP localport=47800,47880 enable=yes profile=any`,
+  `netsh advfirewall firewall add rule name="${PORT_RULE}" dir=in action=allow protocol=TCP localport=47800,47880,47881 enable=yes profile=any`,
   `netsh advfirewall firewall delete rule name="${UDP_RULE}"`,
   `netsh advfirewall firewall add rule name="${UDP_RULE}" dir=in action=allow protocol=UDP localport=47801 enable=yes profile=any`,
 ].join('\r\n');
