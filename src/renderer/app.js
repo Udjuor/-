@@ -2125,6 +2125,10 @@ function remoteSection() {
       return;
     }
     const [main, ...rest] = result.value.links;
+    if (!main) {
+      message.textContent = t('У компьютера сейчас нет сети, QR-коду некуда вести. Подключите компьютер к сети колледжа или к Wi-Fi и нажмите ещё раз.');
+      return;
+    }
     const until = new Date(result.value.until);
     pairBox.replaceChildren(
       qrElement(main, t('QR-код для подключения телефона')),

@@ -824,7 +824,8 @@ export default {
     "Сдал": "Handed in",
     "На доработке": "To redo",
     "Не сдал": "Missing",
-    "Заявки студентов": "Student requests"
+    "Заявки студентов": "Student requests",
+    "У компьютера сейчас нет сети, QR-коду некуда вести. Подключите компьютер к сети колледжа или к Wi-Fi и нажмите ещё раз.": "This computer has no network right now, so the QR code has nowhere to lead. Connect it to the college network or Wi-Fi and press again."
   },
   "plurals": {
     "events": {
