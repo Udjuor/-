@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
@@ -1584,19 +1584,26 @@ async function commitCatalog(result) {
   const fresh = await api.directory();
   if (fresh.ok) state.directory = fresh.value;
   drawCatalog();
+  // Дата рождения могла прийтись на сегодня: поздравление появляется сразу.
+  refreshTicker();
 }
 
 /** Добавляет имена, пропуская те, что уже есть, и сообщает о пропущенных. */
 async function addRefs(text, kind, existing, extra = {}) {
-  const known = new Set(existing.map((ref) => nameKey(ref.name)));
+  const known = new Map(existing.map((ref) => [nameKey(ref.name), ref]));
   const fresh = [];
   const repeated = [];
-  for (const name of splitNames(text)) {
-    if (known.has(nameKey(name))) {
-      repeated.push(name);
+  // У студентов и преподавателей в строке может быть дата рождения: «Иванов Иван 12.03.2007».
+  const people = kind === 'student' || kind === 'teacher' ? splitPeople(text) : splitNames(text).map((name) => ({ name, birthday: '' }));
+  for (const { name, birthday } of people) {
+    const already = known.get(nameKey(name));
+    if (already) {
+      // Уже есть в списке, но пришла дата рождения: дописываем её.
+      if (birthday && already.id && already.birthday !== birthday) fresh.push({ ref: { ...already, birthday }, base: already.updatedAt });
+      else repeated.push(name);
     } else {
-      known.add(nameKey(name));
-      fresh.push({ ref: { kind, name, ...extra }, base: null });
+      known.set(nameKey(name), { name });
+      fresh.push({ ref: { kind, name, ...extra, ...(birthday ? { birthday } : {}) }, base: null });
     }
   }
   catalog.message = repeated.length ? t('Уже есть в списке: {0}', [repeated.join(', ')]) : '';
@@ -1660,7 +1667,10 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
     const limit = ref.kind === 'equipment'
       ? h('input', { id: 'c-qty', class: 'qtyinput', type: 'number', min: 0, value: ref.quantity ?? '', placeholder: t('Без лимита'), 'aria-label': t('Количество') })
       : null;
-    return h('li', { class: 'refrow editing' }, input, move, limit,
+    const birthday = ref.kind === 'student' || ref.kind === 'teacher'
+      ? h('input', { id: 'c-birthday', type: 'date', value: ref.birthday ?? '', max: now().iso, 'aria-label': t('День рождения'), title: t('День рождения') })
+      : null;
+    return h('li', { class: 'refrow editing' }, input, move, limit, birthday,
       h('button', {
         type: 'button',
         class: 'primary',
@@ -1669,7 +1679,7 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
           if (!name) return;
           catalog.message = '';
           await commitCatalog(await api.saveRefs([{
-            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}) },
+            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}), ...(birthday ? { birthday: birthday.value } : {}) },
             base: ref.updatedAt,
           }]));
         },
@@ -1689,6 +1699,8 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
       }, t('Удалить')),
       h('button', { type: 'button', class: 'plain', onclick: () => { catalog.confirming = null; drawCatalog(); } }, t('Оставить')));
   }
+  // У студентов и преподавателей под именем — день рождения, без года: возраст не показывается.
+  if (!detail && ref.birthday) detail = t('🎂 {0}', [fmt(ref.birthday, { day: 'numeric', month: 'long' })]);
   const label = open
     ? h('button', { type: 'button', class: 'refname link', 'aria-pressed': String(active), onclick: open }, h('strong', {}, ref.name), detail && h('span', {}, detail))
     : h('div', { class: 'refname' }, h('p', {}, ref.name), detail && h('span', {}, detail));
@@ -1727,8 +1739,9 @@ function groupsPane() {
       subgroups.length > 0 && h('p', { class: 'help' }, t('Подгруппы: {0}. Их студенты входят в эту группу и здесь не повторяются.', [subgroups.map((group) => group.name).join(', ')])),
       current
         ? [
-          addForm('c-add-student', t('Фамилия и имя или столбец из таблицы'),
+          addForm('c-add-student', t('Фамилия и имя, можно с датой рождения, или столбцы из таблицы'),
             (text) => addRefs(text, 'student', members, { groupId: current.id })),
+          h('p', { class: 'help' }, t('Дату рождения можно вставить вторым столбцом из Excel: тем, кто уже в списке, она допишется. В день рождения бегущая строка поздравит, возраст нигде не показывается.')),
           refList(members.map((student) => refRow(student, {
             extra: [h('button', {
               type: 'button',
@@ -1819,7 +1832,7 @@ function drawCatalog({ fromTop = false } = {}) {
           h('button', { class: 'plain', id: 'open-rolestats', onclick: openRoleStats }, t('Итоги по ролям')),
           simplePane('role', t('Например: оператор, ведущий, фотограф'), t('Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.')),
         ]
-        : simplePane('teacher', t('Фамилия и инициалы или столбец из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
+        : simplePane('teacher', t('ФИО, можно с датой рождения, или столбцы из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Справочники')), closeButton(dialog)),
     h('div', { class: 'tabs', role: 'group', 'aria-label': t('Раздел справочников') }, CATALOG_TABS.map(([tab, label]) =>
@@ -3135,6 +3148,32 @@ function certificateItems() {
   return items;
 }
 
+/* Дни рождения в бегущей строке */
+
+/** Поздравления: у каждого человека в этот день своё, весь день одно и то же. */
+const GREETINGS = (name) => [
+  t('🎂 {0} — с днём рождения! Пусть сегодня всё получается с первого дубля!', [name]),
+  t('🎉 {0}, с днём рождения! Ярких кадров, громких оваций и пятёрок без пересдач!', [name]),
+  t('🥳 {0} — с днём рождения! Свет выставлен, камера пишет, праздник начинается!', [name]),
+  t('🎁 С днём рождения, {0}! Пусть всё будет на пять с плюсом!', [name]),
+  t('⭐ {0}, с днём рождения! Сегодня главная звезда колледжа — это вы!', [name]),
+  t('🎈 {0} — с днём рождения! Пусть год будет как лучший монтаж: без лишнего и с крутыми переходами!', [name]),
+  t('🎶 С днём рождения, {0}! Пусть сегодня играет только ваша любимая музыка!', [name]),
+  t('🍰 {0}, с днём рождения! Торт уже в кадре, осталось задуть свечи!', [name]),
+];
+const LATE_GREETINGS = (name) => [
+  t('🎂 {0} — с прошедшим днём рождения! Поздравляем всем колледжем!', [name]),
+  t('🎉 {0}, с прошедшим днём рождения! Праздник продолжается!', [name]),
+];
+
+function birthdayItems() {
+  const today = now().iso;
+  return birthdaysOn([...refsOf('student'), ...refsOf('teacher')], today).map((person) => {
+    const texts = person.late ? LATE_GREETINGS(person.name) : GREETINGS(person.name);
+    return { id: `birthday-${person.id}`, color: 'birthday', name: texts[pickGreeting(person.name, today, texts.length)] };
+  });
+}
+
 function petItems() {
   const clock = now();
   return petGroups().flatMap((group) => {
@@ -3151,7 +3190,7 @@ function petItems() {
 
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
-  const notices = [...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const notices = [...birthdayItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);

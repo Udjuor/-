@@ -974,3 +974,84 @@ export function weeklySummaryCsv({ events, attendance, students, groups, from, t
   const width = Math.max(...rows.map((row) => row.length));
   return toCsv(rows[0].concat(Array(width - 1).fill('')), rows.slice(1));
 }
+
+/* Дни рождения */
+
+/** Дата рождения из текста: 12.03.2007, 2.3.07 или 2007-03-12. Неверная дата — пустая строка. */
+export function parseBirthday(text) {
+  const value = String(text ?? '').trim();
+  let y;
+  let m;
+  let d;
+  let match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) [, y, m, d] = match.map(Number);
+  else if ((match = value.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/))) {
+    [, d, m, y] = match.map(Number);
+    if (y < 100) y += y > 30 ? 1900 : 2000;
+  } else return '';
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d || y < 1920) return '';
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * Список людей из вставленного текста: в строке имя и, по желанию, дата рождения в конце,
+ * через табуляцию или пробел. Так можно вставить два столбца из Excel.
+ */
+export function splitPeople(text) {
+  return String(text ?? '').split(/[\r\n;]+/).map((line) => {
+    const cells = line.split('\t').map((cell) => cell.trim()).filter(Boolean);
+    let birthday = cells.length > 1 ? parseBirthday(cells.at(-1)) : '';
+    let name = birthday ? cells.slice(0, -1).join(' ') : cells.join(' ');
+    if (!birthday) {
+      const tail = name.match(/^(.*\S)\s+(\S+)$/);
+      if (tail && parseBirthday(tail[2])) {
+        name = tail[1];
+        birthday = parseBirthday(tail[2]);
+      }
+    }
+    return { name: name.replace(/\s+/g, ' ').trim(), birthday };
+  }).filter((person) => person.name);
+}
+
+/**
+ * Как обращаться в поздравлении: студента «Фамилия Имя» — «Имя Фамилия»,
+ * преподавателя «Фамилия Имя Отчество» — по имени и отчеству. С инициалами — как записано.
+ */
+export function greetingName(name, kind = 'student') {
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length < 2 || parts.slice(1).some((part) => /\./.test(part) || /^\p{Lu}$/u.test(part))) return parts.join(' ');
+  if (kind === 'teacher' && parts.length >= 3) return parts.slice(1, 3).join(' ');
+  return `${parts[1]} ${parts[0]}`;
+}
+
+const leap = (year) => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+
+/** День рождения в этом году: 29 февраля в невисокосный год празднуется 28-го. */
+function birthdayThisYear(birthday, year) {
+  const md = birthday.slice(5);
+  return `${year}-${md === '02-29' && !leap(year) ? '02-28' : md}`;
+}
+
+/**
+ * Кого поздравить сегодня. В понедельник — ещё и тех, у кого день рождения был в выходные.
+ * Возвращает { id, name, late } без возраста: возраст на панели не показывается.
+ */
+export function birthdaysOn(refs, iso) {
+  const days = [iso];
+  if (weekdayOf(iso) === 1) days.push(addDays(iso, -1), addDays(iso, -2));
+  const people = [];
+  for (const ref of refs) {
+    if (!['student', 'teacher'].includes(ref.kind) || ref.deleted || !/^\d{4}-\d{2}-\d{2}$/.test(ref.birthday ?? '')) continue;
+    const day = days.find((d) => birthdayThisYear(ref.birthday, Number(d.slice(0, 4))) === d);
+    if (day) people.push({ id: ref.id, name: greetingName(ref.name, ref.kind), late: day !== iso });
+  }
+  return people.sort((a, b) => Number(a.late) - Number(b.late) || a.name.localeCompare(b.name, 'ru'));
+}
+
+/** Выбор поздравления: у человека в этот день всегда одно и то же, у разных людей — разные. */
+export function pickGreeting(name, iso, count) {
+  let hash = 0;
+  for (const char of `${name}|${iso}`) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return hash % count;
+}

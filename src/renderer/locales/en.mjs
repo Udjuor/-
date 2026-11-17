@@ -825,7 +825,22 @@ export default {
     "На доработке": "To redo",
     "Не сдал": "Missing",
     "Заявки студентов": "Student requests",
-    "У компьютера сейчас нет сети, QR-коду некуда вести. Подключите компьютер к сети колледжа или к Wi-Fi и нажмите ещё раз.": "This computer has no network right now, so the QR code has nowhere to lead. Connect it to the college network or Wi-Fi and press again."
+    "У компьютера сейчас нет сети, QR-коду некуда вести. Подключите компьютер к сети колледжа или к Wi-Fi и нажмите ещё раз.": "This computer has no network right now, so the QR code has nowhere to lead. Connect it to the college network or Wi-Fi and press again.",
+    "День рождения": "Birthday",
+    "🎂 {0}": "🎂 {0}",
+    "Фамилия и имя, можно с датой рождения, или столбцы из таблицы": "Surname and name, optionally with a birth date, or columns from a table",
+    "Дату рождения можно вставить вторым столбцом из Excel: тем, кто уже в списке, она допишется. В день рождения бегущая строка поздравит, возраст нигде не показывается.": "Birth dates can be pasted as a second column from Excel; people already on the list get theirs added. On the birthday the ticker congratulates them; age is never shown.",
+    "ФИО, можно с датой рождения, или столбцы из таблицы": "Full name, optionally with a birth date, or columns from a table",
+    "🎂 {0} — с днём рождения! Пусть сегодня всё получается с первого дубля!": "🎂 Happy birthday, {0}! May everything work out on the first take today!",
+    "🎉 {0}, с днём рождения! Ярких кадров, громких оваций и пятёрок без пересдач!": "🎉 Happy birthday, {0}! Bright shots, loud applause and top marks with no retakes!",
+    "🥳 {0} — с днём рождения! Свет выставлен, камера пишет, праздник начинается!": "🥳 Happy birthday, {0}! Lights set, camera rolling, the party starts now!",
+    "🎁 С днём рождения, {0}! Пусть всё будет на пять с плюсом!": "🎁 Happy birthday, {0}! May everything be A-plus!",
+    "⭐ {0}, с днём рождения! Сегодня главная звезда колледжа — это вы!": "⭐ Happy birthday, {0}! Today you are the college's biggest star!",
+    "🎈 {0} — с днём рождения! Пусть год будет как лучший монтаж: без лишнего и с крутыми переходами!": "🎈 Happy birthday, {0}! May your year cut like the best edit: nothing extra, great transitions!",
+    "🎶 С днём рождения, {0}! Пусть сегодня играет только ваша любимая музыка!": "🎶 Happy birthday, {0}! May only your favourite music play today!",
+    "🍰 {0}, с днём рождения! Торт уже в кадре, осталось задуть свечи!": "🍰 Happy birthday, {0}! The cake is in frame, now blow out the candles!",
+    "🎂 {0} — с прошедшим днём рождения! Поздравляем всем колледжем!": "🎂 Belated happy birthday, {0}! The whole college sends wishes!",
+    "🎉 {0}, с прошедшим днём рождения! Праздник продолжается!": "🎉 Belated happy birthday, {0}! The party goes on!"
   },
   "plurals": {
     "events": {

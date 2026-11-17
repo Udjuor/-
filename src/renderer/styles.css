@@ -702,6 +702,10 @@ dialog#welcome { width: min(40rem, 94vw); }
 .notice-green { background: #1a7f37; }
 .notice-yellow { background: #9a6700; }
 .notice-red { background: #cf222e; }
+/* Поздравление с днём рождения: праздничная плашка, переливается медленно. */
+.notice-birthday { background: linear-gradient(90deg, #bf3989, #8250df, #1f6feb, #bf3989); background-size: 300% 100%; animation: birthday-shine 8s linear infinite; }
+@keyframes birthday-shine { to { background-position: 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .notice-birthday { animation: none; } }
 .petbutton[hidden], .noticesbutton[hidden] { display: none; }
 .noticesbutton { min-height: 2.2rem; padding: 0 .6rem; color: var(--fg); font-size: .95rem; }
 .noticehelp { margin: 0 0 .8rem; }

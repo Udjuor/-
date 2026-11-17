@@ -178,6 +178,9 @@ function normalizeRef(raw) {
     updatedAt: String(raw.updatedAt ?? ''),
     updatedBy: String(raw.updatedBy ?? ''),
   };
+  // День рождения студента или преподавателя: поздравление в бегущей строке. Возраст нигде не показывается.
+  if (raw.kind === 'student' || raw.kind === 'teacher') ref.birthday = DATE_RE.test(raw.birthday ?? '') ? raw.birthday : '';
+  else delete ref.birthday;
   if (raw.kind === 'student') {
     ref.groupId = String(raw.groupId ?? '');
     ref.ownCamera = raw.ownCamera === true;

@@ -679,3 +679,32 @@ test('сдача по студентам, должники, итоги по ро
   assert.match(csv, /^﻿Сводка/);
   assert.match(csv, /Сидоров;1;Монтаж/);
 });
+
+test('дни рождения: разбор дат, обращение, поздравление в выходные и 29 февраля', () => {
+  assert.equal(L.parseBirthday('12.03.2007'), '2007-03-12');
+  assert.equal(L.parseBirthday('2.3.07'), '2007-03-02');
+  assert.equal(L.parseBirthday('2007-03-12'), '2007-03-12');
+  assert.equal(L.parseBirthday('31.02.2007'), '');
+  assert.equal(L.parseBirthday('завтра'), '');
+  assert.deepEqual(L.splitPeople('Иванов Иван\t12.03.2007\nПетрова Анна 01.02.2006\nЛебедева О. В.'), [
+    { name: 'Иванов Иван', birthday: '2007-03-12' },
+    { name: 'Петрова Анна', birthday: '2006-02-01' },
+    { name: 'Лебедева О. В.', birthday: '' },
+  ]);
+  assert.equal(L.greetingName('Иванов Иван'), 'Иван Иванов');
+  assert.equal(L.greetingName('Иванов Иван Петрович'), 'Иван Иванов');
+  assert.equal(L.greetingName('Петрова Анна Сергеевна', 'teacher'), 'Анна Сергеевна');
+  assert.equal(L.greetingName('Лебедева О. В.', 'teacher'), 'Лебедева О. В.');
+  const refs = [
+    { kind: 'student', id: 's1', name: 'Иванов Иван', birthday: '2008-11-17' },
+    { kind: 'student', id: 's2', name: 'Петрова Анна', birthday: '2007-11-15' }, // воскресенье
+    { kind: 'teacher', id: 't1', name: 'Сидорова Ольга Павловна', birthday: '1980-02-29' },
+    { kind: 'group', id: 'g1', name: 'ИС-21', birthday: '2008-11-17' },
+    { kind: 'student', id: 's3', name: 'Без даты' },
+  ];
+  assert.deepEqual(L.birthdaysOn(refs, '2026-11-17'), [{ id: 's1', name: 'Иван Иванов', late: false }]);
+  assert.deepEqual(L.birthdaysOn(refs, '2026-11-16').map((p) => [p.name, p.late]), [['Анна Петрова', true]], 'в понедельник — те, кто был в выходные');
+  assert.deepEqual(L.birthdaysOn(refs, '2027-02-28').map((p) => p.name), ['Ольга Павловна'], '29 февраля в невисокосный год');
+  assert.deepEqual(L.birthdaysOn(refs, '2028-02-28'), [], 'в високосный — в свой день');
+  assert.equal(L.pickGreeting('Иван Иванов', '2026-11-17', 8), L.pickGreeting('Иван Иванов', '2026-11-17', 8));
+});

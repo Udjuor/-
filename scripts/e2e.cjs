@@ -252,10 +252,18 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.fill('#c-edit', 'Лебедева Ольга Викторовна');
   await page.click('#catalog .refrow.editing >> text=Сохранить');
   await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна")');
+  // Преподаватель с датой рождения сегодня: вставка двух столбцов, в бегущей строке поздравление.
+  const [, bm, bd] = day(0).split('-');
+  await paste('#c-add-teacher', `Морозова Вера Павловна\t${bd}.${bm}.1985\nКузнецов Пётр Ильич\t01.01.1979\n`);
+  await page.waitForSelector(`#catalog li:has-text("Морозова Вера Павловна")`);
+  assert.match(await page.textContent('#catalog li:has-text("Морозова Вера Павловна")'), /🎂/);
+  assert.ok(!(await page.textContent('#catalog li:has-text("Морозова Вера Павловна")')).includes('1985'), 'год рождения не показывается');
   await page.click('#catalog .tabs >> text=Роли');
   await paste('#c-add-role', 'Оператор\nВедущий\n');
   await page.waitForSelector('#catalog li:has-text("Ведущий")');
   await page.click('#catalog [aria-label=Закрыть]');
+  await page.waitForSelector('#ticker .notice-birthday:has-text("Вера Павловна"):has-text("с днём рождения")');
+  await shot('birthday-ticker');
 
   await page.click('#add');
   await page.waitForSelector('#form[open]');
@@ -293,7 +301,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('dialog#form button[type=submit]');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'Из справочников' && e.equipment[0] === 'Проектор'), 'мероприятие из справочников на другом устройстве');
-  await until(async () => (await teacherStore.directory()).length === 10, 'справочники на другом устройстве');
+  await until(async () => (await teacherStore.directory()).length === 12, 'справочники на другом устройстве');
 
   // Студент, добавленный на другом устройстве, и удаление группы.
   const group = (await teacherStore.directory()).find((r) => r.name === 'ПИ-22');

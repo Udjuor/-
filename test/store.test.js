@@ -584,3 +584,13 @@ test('сдача, поручения, запись и заявки нормал�
   const again = await store.save({ ...task, title: 'Новое имя' }, task.updatedAt);
   assert.equal(again.createdAt, task.createdAt, 'время создания не меняется');
 });
+
+test('день рождения хранится у студентов и преподавателей', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', birthday: '2000-01-01' });
+  assert.equal('birthday' in group, false);
+  const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, birthday: '2008-11-17' });
+  assert.equal(student.birthday, '2008-11-17');
+  const teacher = await store.saveRef({ kind: 'teacher', name: 'Лебедева О. В.', birthday: '17.11.1980' });
+  assert.equal(teacher.birthday, '', 'только в виде ГГГГ-ММ-ДД');
+});
