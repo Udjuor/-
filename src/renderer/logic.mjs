@@ -878,20 +878,12 @@ export function handInSummary(event) {
   return summary;
 }
 
-/** Срок у одного студента: его сдача важнее общего состояния задания. */
-export function studentDeadlineState(event, name, moment) {
-  const own = handInOf(event, name);
-  if (own === 'done') return 'done';
-  const common = deadlineState(event, moment);
-  if (own === 'rework' && common !== 'done') return 'rework';
-  return common;
-}
 
-/** Должники: студенты, у которых срок прошёл, а работа не сдана. Больше долгов — выше в списке. */
+/** Должники: студенты, у которых срок задания прошёл, а работа не сдана. Больше долгов — выше в списке. */
 export function debtors(events, moment) {
   const people = new Map();
   for (const event of events) {
-    if (!event.deadline || !isHeld(event) || event.deadlineDone || event.deadline > moment) continue;
+    if (event.type !== 'task' || !event.deadline || !isHeld(event) || event.deadlineDone || event.deadline > moment) continue;
     for (const name of event.participants) {
       if (handInOf(event, name) === 'done') continue;
       const key = nameKey(name);

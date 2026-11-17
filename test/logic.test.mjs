@@ -665,12 +665,10 @@ test('сдача по студентам, должники, итоги по ро
     { id: 'd2', text: 'Отчёт', who: '', due: '', done: false },
     { id: 'd3', text: 'Готово', who: '', due: '2026-11-01', done: true }] };
   assert.deepEqual(L.handInSummary(task), { done: 1, rework: 1, missing: 1, total: 3 });
-  assert.equal(L.studentDeadlineState(task, 'иванов', '2026-11-06T09:00'), 'done');
-  assert.equal(L.studentDeadlineState(task, 'Петрова', '2026-11-06T09:00'), 'rework');
-  assert.equal(L.studentDeadlineState(task, 'Сидоров', '2026-11-06T09:00'), 'overdue');
   assert.deepEqual(L.debtors([task], '2026-11-04T09:00'), [], 'до срока должников нет');
   assert.deepEqual(L.debtors([task], '2026-11-06T09:00').map((p) => [p.name, p.items[0].status]), [['Петрова', 'rework'], ['Сидоров', 'missing']]);
   assert.deepEqual(L.debtors([{ ...task, deadlineDone: '2026-11-06T08:00' }], '2026-11-06T09:00'), [], 'закрытый срок');
+  assert.deepEqual(L.debtors([{ ...task, type: 'event' }], '2026-11-06T09:00'), [], 'материалы мероприятия сдаются целиком');
   const stats = L.roleStats([task, ev, { ...ev, id: 'e2', date: '2026-12-01' }], '2026-11-10');
   assert.deepEqual(stats.roles, ['Ведущий', 'Оператор']);
   assert.deepEqual(stats.people.map((p) => [p.name, p.total, p.roles['Оператор'] ?? 0]), [['Иванов', 2, 2], ['Петрова', 1, 0]]);

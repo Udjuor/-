@@ -574,6 +574,8 @@ test('сдача, поручения, запись и заявки нормал�
   assert.ok(task.createdAt);
   const noDeadline = await store.save({ ...sample, type: 'task', participants: ['Иванов'], handIn: { 'Иванов': 'done' } });
   assert.deepEqual(noDeadline.handIn, {}, 'без срока нечего сдавать');
+  const materials = await store.save({ ...sample, type: 'event', participants: ['Иванов'], deadline: '2026-11-12T18:00', handIn: { 'Иванов': 'done' } });
+  assert.deepEqual(materials.handIn, {}, 'материалы мероприятия сдаются целиком');
   const meeting = await store.save({ ...sample, type: 'meeting', decisions: [{ text: ' Зал ', who: 'Павлов', due: '2026-11-20', done: true }, { text: '' }, { text: 'Без срока', due: 'потом' }] });
   assert.deepEqual(meeting.decisions.map((d) => [d.text, d.who, d.due, d.done]), [['Зал', 'Павлов', '2026-11-20', true], ['Без срока', '', '', false]]);
   assert.ok(meeting.decisions[0].id);

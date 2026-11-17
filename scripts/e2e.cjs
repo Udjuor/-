@@ -911,6 +911,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.equal(await page.isVisible('#f-signup'), false, 'запись только у мероприятий');
   await page.click('#add-decision');
   await page.fill('#f-decision-0', 'Подготовить зал к дню открытых дверей');
+  // Enter в поручении не сохраняет форму, а открывает следующую строку; пустая строка не сохранится.
+  await page.press('#f-decision-0', 'Enter');
+  await page.waitForSelector('#f-decision-1');
+  assert.equal(await page.isVisible('#form[open]'), true);
   await page.fill('.decisionedit li:first-child .dwho', 'Павлов С. Н.');
   await page.fill('.decisionedit li:first-child .ddue', day(2));
   await page.click('#form .sheetfoot .primary');

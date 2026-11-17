@@ -671,7 +671,7 @@ function showDetails(id) {
         }
       },
     }, event.deadlineDone ? t('Вернуть в работу') : t('Отметить сдачу')),
-    canManage() && event.deadline && event.participants.length > 0 && h('button', {
+    canManage() && event.type === 'task' && event.deadline && event.participants.length > 0 && h('button', {
       class: 'plain',
       id: 'open-handin',
       onclick: () => { dialog.close(); openHandIn(event.id); },
@@ -1030,6 +1030,12 @@ async function openForm(source = {}) {
 
   // Решения и поручения собрания: что сделать, кто отвечает, к какому сроку.
   const decisionsBox = h('div', { class: 'field decisionsbox' });
+  // Enter в строке поручения не отправляет всю форму: в тексте он добавляет следующее поручение.
+  const decisionKey = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (e.target.classList.contains('dtext') && e.target.value.trim()) $('add-decision').click();
+  };
   function drawDecisions() {
     decisionsBox.hidden = draft.type !== 'meeting';
     if (decisionsBox.hidden) return;
@@ -1038,9 +1044,9 @@ async function openForm(source = {}) {
       h('span', { class: 'label' }, t('Решения и поручения')),
       h('datalist', { id: 'decision-people' }, people.map((name) => h('option', { value: name }))),
       h('ul', { class: 'decisionedit' }, draft.decisions.map((item, index) => h('li', {},
-        h('input', { 'aria-label': t('Поручение'), class: 'dtext', id: `f-decision-${index}`, maxlength: 300, value: item.text, placeholder: t('Что сделать'), oninput: (e) => { item.text = e.target.value; } }),
-        h('input', { 'aria-label': t('Кому'), class: 'dwho', list: 'decision-people', maxlength: 80, value: item.who, placeholder: t('Кому'), oninput: (e) => { item.who = e.target.value.trim(); } }),
-        h('input', { 'aria-label': t('Срок'), class: 'ddue', type: 'date', value: item.due, onchange: (e) => { item.due = e.target.value; } }),
+        h('input', { 'aria-label': t('Поручение'), class: 'dtext', onkeydown: decisionKey, id: `f-decision-${index}`, maxlength: 300, value: item.text, placeholder: t('Что сделать'), oninput: (e) => { item.text = e.target.value; } }),
+        h('input', { 'aria-label': t('Кому'), class: 'dwho', onkeydown: decisionKey, list: 'decision-people', maxlength: 80, value: item.who, placeholder: t('Кому'), oninput: (e) => { item.who = e.target.value.trim(); } }),
+        h('input', { 'aria-label': t('Срок'), class: 'ddue', onkeydown: decisionKey, type: 'date', value: item.due, onchange: (e) => { item.due = e.target.value; } }),
         h('button', { type: 'button', class: 'icon', 'aria-label': t('Убрать: {0}', [item.text || t('поручение')]), onclick: () => { draft.decisions.splice(index, 1); drawDecisions(); } }, '×')))),
       h('button', {
         type: 'button',
@@ -2688,7 +2694,7 @@ function weeklySummary(monday) {
   return { text, fileName: t('Сводка за неделю {0} – {1}.csv', [monday, sunday]) };
 }
 
-/** По понедельникам версия для администратора сама сохраняет сводку за прошлую неделю. */
+/** По понедельникам версия для преподавателей сама сохраняет сводку за прошлую неделю. */
 async function autoSummary() {
   if (state.settings?.edition !== 'admin' || !state.allEvents.length) return;
   const status = await api.summaryStatus();
@@ -2705,7 +2711,7 @@ function summarySection() {
   const message = h('p', { class: 'help', role: 'status' });
   const draw = async () => {
     const status = await api.summaryStatus();
-    const auto = h('input', { id: 's-summary-auto', type: 'checkbox', checked: status.auto, disabled: state.settings.edition !== 'admin' });
+    const auto = h('input', { id: 's-summary-auto', type: 'checkbox', checked: status.auto });
     auto.addEventListener('change', async () => { await api.summarySet(auto.checked); draw(); });
     const save = async (monday) => {
       const { text, fileName } = weeklySummary(monday);
@@ -2719,7 +2725,6 @@ function summarySection() {
       h('h3', { class: 'settinghead' }, t('Сводка для учебной части')),
       h('p', {}, t('Файл для Excel: посещаемость по группам, пропуски без причины, кто должен справку и кто не сдал работы в срок.')),
       h('label', { class: 'check' }, auto, t('Сохранять сводку за прошлую неделю каждый понедельник')),
-      state.settings.edition !== 'admin' && h('p', { class: 'help' }, t('Сама сводка сохраняется только в версии для администратора. Здесь её можно сохранить кнопкой.')),
       status.week && h('p', { class: 'help' }, t('Последняя сохранённая: неделя с {0}.', [shortDay(status.week)])),
       h('p', { class: 'help backupdir' }, t('Папка: {0}', [status.dir])),
       h('div', { class: 'targets' },
@@ -3280,7 +3285,7 @@ function deadlineTable(title, events, late = false) {
         h('td', {}, event.type === 'task' ? t('Задание') : t('Материалы')),
         h('td', {}, event.deadlineDone ? t('{0}. Сдано: {1}', [momentText(event.deadline), momentText(event.deadlineDone)]) : momentText(event.deadline)),
         h('td', {}, event.responsible || t('Не указан')),
-        h('td', {}, event.participants.length
+        h('td', {}, event.type === 'task' && event.participants.length
           ? (canManage()
             ? h('button', { class: 'linkbutton', onclick: () => openHandIn(event.id) }, t('{0} из {1}', [handInSummary(event).done, event.participants.length]))
             : t('{0} из {1}', [handInSummary(event).done, event.participants.length]))

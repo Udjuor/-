@@ -116,7 +116,8 @@ function normalizeEvent(raw) {
   const canHaveDeadline = event.type === 'task' || event.type === 'event';
   event.deadline = canHaveDeadline && MOMENT_RE.test(raw.deadline ?? '') ? raw.deadline : '';
   event.deadlineDone = event.deadline && MOMENT_RE.test(raw.deadlineDone ?? '') ? raw.deadlineDone : '';
-  event.handIn = event.deadline ? cleanHandIn(raw.handIn, event.participants) : {};
+  // Сдача по студентам — у заданий. Материалы мероприятия сдаются целиком, отметкой «Сдано».
+  event.handIn = event.deadline && event.type === 'task' ? cleanHandIn(raw.handIn, event.participants) : {};
   event.decisions = event.type === 'meeting' ? cleanDecisions(raw.decisions) : [];
   // Запись со страницы студента из 1.44 убрана вместе со страницей.
   delete event.signup;
