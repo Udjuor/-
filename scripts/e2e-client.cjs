@@ -48,6 +48,12 @@ const today = (() => {
   }
   app.windows().find((w) => w.url().endsWith('splash.html'))?.click('body').catch(() => {});
   await page.waitForSelector('.block:has-text("Пара на панели")');
+  // На медленной машине окно заставки иногда закрывается позже: берём главное окно заново, если прежнее закрылось.
+  await new Promise((resolve) => { setTimeout(resolve, 1500); });
+  if (page.isClosed()) {
+    page = app.windows().find((w) => !w.isClosed() && w.url().endsWith('index.html'));
+    await page.waitForSelector('.block:has-text("Пара на панели")');
+  }
   assert.equal((await page.evaluate(() => window.calendar.getSettings())).edition, 'client');
   // Часы окна совпадают с часами программы: 00:20, занятие идёт с 00:05.
   await page.clock.setFixedTime(new Date(`${today}T00:20`));
