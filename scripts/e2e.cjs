@@ -252,6 +252,9 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.fill('#c-edit', 'Лебедева Ольга Викторовна');
   await page.click('#catalog .refrow.editing >> text=Сохранить');
   await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна")');
+  await page.click('#catalog .tabs >> text=Роли');
+  await paste('#c-add-role', 'Оператор\nВедущий\n');
+  await page.waitForSelector('#catalog li:has-text("Ведущий")');
   await page.click('#catalog [aria-label=Закрыть]');
 
   await page.click('#add');
@@ -290,7 +293,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('dialog#form button[type=submit]');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'Из справочников' && e.equipment[0] === 'Проектор'), 'мероприятие из справочников на другом устройстве');
-  await until(async () => (await teacherStore.directory()).length === 8, 'справочники на другом устройстве');
+  await until(async () => (await teacherStore.directory()).length === 10, 'справочники на другом устройстве');
 
   // Студент, добавленный на другом устройстве, и удаление группы.
   const group = (await teacherStore.directory()).find((r) => r.name === 'ПИ-22');
@@ -913,6 +916,35 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('meeting');
   await page.click('#details [aria-label=Закрыть]');
   await page.click('#tabs [data-tab="all"]');
+
+  // Роли студентов в мероприятии: выбираются из справочника у каждого участника.
+  await page.click('#add');
+  await page.waitForSelector('#form[open]');
+  await page.click('#form .targets button.t-event');
+  await page.fill('#f-title', 'Съёмка концерта');
+  await page.fill('#f-start', '16:10');
+  await page.fill('#f-end', '16:50');
+  assert.equal(await page.isVisible('.rolesbox'), false, 'без участников ролей нет');
+  await page.fill('#f-participants', 'Ефимов Глеб');
+  await page.keyboard.press('Enter');
+  await page.fill('#f-participants', 'Жукова Нина');
+  await page.keyboard.press('Enter');
+  await page.selectOption('.rolesbox select[data-name="Ефимов Глеб"]', 'Оператор');
+  await page.waitForSelector('#l-roles:has-text("1 из 2")');
+  await page.locator('.rolesbox').scrollIntoViewIfNeeded();
+  await shot('roles-form');
+  await page.click('#form .targets button.t-lesson');
+  assert.equal(await page.isVisible('.rolesbox'), false, 'у занятия ролей нет');
+  await page.click('#form .targets button.t-event');
+  await page.click('#form .sheetfoot .primary');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  // Участникам мероприятия программа сразу готовит служебную записку.
+  await page.waitForSelector('#memo[open]');
+  await page.click('#memo [aria-label=Закрыть]');
+  await page.click('.block:has-text("Съёмка концерта")');
+  await page.waitForSelector('#details[open] li:has-text("Ефимов Глеб — Оператор")');
+  assert.equal(await page.locator('#details li:has-text("Жукова Нина —")').count(), 0);
+  await page.click('#details [aria-label=Закрыть]');
 
   // Сроки сдачи.
   await page.click('#today');

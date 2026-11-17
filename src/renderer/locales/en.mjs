@@ -743,7 +743,17 @@ export default {
     "был на связи {0}": "last seen {0}",
     "Отключить": "Disconnect",
     "Собрание": "Meeting",
-    "Собрания": "Meetings"
+    "Собрания": "Meetings",
+    "{0} — {1}": "{0} — {1}",
+    "Роли участников: {0} из {1}": "Participant roles: {0} of {1}",
+    "Роли участников": "Participant roles",
+    "Добавьте роли в «Справочники → Роли», и здесь можно будет выбрать роль каждому участнику.": "Add roles in “Directories → Roles” to choose a role for each participant here.",
+    "Без роли": "No role",
+    "Роли": "Roles",
+    "Например: оператор, ведущий, фотограф": "For example: camera operator, host, photographer",
+    "Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.": "Add roles to assign them to students in tasks, practicums and events.",
+    "роль: {0}": "role: {0}",
+    "Роль": "Role"
   },
   "plurals": {
     "events": {

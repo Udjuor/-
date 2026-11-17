@@ -672,6 +672,17 @@ const memoFields = (event) => [
 export const memoApplies = (event) => !NO_MEMO_TYPES.has(event.type) && event.participants.length > 0;
 const NO_MEMO_TYPES = new Set(['lesson', 'meeting']);
 
+/** Роли студентов (оператор, ведущий) назначаются на задания, практику и мероприятия. */
+export const ROLE_TYPES = ['practice', 'task', 'event'];
+export const hasRoles = (event) => ROLE_TYPES.includes(event.type);
+
+/** Роль участника в событии или пустая строка. Имя сравнивается без учёта регистра и «ё». */
+export function roleOf(event, name) {
+  const key = nameKey(name);
+  for (const [who, role] of Object.entries(event.roles ?? {})) if (nameKey(who) === key) return role;
+  return '';
+}
+
 /** Техническое задание бывает у мероприятий, практики и заданий; у занятий и собраний его нет. */
 export const PAPER_TYPES = ['practice', 'task', 'event'];
 export const hasPaper = (event) => PAPER_TYPES.includes(event.type);
@@ -837,7 +848,7 @@ export function portfolio({ name, events, attendance, achievements, nowISO, nowT
       const row = rollCall(event, doc, nowISO, nowTime, events).find((r) => nameKey(r.name) === key);
       return row && ['present', 'order'].includes(row.status);
     })
-    .map((event) => ({ id: event.id, date: event.date, type: event.type, title: event.title, place: event.place ?? '', responsible: event.responsible ?? '' }))
+    .map((event) => ({ id: event.id, date: event.date, type: event.type, title: event.title, role: roleOf(event, name), place: event.place ?? '', responsible: event.responsible ?? '' }))
     .sort((a, b) => b.date.localeCompare(a.date));
   const awards = achievements
     .filter((item) => nameKey(item.student) === key)

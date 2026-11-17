@@ -196,6 +196,8 @@ class StudentPortal {
       title: event.title,
       type: event.type,
       typeName: L.typeName(event.type),
+      // Роль студента в задании, практике или мероприятии: оператор, ведущий.
+      role: L.roleOf(event, student.name),
       date: event.date,
       start: event.start,
       end: event.end,
@@ -257,7 +259,7 @@ class StudentPortal {
       portfolio: {
         counts: mineAll.counts,
         awards: mineAll.awards.map((item) => ({ date: item.date, title: item.name, result: item.result })),
-        items: mineAll.items.map((item) => ({ date: item.date, title: item.title, typeName: L.typeName(item.type) })),
+        items: mineAll.items.map((item) => ({ date: item.date, title: item.title, typeName: L.typeName(item.type), role: item.role })),
       },
       nick: student.nick,
       nickOk: student.nickOk,

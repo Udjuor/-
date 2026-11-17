@@ -96,6 +96,7 @@
       h('div', { class: 'what' },
         h('strong', {}, item.title),
         h('span', { class: 'muted small' }, [item.typeName, item.place, item.offsite && 'вне колледжа'].filter(Boolean).join(', ')),
+        item.role && h('span', { class: 'chip ok' }, `Ваша роль: ${item.role}`),
         item.state === 'now' && h('span', { class: 'chip now' }, 'идёт сейчас')),
       item.status && h('span', { class: `chip ${STATUS_CLASS[item.status.code] ?? 'muted'}` }, item.status.text));
   }
@@ -119,12 +120,13 @@
       section(`Сегодня, ${dateText(data.date, { weekday: 'long', day: 'numeric', month: 'long' })}`,
         [h('ul', { class: 'list' }, data.today.map(lessonItem))].filter(() => data.today.length), 'Сегодня у вас ничего нет.'),
       section('Сроки сдачи', data.deadlines.length ? [h('ul', { class: 'list' }, data.deadlines.map((item) => h('li', { class: 'item' },
-        h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, item.typeName)),
+        h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.role && `роль: ${item.role}`].filter(Boolean).join(', '))),
         h('span', { class: `chip ${item.state === 'overdue' ? 'bad' : item.state === 'soon' ? 'warn' : 'muted'}` },
           item.state === 'overdue' ? `Срок прошёл ${deadlineText(item.deadline)}` : `До ${deadlineText(item.deadline)}`))))] : [], 'Сроков сдачи нет.'),
       section('Задания и мероприятия на две недели', data.upcoming.length ? [h('ul', { class: 'list' }, data.upcoming.map((item) => h('li', { class: 'item' },
         h('div', { class: 'time' }, dateText(item.date), h('br'), `${item.start}–${item.end}`),
-        h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.place, item.responsible].filter(Boolean).join(', '))))))] : [], 'Ближайших заданий и мероприятий нет.'),
+        h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.place, item.responsible].filter(Boolean).join(', ')),
+          item.role && h('span', { class: 'chip ok' }, `Ваша роль: ${item.role}`)))))] : [], 'Ближайших заданий и мероприятий нет.'),
       portfolioCard(data.portfolio),
       h('section', { class: 'card' },
         h('h2', {}, 'Этот месяц'),
@@ -153,7 +155,7 @@
             h('summary', {}, `Участие: ${p.items.length}`),
             h('ul', { class: 'list' }, p.items.map((item) => h('li', { class: 'item' },
               h('div', { class: 'time' }, dateText(item.date)),
-              h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, item.typeName)))))),
+              h('div', { class: 'what' }, h('strong', {}, item.title), h('span', { class: 'muted small' }, [item.typeName, item.role].filter(Boolean).join(', '))))))),
         ]
         : h('p', { class: 'muted' }, 'Здесь появятся мероприятия, задания и практика, где вы участвовали, и ваши дипломы.'));
   }

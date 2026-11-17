@@ -936,3 +936,9 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 .remotelink { overflow-wrap: anywhere; font-family: var(--mono, monospace); }
 .remotephones { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
 .remotephones li { display: flex; gap: .6rem; align-items: center; justify-content: space-between; padding: .3rem 0; border-bottom: .05rem solid var(--border-muted); }
+
+/* Роли участников в форме события */
+.rolelist { display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); gap: .35rem 1.2rem; margin: .3rem 0 0; padding: 0; list-style: none; }
+.rolelist li { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; align-items: center; gap: .6rem; }
+.rolelist label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rolelist select { width: 100%; }

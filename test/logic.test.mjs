@@ -645,3 +645,14 @@ test('собрание: без отметок, тех. задания, запи�
   assert.equal(row.excusedFor, undefined, 'собрание проходит вне занятий');
   assert.equal(L.findConflicts(meeting, [lesson])[0]?.name, 'Иванов', 'пересечение с парой видно в форме');
 });
+
+test('роль студента видна в событии и в портфолио', () => {
+  const event = { id: 'r1', type: 'event', title: 'День открытых дверей', date: '2026-11-03', start: '10:00', end: '12:00', participants: ['Иванов Пётр', 'Петрова'], roles: { 'Иванов Пётр': 'Оператор' }, equipment: [] };
+  assert.equal(L.hasRoles(event), true);
+  assert.equal(L.hasRoles({ type: 'lesson' }), false);
+  assert.equal(L.hasRoles({ type: 'meeting' }), false);
+  assert.equal(L.roleOf(event, 'иванов петр'), 'Оператор');
+  assert.equal(L.roleOf(event, 'Петрова'), '');
+  const p = L.portfolio({ name: 'Иванов Пётр', events: [event], attendance: [], achievements: [], nowISO: '2026-11-10', nowTime: '12:00' });
+  assert.equal(p.items[0].role, 'Оператор');
+});

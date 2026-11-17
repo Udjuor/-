@@ -595,3 +595,19 @@ test('занятие не состоялось: причина хранится,
   assert.equal(back.cancelled, false);
   assert.equal(back.cancelReason, '', 'без отмены причины нет');
 });
+
+test('роли студентов: только у участников заданий, практики и мероприятий', async (t) => {
+  const dir = tempDir(t);
+  const store = new EventStore(dir);
+  const saved = await store.save({
+    ...sample, type: 'task', participants: ['Иванов', 'Петров'],
+    roles: { 'Иванов': ' Оператор ', 'Петров': '', 'Сидоров': 'Ведущий', 'Чужой': 5 },
+  });
+  assert.deepEqual(saved.roles, { 'Иванов': 'Оператор' });
+  const lesson = await store.save({ ...sample, type: 'lesson', participants: ['Иванов'], roles: { 'Иванов': 'Оператор' } });
+  assert.deepEqual(lesson.roles, {}, 'у занятий ролей нет');
+  const meeting = await store.save({ ...sample, type: 'meeting', participants: ['Иванов'], roles: { 'Иванов': 'Ведущий' } });
+  assert.deepEqual(meeting.roles, {}, 'у собраний ролей нет');
+  const again = await store.save({ ...saved, participants: ['Петров'] }, saved.updatedAt);
+  assert.deepEqual(again.roles, {}, 'роль уходит вместе с участником');
+});

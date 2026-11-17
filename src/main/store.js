@@ -43,6 +43,17 @@ function cleanCounts(value) {
   return counts;
 }
 
+/** Роли студентов в событии: имя участника → роль. Только для тех, кто в списке участников. */
+function cleanRoles(value, participants) {
+  const listed = new Set(participants);
+  const roles = {};
+  for (const [name, role] of Object.entries(value && typeof value === 'object' ? value : {})) {
+    const text = String(role ?? '').trim().slice(0, 60);
+    if (listed.has(name) && text) roles[name] = text;
+  }
+  return roles;
+}
+
 /** Приводит запись к единому виду. Возвращает null, если она непригодна. */
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -66,6 +77,8 @@ function normalizeEvent(raw) {
     updatedAt: String(raw.updatedAt ?? ''),
     updatedBy: String(raw.updatedBy ?? ''),
   };
+  // Роли бывают у заданий, практики и мероприятий: оператор, ведущий, фотограф.
+  event.roles = ROLE_TYPES.has(event.type) ? cleanRoles(raw.roles, event.participants) : {};
   event.allDay = raw.allDay === true;
   // Пара вне колледжа (физкультура в другом учреждении): отметки вносит только преподаватель.
   event.offsite = raw.offsite === true;
@@ -94,7 +107,8 @@ function normalizeEvent(raw) {
 const EVENT_TYPES = new Set(['lesson', 'practice', 'task', 'event', 'meeting']);
 const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'month']);
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'notice', 'achievement']);
+const ROLE_TYPES = new Set(['practice', 'task', 'event']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const NICK_RE = /^[\p{L}\p{N}_.-]{3,20}$/u;

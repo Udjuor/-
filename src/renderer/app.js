@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
@@ -644,6 +644,8 @@ function listGroup(title, items, ordered) {
 }
 
 const typeLabel = (type) => t(typeName(type));
+/** Участник с ролью: «Иванов Пётр — оператор». */
+const roleText = (event, name) => (roleOf(event, name) ? t('{0} — {1}', [name, roleOf(event, name)]) : name);
 /** «Своя камера» хранится по-русски на всех устройствах, а показывается на языке интерфейса. */
 const gearLabel = (event, name) => (name === OWN_CAMERA ? equipmentLabel(event, name).replace(OWN_CAMERA, t(OWN_CAMERA)) : equipmentLabel(event, name));
 const statusLabel = (status) => t(statusName(status));
@@ -773,7 +775,7 @@ function showDetails(id) {
         event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
-      listGroup(t('Участники: {0}', [event.participants.length]), event.participants, true),
+      listGroup(t('Участники: {0}', [event.participants.length]), event.participants.map((name) => roleText(event, name)), true),
       listGroup(t('Техника'), event.equipment.map((name) => gearLabel(event, name)), false),
       event.ownCameras.length > 0 && listGroup(t('Со своей камерой'), event.ownCameras, false),
       event.notes && h('section', { class: 'group' }, h('h3', {}, t('Примечание')), h('p', { class: 'notes' }, event.notes))),
@@ -920,6 +922,7 @@ async function openForm(source = {}) {
     equipment: (source.equipment ?? []).filter((name) => name !== OWN_CAMERA),
     qty: { ...(source.equipmentQty ?? {}) },
     devices: [...(source.devices ?? [])],
+    roles: { ...(source.roles ?? {}) },
     // С панели добавляют только практику и мероприятия.
     type: source.type ?? (isClient() ? 'event' : 'lesson'),
   };
@@ -939,7 +942,7 @@ async function openForm(source = {}) {
     type: 'button',
     class: `t-${id}`,
     'aria-pressed': String(draft.type === id),
-    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); updateConflicts(); },
+    onclick: () => { draft.type = id; drawTypes(); showPrep(); showDeadline(); showRepeat(); drawRoles(); updateConflicts(); },
   }, t(label))));
   drawTypes();
   const typeField = h('div', { class: 'field' }, h('span', { class: 'label', id: 'l-type' }, t('Тип')), typeRow);
@@ -1115,6 +1118,7 @@ async function openForm(source = {}) {
     place: $('f-place').value.trim(),
     responsible: $('f-responsible').value.trim(),
     participants: draft.participants,
+    roles: hasRoles({ type: draft.type }) ? Object.fromEntries(draft.participants.filter((name) => draft.roles[name]).map((name) => [name, draft.roles[name]])) : {},
     ...withOwnCameras(),
     devices: draft.devices,
     notes: $('f-notes').value.trim(),
@@ -1159,8 +1163,39 @@ async function openForm(source = {}) {
     },
   });
 
+  // Роли студентов: у каждого участника свой выбор из справочника «Роли».
+  const rolesBox = h('div', { class: 'field rolesbox', 'data-for': 'f-roles' });
+  function drawRoles() {
+    const roles = refsOf('role').map((ref) => ref.name);
+    const names = draft.participants;
+    rolesBox.hidden = !hasRoles({ type: draft.type }) || !names.length;
+    if (rolesBox.hidden) return;
+    const assigned = names.filter((name) => draft.roles[name]).length;
+    rolesBox.replaceChildren(
+      h('span', { class: 'label', id: 'l-roles' }, assigned ? t('Роли участников: {0} из {1}', [assigned, names.length]) : t('Роли участников')),
+      !roles.length && !assigned
+        ? h('p', { class: 'help' }, t('Добавьте роли в «Справочники → Роли», и здесь можно будет выбрать роль каждому участнику.'))
+        : h('ul', { class: 'rolelist', 'aria-labelledby': 'l-roles' }, names.map((name, index) => {
+          const current = draft.roles[name] ?? '';
+          // Роль, которую удалили из справочника, остаётся у события, пока её не сменят.
+          const options = current && !roles.includes(current) ? [...roles, current] : roles;
+          return h('li', {},
+            h('label', { for: `f-role-${index}` }, name),
+            h('select', {
+              id: `f-role-${index}`,
+              'data-name': name,
+              onchange: (e) => {
+                if (e.target.value) draft.roles[name] = e.target.value;
+                else delete draft.roles[name];
+                drawRoles();
+              },
+            }, h('option', { value: '' }, t('Без роли')), options.map((role) => h('option', { value: role, selected: role === current }, role))));
+        })),
+    );
+  }
+
   const participants = listInput(t('Участники'), 'f-participants',
-    t('Фамилия и имя, можно вставить список из таблицы'), draft.participants, updateConflicts,
+    t('Фамилия и имя, можно вставить список из таблицы'), draft.participants, () => { drawRoles(); updateConflicts(); },
     (changed) => {
       // На собрание, совещание и брифинг чаще зовут преподавателей: они идут первыми.
       const meeting = draft.type === 'meeting';
@@ -1179,6 +1214,7 @@ async function openForm(source = {}) {
         selectAll: meeting ? null : t('Всех студентов'),
       })(changed);
     }, { suggest: people });
+  drawRoles();
   const equipment = listInput(t('Техника'), 'f-equipment',
     t('Например, проектор'), draft.equipment, updateConflicts,
     (changed) => openStockPicker({
@@ -1315,7 +1351,7 @@ async function openForm(source = {}) {
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
         typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, targets,
-        participants.element, equipment.element, ownBox, conflictBox,
+        participants.element, rolesBox, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
           h('textarea', { id: 'f-notes', maxlength: 2000 }, source.notes ?? '')))),
@@ -1516,6 +1552,7 @@ const CATALOG_TABS = [
   ['groups', t('Группы и студенты')],
   ['equipment', t('Техника')],
   ['teacher', t('Преподаватели')],
+  ['role', t('Роли')],
 ];
 
 async function commitCatalog(result) {
@@ -1787,7 +1824,9 @@ function drawCatalog({ fromTop = false } = {}) {
     ? groupsPane()
     : catalog.tab === 'equipment'
       ? equipmentPane()
-      : simplePane('teacher', t('Фамилия и инициалы или столбец из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
+      : catalog.tab === 'role'
+        ? simplePane('role', t('Например: оператор, ведущий, фотограф'), t('Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.'))
+        : simplePane('teacher', t('Фамилия и инициалы или столбец из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Справочники')), closeButton(dialog)),
     h('div', { class: 'tabs', role: 'group', 'aria-label': t('Раздел справочников') }, CATALOG_TABS.map(([tab, label]) =>
@@ -2551,7 +2590,8 @@ function paperSheet(event) {
       h('h3', {}, t('Участники')),
       h('ul', { class: 'checks people' }, event.participants.map((name) => {
         const group = groupOf.get(nameKey(name));
-        return h('li', {}, checkBox(), h('span', {}, group ? `${name}, ${group}` : name));
+        const role = roleOf(event, name);
+        return h('li', {}, checkBox(), h('span', {}, [name, group, role && t('роль: {0}', [role])].filter(Boolean).join(', ')));
       }))),
     h('footer', {},
       h('p', {}, h('span', {}, t('Ответственный')), h('i'), h('span', {}, event.responsible || t('подпись'))),
@@ -3457,8 +3497,8 @@ function portfolioSheet(student) {
       h('tbody', {}, data.awards.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))),
     ],
     data.items.length > 0 && [h('h3', {}, t('Участие')), h('table', {},
-      h('thead', {}, h('tr', {}, [t('Дата'), t('Вид'), t('Название'), t('Место'), t('Ответственный')].map((name) => h('th', {}, name)))),
-      h('tbody', {}, data.items.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.place), h('td', {}, item.responsible))))),
+      h('thead', {}, h('tr', {}, [t('Дата'), t('Вид'), t('Название'), t('Роль'), t('Место'), t('Ответственный')].map((name) => h('th', {}, name)))),
+      h('tbody', {}, data.items.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.role), h('td', {}, item.place), h('td', {}, item.responsible))))),
     ],
     h('p', { class: 'stamp' }, t('Сформировано {0}', [fmt(now().iso, { day: 'numeric', month: 'long', year: 'numeric' })])));
 }
