@@ -5,7 +5,7 @@ import {
   monthWeeks, nameKey, needsMemo, takesAttendance, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
-import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, prizeIcon, PRIZES } from './pet.mjs';
+import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -676,7 +676,7 @@ function showDetails(id) {
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
     // Занятию без техники техническое задание не нужно.
-    (event.type !== 'lesson' || event.equipment.length > 0) && h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
+    event.type !== 'lesson' && h('button', { class: 'plain', onclick: () => { dialog.close(); openPaper(event.id); } }, t('Тех. задание')),
     canManage() && event.deadline && h('button', {
       class: 'plain',
       onclick: async () => {
@@ -3083,8 +3083,8 @@ function drawPet() {
 function prizeSection(pet, prizes, look, saveLook) {
   const owned = new Map(prizes.earned.map((prize) => [prize.id, prize]));
   const progress = prizes.next
-    ? t('До приза «{0}»: {1} из {2} дней подряд со здоровьем 100.', [t(prizes.next.name), prizes.streak, PRIZE_DAYS])
-    : t('Все призы получены. Каждые {0} дня подряд со здоровьем 100 приносят звезду.', [PRIZE_DAYS]);
+    ? t('До приза «{0}»: {1} из {2} дней подряд со здоровьем от {3}.', [t(prizes.next.name), prizes.streak, PRIZE_DAYS, PRIZE_HEALTH])
+    : t('Все призы получены. Каждые {0} дня подряд со здоровьем от {1} приносят звезду.', [PRIZE_DAYS, PRIZE_HEALTH]);
   const tiles = h('ul', { class: 'prizes' }, PRIZES.map((prize) => {
     const got = owned.get(prize.id);
     return h('li', { class: `prize${got ? '' : ' locked'}`, 'data-prize': prize.id },

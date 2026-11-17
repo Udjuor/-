@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PRIZES, PRIZE_DAYS, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
+import { PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -130,15 +130,16 @@ const petWith = (days, mood = 'play') => ({
   timeline: days.flatMap(([date, ...healths]) => healths.map((health) => ({ date, title: 'Пара', health }))),
 });
 
-test('приз за каждые три учебных дня подряд со здоровьем 100', () => {
+test('приз за каждые три учебных дня подряд со здоровьем от 95', () => {
   assert.equal(PRIZE_DAYS, 3);
+  assert.equal(PRIZE_HEALTH, 95);
   const pet = petWith([
     ['2026-11-02', 94, 100], // день не засчитан: после первой пары было 94
-    ['2026-11-03', 100, 100],
-    ['2026-11-04', 100],
+    ['2026-11-03', 95, 100], // 95 уже засчитывается
+    ['2026-11-04', 97],
     ['2026-11-06', 100], // выходные и дни без пар серию не прерывают
     ['2026-11-09', 100],
-    ['2026-11-10', 100, 96], // серия обнулилась
+    ['2026-11-10', 100, 92], // серия обнулилась
     ['2026-11-11', 100],
   ]);
   const prizes = petPrizes(pet);

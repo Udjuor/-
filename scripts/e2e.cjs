@@ -1099,6 +1099,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#roll[open][data-stage="start"] #start-lesson');
   await page.click('#roll .sheetfoot >> text=Карточка занятия');
   await page.waitForSelector('#details[open]');
+  assert.equal(await page.locator('#details button:has-text("Тех. задание")').count(), 0, 'у занятия нет технического задания');
   await page.click('#cancel-event');
   await page.fill('#cancel-reason', 'Преподаватель на больничном');
   await shot('cancel-form');
