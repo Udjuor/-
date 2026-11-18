@@ -5,6 +5,7 @@ import {
   monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
+import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
 import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
@@ -16,6 +17,7 @@ const api = window.calendar;
 
 const state = {
   view: 'week',
+  skin: 'off', // праздничное оформление, общее для всех устройств
   proposals: [], // изменения с панелей, ждущие утверждения
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
@@ -399,6 +401,7 @@ async function refresh() {
   await loadAttendance();
   await loadDevices();
   await loadProposals();
+  await loadSkin();
   refreshPet();
   refreshTicker();
   refreshGear();
@@ -3249,6 +3252,112 @@ function certificateItems() {
   return items;
 }
 
+/* Праздничное оформление */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svg = (tag, attrs = {}, ...children) => {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  el.append(...children);
+  return el;
+};
+
+let garlandKey = '';
+/** Фигуры с лучами и стеблями: их линии рисуются цветом фигуры. */
+const LINE_SHAPES = new Set(['sun', 'flower', 'cap', 'leaf', 'apple']);
+
+async function loadSkin() {
+  const result = await api.skin();
+  if (result.ok) state.skin = result.value;
+  applySkin();
+}
+
+/** Включает скин на всём экране: гирлянда под верхней строкой, на Новый год — снег. */
+function applySkin() {
+  const skin = activeSkin(state.skin, now().iso);
+  document.body.dataset.skin = skin?.id ?? '';
+  const box = $('garland');
+  const width = Math.round(box.parentElement.clientWidth);
+  const key = `${skin?.id ?? ''}|${width}`;
+  if (key === garlandKey) return;
+  garlandKey = key;
+  box.hidden = !skin;
+  drawSnow(skin?.snow === true);
+  if (!skin) {
+    box.replaceChildren();
+    return;
+  }
+  const { path, points } = garlandLayout(width);
+  const wire = skin.wire === 'ribbon'
+    // Георгиевская лента: оранжевая с чёрными полосами.
+    ? [svg('path', { d: path, class: 'wire', stroke: '#111', 'stroke-width': 9 }),
+      svg('path', { d: path, class: 'wire', stroke: '#f77f00', 'stroke-width': 7 }),
+      svg('path', { d: path, class: 'wire', stroke: '#111', 'stroke-width': 1.6 })]
+    : [svg('path', { d: path, class: 'wire', stroke: skin.wire, 'stroke-width': 1.6 })];
+  const items = points.map((point, index) => {
+    const color = skin.colors[index % skin.colors.length];
+    // Сдвиг — на внешней группе, покачивание — на внутренней: иначе анимация сбросит положение.
+    const lines = LINE_SHAPES.has(skin.shape);
+    return svg('g', { transform: `translate(${point.x - 15} ${point.y - 2}) scale(1.25)` },
+      svg('g', { class: `garlanditem g${index % 3}` },
+        svg('path', { d: SHAPES[skin.shape], fill: color, stroke: lines ? color : 'rgba(0,0,0,.35)', 'stroke-width': lines ? 1.6 : 0.8, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' })));
+  });
+  box.replaceChildren(svg('svg', { width, height: 54, viewBox: `0 0 ${width} 54`, class: `garlandsvg shape-${skin.shape}` }, ...wire, ...items));
+}
+
+/** Лёгкий снег: несколько снежинок падают поверх календаря и не мешают нажимать. */
+function drawSnow(on) {
+  const box = $('snow');
+  box.hidden = !on;
+  if (!on) {
+    box.replaceChildren();
+    return;
+  }
+  if (box.childElementCount) return;
+  box.replaceChildren(...Array.from({ length: 28 }, (_, i) => {
+    const flake = h('span', { class: 'flake' }, '❄');
+    flake.style.setProperty('--x', `${(i * 37) % 100}vw`);
+    flake.style.setProperty('--delay', `${-((i * 7) % 23)}s`);
+    flake.style.setProperty('--dur', `${14 + (i % 9)}s`);
+    flake.style.setProperty('--size', `${0.6 + (i % 4) * 0.25}rem`);
+    return flake;
+  }));
+}
+
+function skinSection() {
+  const select = h('select', { id: 's-skin', 'aria-label': t('Оформление') },
+    h('option', { value: 'auto', selected: state.skin === 'auto' }, t('По праздникам — включается само')),
+    h('option', { value: 'off', selected: state.skin === 'off' }, t('Выключено')),
+    SKINS.map((skin) => h('option', { value: skin.id, selected: state.skin === skin.id }, t(skin.name))));
+  const message = h('p', { class: 'help', role: 'status' });
+  select.addEventListener('change', async () => {
+    const result = await api.setSkin(select.value);
+    if (!result.ok) {
+      message.textContent = storeMessage(result);
+      return;
+    }
+    state.skin = result.value;
+    garlandKey = '';
+    applySkin();
+    refreshTicker();
+    const skin = activeSkin(state.skin, now().iso);
+    message.textContent = skin ? t('Сейчас: {0}. Видно на всех устройствах.', [t(skin.name)]) : t('Сейчас праздничного оформления нет.');
+  });
+  const calendar = SKINS.map((skin) => `${t(skin.name)}: ${skinDates(skin)}`).join('; ');
+  return h('section', { class: 'setting', id: 's-skin-box' },
+    h('h3', { class: 'settinghead' }, t('Праздничное оформление')),
+    h('p', {}, t('Гирлянда под верхней строкой, на Новый год — снег, в сам праздник — поздравление в бегущей строке. Выбор действует на всех компьютерах и панелях.')),
+    select,
+    message,
+    h('p', { class: 'help' }, t('По праздникам: {0}.', [calendar])));
+}
+
+/** «20 декабря – 10 января» для подсказки. */
+function skinDates(skin) {
+  const day = (md) => fmt(`2026-${md}`, { day: 'numeric', month: 'long' });
+  return skin.from === skin.to ? day(skin.from) : `${day(skin.from)} – ${day(skin.to)}`;
+}
+
 /* Дни рождения в бегущей строке */
 
 /** Поздравления: у каждого человека в этот день своё, весь день одно и то же. */
@@ -3291,7 +3400,8 @@ function petItems() {
 
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
-  const notices = [...birthdayItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const holiday = holidayGreeting(state.skin, now().iso);
+  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -4222,6 +4332,7 @@ async function openSettings() {
       templateSection(),
       backupSection(),
       summarySection(),
+      skinSection(),
       clearSection(),
       h('div', { class: 'setting field' },
         h('label', { for: 's-key' }, t('Ключ сети')),
@@ -4565,7 +4676,7 @@ function wire() {
   for (const button of document.querySelectorAll('.views button')) {
     button.addEventListener('click', () => { state.view = button.dataset.view; render(); });
   }
-  window.addEventListener('resize', render);
+  window.addEventListener('resize', () => { render(); applySkin(); });
   $('details').addEventListener('click', (e) => { if (e.target === $('details')) $('details').close(); });
   for (const type of ['pointerdown', 'keydown']) {
     window.addEventListener(type, () => { state.lastActivity = Date.now(); }, { passive: true });

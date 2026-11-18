@@ -808,6 +808,28 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Сводка для учебной части сохраняется в свою папку одной кнопкой.
   await page.click('#s-summary-this');
   await page.waitForSelector('#s-summary:has-text("Сохранено: ")');
+  // Праздничное оформление: выбор в настройках, гирлянда и снег на всех устройствах.
+  assert.equal(await page.isVisible('#garland'), false, 'в обычный день без украшений');
+  await page.selectOption('#s-skin', 'newyear');
+  await page.waitForSelector('#s-skin-box:has-text("Сейчас: Новый год")');
+  await page.waitForSelector('#garland:not([hidden]) .garlandsvg.shape-bulb');
+  assert.ok(await page.locator('#garland .garlanditem').count() > 10, 'лампы по всей ширине');
+  await page.waitForSelector('#snow:not([hidden]) .flake', { state: 'attached' });
+  await until(async () => (await teacherStore.skin()) === 'newyear', 'оформление на другом устройстве');
+  await page.click('#preferences [aria-label=Закрыть]');
+  await shot('skin-newyear');
+  for (const id of process.env.SKIN_SHOTS ? ['tatiana', 'valentine', 'defender', 'womensday', 'cosmonautics', 'sakha', 'victory', 'russia', 'ysyakh', 'knowledge', 'teacher'] : []) {
+    await page.click('#settings');
+    await page.selectOption('#s-skin', id);
+    await page.waitForSelector(`body[data-skin="${id}"]`);
+    await page.click('#preferences [aria-label=Закрыть]');
+    await shot(`skin-${id}`);
+  }
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open]');
+  await page.selectOption('#s-skin', 'auto');
+  await page.waitForSelector('body[data-skin=""]');
+  assert.equal(await page.isVisible('#snow'), false);
   await shot('backup');
   // Новая папка или та же секунда, что у ежедневной копии: тогда папка просто обновлена.
   const fresh = () => listCopies().filter((name) => !before.includes(name) || fs.statSync(path.join(backupDir, name)).mtimeMs >= clicked - 1000);

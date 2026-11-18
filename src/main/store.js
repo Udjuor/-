@@ -396,6 +396,15 @@ function normalizeProposal(raw) {
   };
 }
 
+/** Оформление общее для всех устройств сети: одна запись с постоянным номером. */
+const SKIN_ID = '5c1a7e00-0000-4000-8000-000000000001';
+const SKIN_RE = /^[a-z]{2,20}$/;
+
+function normalizeSkin(raw) {
+  if (String(raw.id) !== SKIN_ID || !SKIN_RE.test(String(raw.mode ?? ''))) return null;
+  return { id: SKIN_ID, kind: 'skin', mode: raw.mode, updatedAt: String(raw.updatedAt ?? ''), updatedBy: String(raw.updatedBy ?? '') };
+}
+
 function normalizeRecord(raw) {
   if (raw && raw.deleted === true) {
     const id = String(raw.id ?? '');
@@ -406,6 +415,7 @@ function normalizeRecord(raw) {
   if (raw?.kind === 'attendance') return normalizeAttendance(raw);
   if (raw?.kind === 'change') return normalizeChange(raw);
   if (raw?.kind === 'proposal') return normalizeProposal(raw);
+  if (raw?.kind === 'skin') return normalizeSkin(raw);
   if (raw?.kind === 'presence') return normalizePresence(raw);
   if (raw?.kind === 'portal') return normalizePortal(raw);
   return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
@@ -481,6 +491,21 @@ class EventStore {
   async directory() {
     return (await this.records())
       .filter((record) => !record.deleted && REF_KINDS.has(record.kind));
+  }
+
+  /* Оформление */
+
+  /** Скин для всех устройств: 'off', 'auto' (по праздникам) или конкретный. По умолчанию — по праздникам. */
+  async skin() {
+    return (await this.records()).find((record) => record.id === SKIN_ID && !record.deleted)?.mode ?? 'auto';
+  }
+
+  async setSkin(mode) {
+    const current = (await this.records()).find((record) => record.id === SKIN_ID);
+    const record = normalizeSkin({ id: SKIN_ID, kind: 'skin', mode, updatedAt: nextStamp(current?.updatedAt), updatedBy: this.deviceId });
+    if (!record) throw new StoreError('invalid', 'Неверный скин');
+    await this.write(record);
+    return record.mode;
   }
 
   /* Изменения с панели на утверждение */

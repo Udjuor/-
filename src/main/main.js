@@ -336,6 +336,14 @@ function registerHandlers() {
   }));
   ipcMain.handle('journal:list', () => managed(() => store.changes()));
 
+  // Праздничное оформление: выбирает преподаватель, видят все устройства.
+  ipcMain.handle('skin:get', () => respond(() => store.skin()));
+  ipcMain.handle('skin:set', (_e, mode) => managed(async () => {
+    const saved = await store.setSkin(String(mode));
+    sync?.nudge();
+    return saved;
+  }));
+
   // Изменения мероприятий и заданий с панели: предлагает панель, утверждает преподаватель.
   ipcMain.handle('proposals:list', () => respond(() => store.proposals()));
   ipcMain.handle('proposals:add', (_e, eventId, changes, note) => respond(async () => {

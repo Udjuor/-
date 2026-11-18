@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('calendar', {
   lockReport: (eventId, excused) => ipcRenderer.invoke('attendance:lock', eventId, excused),
   saveReport: (fileName, text, labels) => ipcRenderer.invoke('report:save', fileName, text, labels),
   proposals: () => ipcRenderer.invoke('proposals:list'),
+  skin: () => ipcRenderer.invoke('skin:get'),
+  setSkin: (mode) => ipcRenderer.invoke('skin:set', mode),
   propose: (eventId, changes, note) => ipcRenderer.invoke('proposals:add', eventId, changes, note),
   resolveProposal: (id, approve) => ipcRenderer.invoke('proposals:resolve', id, approve),
   summaryStatus: () => ipcRenderer.invoke('summary:status'),

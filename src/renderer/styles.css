@@ -962,3 +962,28 @@ tr.late td { color: var(--danger-fg); }
 .proposal h3 { margin: 0 0 .2rem; }
 .proposal .targets { margin-top: .6rem; }
 #open-proposals[hidden] { display: none; }
+
+/* Праздничное оформление: гирлянда между верхней строкой и вкладками, снег на Новый год. */
+#garland { flex: none; height: 54px; overflow: hidden; background: var(--canvas-subtle); pointer-events: none; }
+#garland[hidden] { display: none; }
+.garlandsvg { display: block; }
+.garlandsvg .wire { fill: none; stroke-linecap: round; }
+.garlanditem { transform-box: fill-box; transform-origin: 50% 0; }
+/* Лампы мигают по очереди, как настоящая гирлянда. */
+body[data-skin="newyear"] .garlanditem path { animation: bulb-blink 2.4s ease-in-out infinite; filter: drop-shadow(0 0 4px currentColor); }
+body[data-skin="newyear"] .garlanditem.g1 path { animation-delay: -.8s; }
+body[data-skin="newyear"] .garlanditem.g2 path { animation-delay: -1.6s; }
+@keyframes bulb-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+/* Остальные гирлянды слегка покачиваются. */
+body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-in-out infinite; }
+.garlanditem.g1 { animation-delay: -1.3s; }
+.garlanditem.g2 { animation-delay: -2.6s; }
+@keyframes garland-sway { 0%, 100% { rotate: -4deg; } 50% { rotate: 4deg; } }
+#snow { position: fixed; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+#snow[hidden] { display: none; }
+.flake { position: absolute; top: -2rem; left: var(--x); color: #8ab8f0; text-shadow: 0 0 2px rgba(255,255,255,.8); font-size: var(--size); opacity: .7; animation: snow-fall var(--dur) linear var(--delay) infinite; }
+@keyframes snow-fall { to { transform: translate(3rem, 110vh); } }
+@media (prefers-reduced-motion: reduce) {
+  .garlanditem, .garlanditem path { animation: none !important; }
+  #snow { display: none; }
+}

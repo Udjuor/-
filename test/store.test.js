@@ -619,3 +619,14 @@ test('изменения с панели: предложение, замена, 
   assert.equal((await teacher.list()).find((e) => e.id === task.id).title, 'Монтаж');
   await assert.rejects(teacher.resolveProposal(declined.id, true), { code: 'not-found' });
 });
+
+test('праздничное оформление общее: одна запись на всю сеть', async (t) => {
+  const dir = tempDir(t);
+  const teacher = new EventStore(dir, 'teacher-1');
+  assert.equal(await teacher.skin(), 'auto', 'по умолчанию — по праздникам');
+  assert.equal(await teacher.setSkin('newyear'), 'newyear');
+  assert.equal(await new EventStore(dir, 'panel-1').skin(), 'newyear');
+  await assert.rejects(teacher.setSkin('<script>'), { code: 'invalid' });
+  await teacher.setSkin('off');
+  assert.equal(await teacher.skin(), 'off');
+});
