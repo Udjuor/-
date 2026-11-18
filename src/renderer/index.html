@@ -21,6 +21,7 @@
         <button data-view="month">Месяц</button>
       </div>
       <button class="text" id="open-deadlines">Сроки <span id="deadline-count" class="deadlinecount" hidden></span></button>
+      <button class="text" id="open-proposals" hidden>На утверждение <span id="proposal-count" class="deadlinecount late"></span></button>
       <button class="text" id="open-signals" hidden>Сигналы <span id="signal-count" class="deadlinecount late" hidden></span></button>
       <button class="text menubutton" id="open-sections" popovertarget="sections" aria-haspopup="menu">Разделы <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div id="sections" class="sectionmenu" popover role="menu" aria-label="Разделы">
@@ -71,6 +72,7 @@
   <dialog id="welcome" class="sheet small"></dialog>
   <dialog id="netcheck" class="sheet wide"></dialog>
   <dialog id="handin" class="sheet wide"></dialog>
+  <dialog id="proposals" class="sheet wide"></dialog>
   <dialog id="rolestats" class="sheet full"></dialog>
   <div id="printarea"></div>
 

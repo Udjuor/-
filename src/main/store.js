@@ -367,6 +367,35 @@ function normalizeChange(raw) {
 }
 
 /** Запись для хранения и обмена: мероприятие, справочник, отметки или отметка об удалении. */
+/** Что можно предложить изменить с панели. Тип, отметки и сдачу меняет только преподаватель. */
+const PROPOSABLE = ['title', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'notes', 'participants', 'equipment', 'deadline'];
+/** С панели изменения предлагают для мероприятий и заданий. */
+const PROPOSAL_TYPES = new Set(['event', 'task']);
+
+/** Предложенные с панели изменения события: ждут утверждения преподавателем. */
+function normalizeProposal(raw) {
+  const id = String(raw.id ?? '');
+  const eventId = String(raw.eventId ?? '');
+  if (!ID_RE.test(id) || !ID_RE.test(eventId) || !STAMP_RE.test(String(raw.at ?? ''))) return null;
+  const source = raw.changes && typeof raw.changes === 'object' ? raw.changes : {};
+  const changes = Object.fromEntries(PROPOSABLE.filter((field) => field in source).map((field) => [field, plain(source[field])]));
+  if (!Object.keys(changes).length) return null;
+  return {
+    id,
+    kind: 'proposal',
+    eventId,
+    base: String(raw.base ?? ''),
+    title: String(raw.title ?? '').slice(0, 200),
+    by: String(raw.by ?? '').slice(0, 80),
+    device: String(raw.device ?? '').slice(0, 80),
+    note: String(raw.note ?? '').trim().slice(0, 300),
+    at: raw.at,
+    changes,
+    updatedAt: String(raw.updatedAt ?? ''),
+    updatedBy: String(raw.updatedBy ?? ''),
+  };
+}
+
 function normalizeRecord(raw) {
   if (raw && raw.deleted === true) {
     const id = String(raw.id ?? '');
@@ -376,6 +405,7 @@ function normalizeRecord(raw) {
   }
   if (raw?.kind === 'attendance') return normalizeAttendance(raw);
   if (raw?.kind === 'change') return normalizeChange(raw);
+  if (raw?.kind === 'proposal') return normalizeProposal(raw);
   if (raw?.kind === 'presence') return normalizePresence(raw);
   if (raw?.kind === 'portal') return normalizePortal(raw);
   return raw?.kind ? normalizeRef(raw) : normalizeEvent(raw);
@@ -451,6 +481,66 @@ class EventStore {
   async directory() {
     return (await this.records())
       .filter((record) => !record.deleted && REF_KINDS.has(record.kind));
+  }
+
+  /* Изменения с панели на утверждение */
+
+  /** Ждущие утверждения предложения, старые сверху. Предложения к удалённым событиям не показываются. */
+  async proposals() {
+    const records = await this.records();
+    const events = new Set(records.filter((record) => !record.deleted && !record.kind).map((record) => record.id));
+    return records
+      .filter((record) => record.kind === 'proposal' && events.has(record.eventId))
+      .sort((a, b) => a.at.localeCompare(b.at));
+  }
+
+  /**
+   * Панель предлагает изменить мероприятие или задание. Повторное предложение с того же устройства
+   * к тому же событию заменяет прежнее.
+   */
+  async propose(eventId, changes, note = '') {
+    return this.exclusive(async () => {
+      const event = (await this.list()).find((item) => item.id === eventId);
+      if (!event) throw new StoreError('not-found', 'Событие не найдено');
+      if (!PROPOSAL_TYPES.has(event.type)) throw new StoreError('invalid', 'Изменения предлагают только для мероприятий и заданий');
+      // Оставляем только то, что действительно отличается от записанного.
+      const differs = Object.fromEntries(Object.entries(changes ?? {})
+        .filter(([field, value]) => PROPOSABLE.includes(field) && JSON.stringify(value ?? '') !== JSON.stringify(event[field] ?? '')));
+      if (!Object.keys(differs).length) throw new StoreError('unchanged', 'Ничего не изменено');
+      const previous = (await this.records()).find((record) => record.kind === 'proposal' && record.eventId === eventId && record.by === this.deviceId);
+      const proposal = normalizeProposal({
+        id: previous?.id ?? crypto.randomUUID(),
+        eventId,
+        base: event.updatedAt,
+        title: event.title,
+        by: this.deviceId,
+        device: this.deviceName(),
+        note,
+        at: new Date(this.clock()).toISOString(),
+        changes: differs,
+        updatedAt: nextStamp(previous?.updatedAt),
+        updatedBy: this.deviceId,
+      });
+      if (!proposal) throw new StoreError('invalid', 'Неверное предложение');
+      // Проверяем, что событие с изменениями останется правильным, до того как отправлять его преподавателю.
+      if (!normalizeEvent({ ...event, ...proposal.changes })) throw new StoreError('invalid', 'Неверные данные');
+      await this.write(proposal);
+      return proposal;
+    });
+  }
+
+  /** Преподаватель утверждает предложение (изменения ложатся на текущую версию события) или отклоняет его. */
+  async resolveProposal(id, approve) {
+    const proposal = (await this.records()).find((record) => record.id === id && record.kind === 'proposal');
+    if (!proposal) throw new StoreError('not-found', 'Предложение уже рассмотрено');
+    let saved = null;
+    if (approve) {
+      const event = (await this.list()).find((item) => item.id === proposal.eventId);
+      if (!event) throw new StoreError('not-found', 'Событие удалено');
+      saved = await this.save({ ...event, ...proposal.changes }, event.updatedAt);
+    }
+    await this.write({ id, deleted: true, updatedAt: nextStamp(proposal.updatedAt), updatedBy: this.deviceId });
+    return saved;
   }
 
   /** Журнал изменений событий, новые сверху, за последние полгода. */

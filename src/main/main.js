@@ -336,6 +336,19 @@ function registerHandlers() {
   }));
   ipcMain.handle('journal:list', () => managed(() => store.changes()));
 
+  // Изменения мероприятий и заданий с панели: предлагает панель, утверждает преподаватель.
+  ipcMain.handle('proposals:list', () => respond(() => store.proposals()));
+  ipcMain.handle('proposals:add', (_e, eventId, changes, note) => respond(async () => {
+    const proposal = await store.propose(String(eventId), changes, String(note ?? ''));
+    sync?.nudge();
+    return proposal;
+  }));
+  ipcMain.handle('proposals:resolve', (_e, id, approve) => managed(async () => {
+    const saved = await store.resolveProposal(String(id), approve === true);
+    sync?.nudge();
+    return saved;
+  }));
+
   // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.
   ipcMain.handle('events:remove-range', (_e, from, to, types) => managed(async () => {
     const backup = await makeBackup();

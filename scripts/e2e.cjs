@@ -1107,6 +1107,22 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#s-update'), process.platform === 'win32' ? /Последняя проверка обновлений|не удалось проверить/ : /Проверку запустить не удалось/);
   await page.click('#preferences [aria-label=Закрыть]');
 
+  // Изменения с панели: панель предлагает, преподаватель утверждает.
+  const concertTask = await teacherStore.save({ title: 'Афиша к концерту', type: 'task', date: day(1), start: '12:00', end: '12:40', place: 'Ауд. 5', participants: [], devices: [deviceId] });
+  await teacherStore.propose(concertTask.id, { place: 'Ауд. 7', notes: 'Формат А3' });
+  await teacher.syncWith('127.0.0.1:47800');
+  await page.waitForSelector('#open-proposals:not([hidden]):has-text("1")', { timeout: 15000 });
+  await page.click('#open-proposals');
+  await page.waitForSelector('#proposals[open] .proposal:has-text("Афиша к концерту")');
+  assert.match(await page.textContent('#proposals .proposal'), /Ауд\. 5[\s\S]*Ауд\. 7/);
+  await shot('proposals');
+  await page.click('#proposals [data-approve]');
+  await page.waitForSelector('#proposals', { state: 'hidden' });
+  await page.waitForSelector('#open-proposals', { state: 'hidden' });
+  const approved = (await page.evaluate(() => window.calendar.list())).value.find((e) => e.title === 'Афиша к концерту');
+  assert.deepEqual([approved.place, approved.notes], ['Ауд. 7', 'Формат А3']);
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Афиша к концерту' && e.place === 'Ауд. 7'), 'утверждённое на другом устройстве');
+
   // Задание со сдачей по студентам.
   await teacherStore.save({ title: 'Монтаж ролика', type: 'task', date: day(1), start: '10:00', end: '10:40', participants: ['Васильева Дарья', 'Борисов Илья'], devices: [deviceId], deadline: `${day(1)}T18:00` });
   await teacher.syncWith('127.0.0.1:47800');

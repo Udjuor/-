@@ -16,6 +16,7 @@ const api = window.calendar;
 
 const state = {
   view: 'week',
+  proposals: [], // изменения с панелей, ждущие утверждения
   date: toISO(new Date()),
   allEvents: [], // все мероприятия сети: по ним ищутся занятые люди и техника
   events: [], // те, что показывает это устройство
@@ -397,6 +398,7 @@ async function refresh() {
   await loadDirectory();
   await loadAttendance();
   await loadDevices();
+  await loadProposals();
   refreshPet();
   refreshTicker();
   refreshGear();
@@ -632,6 +634,86 @@ async function patchEvent(event, changes) {
   return result.value;
 }
 
+/* Изменения с панели на утверждение */
+
+/** Что панель может предложить изменить. Тип, отметки и сдачу меняет преподаватель. */
+const PROPOSABLE = ['title', 'date', 'start', 'end', 'allDay', 'place', 'responsible', 'notes', 'participants', 'equipment', 'deadline'];
+const PROPOSAL_TYPES = ['event', 'task'];
+
+const proposalsFor = (eventId) => state.proposals.filter((proposal) => proposal.eventId === eventId);
+
+async function loadProposals() {
+  const result = await api.proposals();
+  if (!result.ok) return;
+  const changed = JSON.stringify(result.value) !== JSON.stringify(state.proposals);
+  state.proposals = result.value;
+  $('open-proposals').hidden = !canManage() || !state.proposals.length;
+  $('proposal-count').textContent = String(state.proposals.length);
+  if (changed && $('proposals').open) drawProposals();
+}
+
+/** В карточке: изменения ждут утверждения. */
+function proposalNote(event) {
+  const pending = proposalsFor(event.id);
+  if (!pending.length) return null;
+  return h('p', { class: 'notice proposalnote' }, pending.length === 1
+    ? t('Изменения с устройства «{0}» ждут утверждения преподавателя.', [pending[0].device || t('панель')])
+    : t('Изменения ждут утверждения преподавателя: {0}.', [pending.length]));
+}
+
+let proposalFocus = null;
+
+function openProposals(eventId = null) {
+  proposalFocus = eventId;
+  drawProposals();
+  $('proposals').showModal();
+}
+
+function drawProposals() {
+  const dialog = $('proposals');
+  const list = proposalFocus ? proposalsFor(proposalFocus) : state.proposals;
+  const resolve = async (proposal, approve) => {
+    const result = await api.resolveProposal(proposal.id, approve);
+    if (!result.ok) {
+      toast(storeMessage(result));
+    } else if (result.value) {
+      setEvents([...state.allEvents.filter((x) => x.id !== result.value.id), result.value]);
+      render();
+      toast(t('Изменения утверждены: {0}', [result.value.title]));
+    } else {
+      toast(t('Изменения отклонены.'));
+    }
+    await loadProposals();
+    if (proposalFocus && !proposalsFor(proposalFocus).length) proposalFocus = null;
+    if (!state.proposals.length) dialog.close();
+    else drawProposals();
+  };
+  const body = h('div', { class: 'sheetbody' },
+    list.length ? list.map((proposal) => {
+      const event = state.allEvents.find((e) => e.id === proposal.eventId);
+      // Сравниваем с тем, что записано сейчас: событие могли поменять после предложения.
+      const fields = Object.entries(proposal.changes).map(([field, after]) => ({ field, before: event?.[field] ?? null, after }));
+      return h('section', { class: 'proposal' },
+        h('h3', {}, event?.title ?? proposal.title),
+        h('p', { class: 'help' }, t('{0}. Предложено с устройства «{1}», {2}', [
+          event ? `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}` : '',
+          proposal.device || t('панель'),
+          stampText(proposal.at),
+        ])),
+        event && event.updatedAt !== proposal.base && h('p', { class: 'notice' }, t('После предложения событие уже меняли. Слева — как записано сейчас.')),
+        h('ul', { class: 'jfields' }, fields.map(journalField)),
+        h('div', { class: 'targets' },
+          h('button', { type: 'button', class: 'primary', 'data-approve': proposal.id, onclick: () => resolve(proposal, true) }, t('Утвердить')),
+          h('button', { type: 'button', class: 'plain', 'data-decline': proposal.id, onclick: () => resolve(proposal, false) }, t('Отклонить'))));
+    }) : h('p', { class: 'help' }, t('Изменений на утверждение нет.')));
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Изменения на утверждение')), closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      h('p', { class: 'help' }, t('С панелей в аудиториях мероприятия и задания не меняются сразу: изменения ждут здесь. Утвердите или отклоните их.')),
+      body),
+  );
+}
+
 /** Решения и поручения собрания с отметкой выполнения. */
 function decisionsSection(event) {
   if (event.type !== 'meeting' || !event.decisions?.length) return null;
@@ -657,6 +739,9 @@ function showDetails(id) {
 
   const showActions = () => footer.replaceChildren(
     canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
+    // На панели мероприятие и задание не меняют сразу, а предлагают изменения преподавателю.
+    isClient() && PROPOSAL_TYPES.includes(event.type) && h('button', { class: 'plain', id: 'propose-event', onclick: () => { dialog.close(); openForm(event); } }, t('Предложить изменения')),
+    canManage() && proposalsFor(event.id).length > 0 && h('button', { class: 'primary', id: 'review-proposal', onclick: () => { dialog.close(); openProposals(event.id); } }, t('Рассмотреть изменения')),
     event.participants.length > 0 && !event.cancelled && takesAttendance(event) && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
@@ -757,6 +842,7 @@ function showDetails(id) {
         event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
+      proposalNote(event),
       decisionsSection(event),
       listGroup(t('Участники: {0}', [event.participants.length]), event.participants.map((name) => roleText(event, name)), true),
       listGroup(t('Техника'), event.equipment.map((name) => gearLabel(event, name)), false),
@@ -1277,7 +1363,9 @@ async function openForm(source = {}) {
     return !(titleError || timeError || dateError || repeatError || lacking.length);
   };
 
-  const save = h('button', { class: 'primary', type: 'submit' }, source.id ? t('Сохранить') : t('Добавить событие'));
+  // На панели правка мероприятия или задания уходит преподавателю на утверждение.
+  const proposing = isClient() && Boolean(source.id);
+  const save = h('button', { class: 'primary', type: 'submit' }, proposing ? t('Отправить на утверждение') : source.id ? t('Сохранить') : t('Добавить событие'));
 
   const finish = (date) => {
     state.date = date;
@@ -1343,6 +1431,19 @@ async function openForm(source = {}) {
       if (!validate(event)) return;
       save.disabled = true;
       message.textContent = '';
+      if (proposing) {
+        const changes = Object.fromEntries(PROPOSABLE.map((field) => [field, event[field]]));
+        const result = await api.propose(source.id, changes, '');
+        save.disabled = false;
+        if (!result.ok) {
+          message.textContent = result.code === 'unchanged' ? t('Ничего не изменено.') : storeMessage(result);
+          return;
+        }
+        dialog.close();
+        await loadProposals();
+        toast(t('Изменения отправлены преподавателю на утверждение.'));
+        return;
+      }
       if (!source.id && repeatSelect.value) {
         await saveSeries(event, repeatSelect.value, until.value);
         return;
@@ -4422,7 +4523,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4450,6 +4551,7 @@ function wire() {
     if (event.target.closest('button')) $('sections').hidePopover();
   });
   $('open-gear').addEventListener('click', openGear);
+  $('open-proposals').addEventListener('click', () => openProposals());
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);
   $('open-signals').addEventListener('click', openSignals);

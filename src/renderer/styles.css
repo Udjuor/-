@@ -955,3 +955,10 @@ td.heat-4 { background: rgb(218 54 51 / .55); }
 tr.late td { color: var(--danger-fg); }
 .rolestats td.num, .rolestats th.num { text-align: center; }
 @media (max-width: 900px) { .decisionedit li { grid-template-columns: 1fr 1fr; } }
+
+/* Изменения с панели на утверждение */
+.proposal { padding: .9rem 0; border-bottom: 1px solid var(--border); }
+.proposal:last-child { border-bottom: 0; }
+.proposal h3 { margin: 0 0 .2rem; }
+.proposal .targets { margin-top: .6rem; }
+#open-proposals[hidden] { display: none; }

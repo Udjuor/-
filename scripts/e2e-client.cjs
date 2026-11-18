@@ -114,6 +114,25 @@ const today = (() => {
   assert.doesNotMatch(await page.textContent('#roll'), /опоздан/i);
   await page.click('#roll [aria-label=Закрыть]');
 
+  // Мероприятие с панели не меняется сразу: изменения уходят преподавателю на утверждение.
+  await page.click('.block:has-text("Концерт на панели")');
+  await page.click('#details #propose-event');
+  await page.waitForSelector('#form[open] button[type=submit]:has-text("Отправить на утверждение")');
+  await page.fill('#f-place', 'Актовый зал');
+  await page.click('#form button[type=submit]');
+  await page.waitForSelector('dialog#form', { state: 'hidden' });
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('на утверждение'));
+  const proposals = (await page.evaluate(() => window.calendar.proposals())).value;
+  assert.deepEqual(proposals.map((p) => p.changes), [{ place: 'Актовый зал' }]);
+  const concert = (await page.evaluate(() => window.calendar.list())).value.find((e) => e.title === 'Концерт на панели');
+  assert.equal(concert.place ?? '', '', 'до утверждения не меняется');
+  await page.click('.block:has-text("Концерт на панели")');
+  await page.waitForSelector('#details .proposalnote:has-text("Ауд. 101")');
+  assert.equal(await page.locator('#details #review-proposal').count(), 0, 'утверждает только преподаватель');
+  assert.equal((await page.evaluate((id) => window.calendar.resolveProposal(id, true), proposals[0].id)).code, 'teacher-only');
+  await shot('client-proposal');
+  await page.click('#details [aria-label=Закрыть]');
+
   // Занятие, которое идёт сейчас, открывается сразу кнопкой «Начать занятие».
   await page.click('.block:has-text("Пара на панели")');
   await page.waitForSelector('#roll[open][data-stage="start"] #start-lesson');

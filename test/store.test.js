@@ -594,3 +594,28 @@ test('день рождения хранится у студентов и пре
   const teacher = await store.saveRef({ kind: 'teacher', name: 'Лебедева О. В.', birthday: '17.11.1980' });
   assert.equal(teacher.birthday, '', 'только в виде ГГГГ-ММ-ДД');
 });
+
+test('изменения с панели: предложение, замена, утверждение и отклонение', async (t) => {
+  const dir = tempDir(t);
+  const teacher = new EventStore(dir, 'teacher-1');
+  const panel = new EventStore(dir, 'panel-1');
+  const task = await teacher.save({ ...sample, type: 'task', title: 'Монтаж', place: 'Ауд. 1', participants: ['Иванов'] });
+  const lesson = await teacher.save({ ...sample, type: 'lesson' });
+  await assert.rejects(panel.propose(lesson.id, { title: 'Другое' }), { code: 'invalid' }, 'занятия не предлагают');
+  await assert.rejects(panel.propose(task.id, { title: 'Монтаж', place: 'Ауд. 1' }), { code: 'unchanged' }, 'ничего не изменено');
+  await assert.rejects(panel.propose(task.id, { start: '23:00', end: '01:00' }), { code: 'invalid' }, 'неверное время');
+  const first = await panel.propose(task.id, { title: 'Монтаж', place: 'Ауд. 2', type: 'lesson', handIn: { 'Иванов': 'done' } });
+  assert.deepEqual(first.changes, { place: 'Ауд. 2' }, 'только разрешённые и изменённые поля');
+  const second = await panel.propose(task.id, { place: 'Ауд. 3', notes: 'Взять штатив' });
+  assert.equal(second.id, first.id, 'повтор с той же панели заменяет прежнее');
+  assert.equal((await teacher.proposals()).length, 1);
+  assert.equal((await teacher.list()).find((e) => e.id === task.id).place, 'Ауд. 1', 'до утверждения событие не меняется');
+  const saved = await teacher.resolveProposal(second.id, true);
+  assert.deepEqual([saved.place, saved.notes, saved.type], ['Ауд. 3', 'Взять штатив', 'task']);
+  assert.deepEqual(await teacher.proposals(), []);
+  await panel.propose(task.id, { title: 'Не то' });
+  const [declined] = await teacher.proposals();
+  assert.equal(await teacher.resolveProposal(declined.id, false), null);
+  assert.equal((await teacher.list()).find((e) => e.id === task.id).title, 'Монтаж');
+  await assert.rejects(teacher.resolveProposal(declined.id, true), { code: 'not-found' });
+});

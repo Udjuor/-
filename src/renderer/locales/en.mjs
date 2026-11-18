@@ -840,7 +840,23 @@ export default {
     "🎶 С днём рождения, {0}! Пусть сегодня играет только ваша любимая музыка!": "🎶 Happy birthday, {0}! May only your favourite music play today!",
     "🍰 {0}, с днём рождения! Торт уже в кадре, осталось задуть свечи!": "🍰 Happy birthday, {0}! The cake is in frame, now blow out the candles!",
     "🎂 {0} — с прошедшим днём рождения! Поздравляем всем колледжем!": "🎂 Belated happy birthday, {0}! The whole college sends wishes!",
-    "🎉 {0}, с прошедшим днём рождения! Праздник продолжается!": "🎉 Belated happy birthday, {0}! The party goes on!"
+    "🎉 {0}, с прошедшим днём рождения! Праздник продолжается!": "🎉 Belated happy birthday, {0}! The party goes on!",
+    "Изменения с устройства «{0}» ждут утверждения преподавателя.": "Changes from “{0}” are waiting for a teacher's approval.",
+    "Изменения ждут утверждения преподавателя: {0}.": "Changes waiting for a teacher's approval: {0}.",
+    "Изменения утверждены: {0}": "Changes approved: {0}",
+    "Изменения отклонены.": "Changes declined.",
+    "{0}. Предложено с устройства «{1}», {2}": "{0}. Proposed from “{1}”, {2}",
+    "После предложения событие уже меняли. Слева — как записано сейчас.": "The event has changed since this was proposed. On the left is what is saved now.",
+    "Утвердить": "Approve",
+    "Изменений на утверждение нет.": "No changes waiting for approval.",
+    "Изменения на утверждение": "Changes for approval",
+    "С панелей в аудиториях мероприятия и задания не меняются сразу: изменения ждут здесь. Утвердите или отклоните их.": "Classroom panels don't change events and tasks directly: their changes wait here. Approve or decline them.",
+    "Предложить изменения": "Propose changes",
+    "Рассмотреть изменения": "Review changes",
+    "Отправить на утверждение": "Send for approval",
+    "Ничего не изменено.": "Nothing has changed.",
+    "Изменения отправлены преподавателю на утверждение.": "Changes sent to a teacher for approval.",
+    "На утверждение": "For approval"
   },
   "plurals": {
     "events": {
