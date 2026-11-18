@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
+import { MAX_DAILY_LOSS, POOR_FLOOR, PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -13,11 +13,32 @@ const lateMark = (n, name) => ({ [name]: { status: 'present', at: stampAt(n, '09
 const status = (events, attendance, group = G) => petStatus({ group, students, events, attendance, nowISO: '2026-11-03', nowTime: '12:00' });
 const all = (n) => marks(n, Object.fromEntries(names.map((name) => [name, 'present'])));
 
-test('изменение здоровья: хорошая посещаемость лечит, плохая вредит сильнее', () => {
-  assert.equal(healthChange(1), 6);
-  assert.equal(healthChange(0.75), 0);
-  assert.equal(healthChange(0.5), -8);
-  assert.equal(healthChange(0), -24);
+test('изменение здоровья: плохая пара от половины пропусков или трёх четвертей опозданий', () => {
+  assert.equal(healthChange({ absent: 0, late: 0 }), 4, 'все и вовремя');
+  assert.equal(healthChange({ absent: 0.1, late: 0.25 }), 4);
+  assert.equal(healthChange({ absent: 0.2, late: 0 }), 2, 'хорошо');
+  assert.equal(healthChange({ absent: 0, late: 0.4 }), 2);
+  assert.equal(healthChange({ absent: 0.25, late: 0 }), -3, 'посредственно');
+  assert.equal(healthChange({ absent: 0, late: 0.5 }), -3);
+  assert.equal(healthChange({ absent: 0.49, late: 0.74 }), -3);
+  assert.equal(healthChange({ absent: 0.5, late: 0 }), -8, 'половина прогуляла');
+  assert.equal(healthChange({ absent: 0, late: 0.75 }), -8, 'три четверти опоздали');
+});
+
+test('посредственная посещаемость не убивает: питомец грустит, но живёт', () => {
+  const events = Array.from({ length: 30 }, (_, i) => pair(i + 1));
+  const docs = events.map((_, i) => marks(i + 1, { Аня: 'present', Боря: 'present', Вера: 'present' })); // каждый четвёртый прогулял
+  const s = status(events, docs);
+  assert.equal(s.health, POOR_FLOOR);
+  assert.equal(s.mood, 'sad');
+  assert.equal(s.diedOn, null);
+});
+
+test('три четверти опозданий доводят до смерти', () => {
+  const lateAll = (n) => ({ eventId: `e${n}`, marks: Object.fromEntries(['Аня', 'Боря', 'Вера'].map((name) => [name, { status: 'present', at: stampAt(n, '09:20') }]).concat([['Гена', { status: 'present', at: stampAt(n) }]])) });
+  const events = Array.from({ length: 12 }, (_, i) => pair(i + 1));
+  const s = status(events, events.map((_, i) => lateAll(i + 1)));
+  assert.equal(s.mood, 'dead');
 });
 
 test('настроение по здоровью', () => {
@@ -44,35 +65,47 @@ test('пара без единой отметки не вредит', () => {
 
 test('причины отсутствия не вредят, пропуски без причины вредят', () => {
   const reasons = status([pair(1)], [marks(1, { Аня: 'present', Боря: 'sick', Вера: 'order', Гена: 'excused' })]);
-  assert.equal(reasons.health, 76, 'из учитываемых пришли все');
+  assert.equal(reasons.health, 74, 'из учитываемых пришли все');
   const absent = status([pair(1)], [marks(1, { Аня: 'present' })]);
-  assert.equal(absent.health, 70 + healthChange(0.25));
+  assert.equal(absent.health, 70 + healthChange({ absent: 0.75, late: 0 }));
   assert.equal(absent.last.absent, 3);
 });
 
 test('опоздание стоит половину посещения', () => {
   const doc = { eventId: 'e1', marks: { ...lateMark(1, 'Аня'), Боря: { status: 'present', at: stampAt(1) } } };
   const s = status([pair(1, ['Аня', 'Боря'])], [doc]);
-  assert.equal(s.health, 70 + healthChange(0.75));
+  assert.equal(s.health, 70 + healthChange({ absent: 0, late: 0.5 }));
   assert.equal(s.last.late, 1);
 });
 
 test('постоянные прогулы доводят до смерти, и она окончательна', () => {
-  const events = Array.from({ length: 8 }, (_, i) => pair(i + 1));
+  const events = Array.from({ length: 12 }, (_, i) => pair(i + 1));
   const docs = events.map((_, i) => marks(i + 1, { Аня: 'present' }));
-  docs.push(all(9));
-  events.push(pair(9));
+  docs.push(all(13));
+  events.push(pair(13));
   const s = status(events, docs);
   assert.equal(s.mood, 'dead');
   assert.equal(s.health, 0);
-  assert.ok(s.diedOn < day(9), 'дальше пары не считаются');
+  assert.equal(s.diedOn, day(9), 'по 8 за день: девять дней прогулов');
+  assert.ok(s.diedOn < day(13), 'дальше пары не считаются');
+});
+
+test('за один день питомец теряет не больше 10', () => {
+  const sameDay = (k) => ({ ...pair(5), id: `d${k}`, start: `${String(8 + k * 2).padStart(2, '0')}:00`, end: `${String(9 + k * 2).padStart(2, '0')}:30` });
+  const events = [0, 1, 2, 3].map(sameDay);
+  const docs = events.map((event) => ({ eventId: event.id, marks: { Аня: { status: 'absent', at: stampAt(5) }, Боря: { status: 'absent', at: stampAt(5) }, Вера: { status: 'absent', at: stampAt(5) }, Гена: { status: 'absent', at: stampAt(5) } } }));
+  const s = status(events, docs);
+  assert.equal(s.health, 70 - MAX_DAILY_LOSS, 'четыре пары полного прогула за день — минус 10, а не 48');
+  assert.equal(s.counted, 4);
+  const next = status([...events, pair(6)], [...docs, all(6)]);
+  assert.equal(next.health, 70 - MAX_DAILY_LOSS + 4, 'на следующий день лечится как обычно');
 });
 
 test('новый питомец не отвечает за старые пары', () => {
-  const events = Array.from({ length: 8 }, (_, i) => pair(i + 1));
+  const events = Array.from({ length: 12 }, (_, i) => pair(i + 1));
   const docs = events.map((_, i) => marks(i + 1, { Аня: 'present' }));
   assert.equal(status(events, docs).mood, 'dead');
-  const fresh = status(events, docs, { id: 'g', petSince: `${day(8)}T12:00` });
+  const fresh = status(events, docs, { id: 'g', petSince: `${day(12)}T12:00` });
   assert.deepEqual([fresh.health, fresh.counted], [70, 0]);
 });
 
@@ -130,16 +163,16 @@ const petWith = (days, mood = 'play') => ({
   timeline: days.flatMap(([date, ...healths]) => healths.map((health) => ({ date, title: 'Пара', health }))),
 });
 
-test('приз за каждые три учебных дня подряд со здоровьем от 95', () => {
+test('приз за каждые три учебных дня подряд со здоровьем от 90', () => {
   assert.equal(PRIZE_DAYS, 3);
-  assert.equal(PRIZE_HEALTH, 95);
+  assert.equal(PRIZE_HEALTH, 90);
   const pet = petWith([
-    ['2026-11-02', 94, 100], // день не засчитан: после первой пары было 94
-    ['2026-11-03', 95, 100], // 95 уже засчитывается
+    ['2026-11-02', 89, 100], // день не засчитан: после первой пары было 89
+    ['2026-11-03', 90, 100], // 90 уже засчитывается
     ['2026-11-04', 97],
     ['2026-11-06', 100], // выходные и дни без пар серию не прерывают
     ['2026-11-09', 100],
-    ['2026-11-10', 100, 92], // серия обнулилась
+    ['2026-11-10', 100, 85], // серия обнулилась
     ['2026-11-11', 100],
   ]);
   const prizes = petPrizes(pet);

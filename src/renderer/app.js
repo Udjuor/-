@@ -279,8 +279,8 @@ function renderMonth(board) {
 /** Что можно добавить с панели. Занятия и задания ведут преподаватели. */
 const PANEL_TYPES = ['practice', 'event'];
 
-const TYPE_TABS = ['task', 'practice', 'event', 'meeting'];
-const typeTabLabel = (type) => ({ task: t('Задания'), practice: t('Практика'), event: t('Мероприятия'), meeting: t('Собрания') })[type];
+const TYPE_TABS = ['lesson', 'task', 'practice', 'event', 'meeting'];
+const typeTabLabel = (type) => ({ lesson: t('Занятия'), task: t('Задания'), practice: t('Практика'), event: t('Мероприятия'), meeting: t('Собрания') })[type];
 const TAB_KEY = 'kerdiis-tab';
 
 function readTab() {

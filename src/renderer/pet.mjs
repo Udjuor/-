@@ -4,14 +4,34 @@ import { addDays, byTime, groupMembers, nameKey, rollCall } from './logic.mjs';
 
 const START_HEALTH = 70;
 const ALERT_DAYS = 3;
+/** Больше этого за один учебный день питомец не теряет: даже после худшего дня у группы есть неделя, чтобы его спасти. */
+export const MAX_DAILY_LOSS = 10;
 const COUNTED_TYPES = new Set(['lesson', 'practice', 'task']);
 
 const clamp = (value) => Math.max(0, Math.min(100, value));
 
-/** Посещаемость 75% ничего не меняет, выше лечит, ниже вредит заметно сильнее. */
-export function healthChange(rate) {
-  return Math.round(rate >= 0.75 ? (rate - 0.75) * 24 : (rate - 0.75) * 32);
+/** Пропуски от половины группы или опоздания от трёх четвертей — пара губит питомца. */
+export const DEADLY_ABSENT = 0.5;
+export const DEADLY_LATE = 0.75;
+/** Пропуски от четверти или опоздания от половины — питомец грустит, но от этого не умирает. */
+export const POOR_ABSENT = 0.25;
+export const POOR_LATE = 0.5;
+/** Ниже этого посредственные пары не опускают: болеет и умирает питомец только от плохих. */
+export const POOR_FLOOR = 40;
+
+/**
+ * Как пара меняет здоровье. absent и late — доли группы без причины и с опозданием.
+ * Плохая пара: −8. Посредственная: −3. Хорошая: +2, отличная (почти все и вовремя): +4.
+ */
+export function healthChange({ absent, late }) {
+  if (absent >= DEADLY_ABSENT || late >= DEADLY_LATE) return -8;
+  if (absent >= POOR_ABSENT || late >= POOR_LATE) return -3;
+  if (absent <= 0.1 && late <= 0.25) return 4;
+  return 2;
 }
+
+/** Плохая ли пара: такие и только такие ведут к смерти. */
+export const deadlyPair = (shares) => shares.absent >= DEADLY_ABSENT || shares.late >= DEADLY_LATE;
 
 export function moodOf(health) {
   if (health <= 0) return 'dead';
@@ -40,6 +60,9 @@ export function petStatus({ group, groups = [group], students, events, attendanc
   let last = null;
   let diedOn = null;
   const timeline = [];
+  // Сколько здоровья уже потеряно за день: потери за день ограничены.
+  let lossDay = '';
+  let lost = 0;
 
   for (const event of pairs) {
     const marks = Object.values(docs.get(event.id)?.marks ?? {});
@@ -50,7 +73,19 @@ export function petStatus({ group, groups = [group], students, events, attendanc
     const onTime = rows.filter((row) => row.status === 'present' && !row.late).length;
     const late = rows.filter((row) => row.late > 0).length;
     const absent = rows.filter((row) => row.status === 'absent').length;
-    health = clamp(health + healthChange((onTime + late / 2) / rows.length));
+    const shares = { absent: absent / rows.length, late: late / rows.length };
+    let change = healthChange(shares);
+    // Посредственная пара не доводит до болезни: ниже POOR_FLOOR опускают только плохие.
+    if (change < 0 && !deadlyPair(shares)) change = Math.max(change, Math.min(0, POOR_FLOOR - health));
+    if (lossDay !== event.date) {
+      lossDay = event.date;
+      lost = 0;
+    }
+    if (change < 0) {
+      change = -Math.min(-change, MAX_DAILY_LOSS - lost);
+      lost -= change;
+    }
+    health = clamp(health + change);
     counted += 1;
     last = { title: event.title, date: event.date, total: rows.length, present: onTime + late, late, absent };
     timeline.push({ date: event.date, title: event.title, health });
@@ -82,7 +117,7 @@ export function petChange(pet, nowISO) {
 export const PRIZE_DAYS = 3;
 
 /** Здоровье, с которого день засчитывается в серию за приз. */
-export const PRIZE_HEALTH = 95;
+export const PRIZE_HEALTH = 90;
 
 /**
  * Призы выдаются по порядку. head надевается на питомца, side стоит рядом.

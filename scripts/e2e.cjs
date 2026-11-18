@@ -635,9 +635,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pet [aria-label=Закрыть]');
 
   const tiny = ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья', 'Тестов Ученик1'];
-  for (let i = 0; i < 4; i += 1) {
-    const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-6 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
-    await teacherStore.saveMark(lost.id, tiny[0], 'present', { at: new Date(`${day(-6 + i)}T09:00`).toISOString() });
+  // Три четверти группы прогуливают: по 8 за день, питомец умирает на девятый день, позавчера.
+  for (let i = 0; i < 10; i += 1) {
+    const lost = await teacherStore.save({ title: `Прогул ${i}`, type: 'lesson', date: day(-10 + i), start: '09:00', end: '10:00', participants: tiny, devices: ['00000000-0000-4000-8000-000000000000'] });
+    await teacherStore.saveMark(lost.id, tiny[0], 'present', { at: new Date(`${day(-10 + i)}T09:00`).toISOString() });
   }
   await teacher.syncWith('127.0.0.1:47800');
   await page.waitForSelector('#pet-open .mood-dead', { timeout: 20000 });
@@ -1181,6 +1182,10 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#tabs [data-tab="type:practice"]');
   const practiceBlocks = await page.$$eval('#board .block', (blocks) => blocks.map((b) => b.className));
   assert.ok(practiceBlocks.length > 0 && practiceBlocks.every((c) => c.includes('t-practice')), 'только практика');
+  await page.click('#tabs [data-tab="type:lesson"]');
+  const lessonBlocks = await page.$$eval('#board .block', (blocks) => blocks.map((b) => b.className));
+  assert.ok(lessonBlocks.length > 0 && lessonBlocks.every((c) => c.includes('t-lesson')), 'только занятия');
+  assert.equal(await page.textContent('#tabs [data-tab="type:lesson"]'), 'Занятия');
   const groupTab = page.locator('#tabs button.grouptab', { hasText: 'ИС-21' });
   await groupTab.click();
   const expected = await page.evaluate(async () => {
