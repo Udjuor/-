@@ -1021,3 +1021,13 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .boardhint { margin-top: 2rem; color: var(--fg-muted); font-size: 1.2rem; }
 /* Лучшая группа месяца: золотая плашка в бегущей строке. */
 .notice-trophy { background: linear-gradient(90deg, #9a6700, #d4a72c, #9a6700); color: #fff; }
+
+/* Грейд студентов */
+.gradetable td.num, .gradetable th:nth-child(n+5) { text-align: center; }
+.gradebadge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-weight: 600; font-size: .9rem; color: #fff; }
+.gradebadge.level-0 { background: #6e7781; }
+.gradebadge.level-1 { background: #1f883d; }
+.gradebadge.level-2 { background: #0969da; }
+.gradebadge.level-3 { background: #8250df; }
+.gradebadge.level-4 { background: #bf3989; }
+.gradebadge.level-5 { background: linear-gradient(90deg, #9a6700, #d4a72c); }

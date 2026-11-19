@@ -770,3 +770,48 @@ test('лучшую группу с низкой посещаемостью не 
   }
   assert.equal(L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-02', nowTime: '12:00' }), null, '50% — не повод для похвалы');
 });
+
+test('грейд: баллы по дням, задания, мероприятия с ролью, практика, справка и звания', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря', 'Вера'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const names = students.map((s) => s.name);
+  const pair = (id, date, start = '09:00') => ({ id, type: 'lesson', title: 'Пара', date, start, end: `${String(Number(start.slice(0, 2)) + 1).padStart(2, '0')}:00`, participants: names, equipment: [] });
+  const at = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const events = [pair('p1', '2026-11-02'), pair('p2', '2026-11-02', '11:00'), pair('p3', '2026-11-03')];
+  const attendance = [
+    // День 2 ноября: Аня на обеих парах вовремя, Боря опоздал на вторую, Вера прогуляла первую.
+    { eventId: 'p1', marks: { Аня: { status: 'present', at: at('2026-11-02', '09:00') }, Боря: { status: 'present', at: at('2026-11-02', '09:00') }, Вера: { status: 'absent', at: at('2026-11-02', '09:00') } } },
+    { eventId: 'p2', marks: { Аня: { status: 'present', at: at('2026-11-02', '11:00') }, Боря: { status: 'present', at: at('2026-11-02', '11:20') }, Вера: { status: 'present', at: at('2026-11-02', '11:00') } } },
+    // 3 ноября: Вера болеет без справки.
+    { eventId: 'p3', marks: { Аня: { status: 'present', at: at('2026-11-03', '09:00') }, Боря: { status: 'excused', at: at('2026-11-03', '09:00') }, Вера: { status: 'sick', confirmed: false, at: at('2026-11-03', '09:00') } } },
+  ];
+  events.push({ id: 'e1', type: 'event', title: 'Концерт', date: '2026-11-04', start: '15:00', end: '16:00', participants: ['Аня', 'Боря'], roles: { 'Аня': 'Ведущий' }, equipment: [] });
+  attendance.push({ eventId: 'e1', marks: { Аня: { status: 'present', at: at('2026-11-04', '15:00') }, Боря: { status: 'present', at: at('2026-11-04', '15:00') } } });
+  events.push({ id: 'pr', type: 'practice', title: 'Практика', date: '2026-11-05', start: '09:00', end: '12:00', participants: ['Вера'], equipment: [] });
+  events.push({ id: 't1', type: 'task', title: 'Монтаж', date: '2026-11-02', start: '10:00', end: '11:00', participants: names, deadline: '2026-11-06T18:00', handIn: { 'Аня': 'done', 'Боря': 'rework' }, equipment: [] });
+  const report = (nowISO) => Object.fromEntries(L.gradeReport({ events, attendance, students, groups, from: '2026-09-01', to: '2027-01-31', nowISO, nowTime: '20:00' }).map((r) => [r.name, r]));
+
+  const early = report('2026-11-07');
+  assert.equal(early['Аня'].points, 1 + 1 + 5 + 2 + 3, 'два дня, мероприятие с ролью, сданное задание');
+  assert.equal(early['Боря'].points, 3, 'день с опозданием −1 → 0 (ниже нуля нельзя), уважительная 0, мероприятие +5, задание на доработке после срока −2');
+  assert.deepEqual([early['Боря'].breakdown.day, early['Боря'].breakdown.late, early['Боря'].breakdown.taskMissed], [1, 1, 1]);
+  assert.equal(early['Вера'].points, 0, 'прогул в день −4, болезнь без справки пока 0, практика +2, задание −2');
+  assert.equal(early['Вера'].breakdown.absent, 1);
+  assert.equal(early['Вера'].breakdown.practice, 1);
+  const late = report('2026-11-20');
+  assert.equal(late['Вера'].breakdown.absent, 2, 'справку не принесли за неделю — пропуск');
+  assert.equal(early['Аня'].level, 'Junior');
+  assert.equal(early['Аня'].next.name, 'Junior+');
+  assert.equal(early['Аня'].next.need, 25 - 12);
+
+  // Звание и день, когда оно получено.
+  const many = Array.from({ length: 30 }, (_, i) => pair(`d${i}`, L.addDays('2026-09-01', i)));
+  const marks = many.map((event) => ({ eventId: event.id, marks: { Аня: { status: 'present', at: at(event.date, '09:00') } } }));
+  const rows = L.gradeReport({ events: many, attendance: marks, students, groups, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
+  const anya = rows.find((r) => r.name === 'Аня');
+  assert.deepEqual([anya.points, anya.level, anya.levelUps], [30, 'Junior+', [{ level: 'Junior+', date: '2026-09-25' }]]);
+  assert.equal(rows[0].name, 'Аня', 'по убыванию баллов');
+  assert.deepEqual(L.semesterOf('2026-11-19'), { from: '2026-09-01', to: '2027-01-31' });
+  assert.deepEqual(L.semesterOf('2027-01-15'), { from: '2026-09-01', to: '2027-01-31' });
+  assert.deepEqual(L.semesterOf('2027-03-01'), { from: '2027-02-01', to: '2027-08-31' });
+});

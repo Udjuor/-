@@ -1015,6 +1015,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('chronicle');
   await page.click('#chronicle [aria-label=Закрыть]');
 
+  // Грейд студентов: баллы за семестр и звания, виден всем.
+  await openSection('#open-grade');
+  await page.waitForSelector('#grade[open] .gradetable tbody tr');
+  assert.match(await page.textContent('#grade .gradetable tbody tr:first-child'), /Junior|Middle|Senior|Lead|Principal/);
+  await page.selectOption('#gr-group', 'ИС-21');
+  await shot('grade');
+  await page.click('#grade [aria-label=Закрыть]');
+
   // Сроки сдачи.
   await page.click('#today');
   await page.click('#add');

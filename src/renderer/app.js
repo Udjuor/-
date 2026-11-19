@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -3401,7 +3401,7 @@ function petItems() {
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
   const holiday = holidayGreeting(state.skin, now().iso);
-  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...gradeItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -3780,6 +3780,10 @@ function portfolioSheet(student) {
       h('p', { class: 'kicker' }, [t('Портфолио студента'), groupOfStudent(student)].filter(Boolean).join(', ')),
       h('h2', {}, student.name)),
     h('p', { class: 'own' }, portfolioSummary(data)),
+    (() => {
+      const grade = currentGrades().find((row) => nameKey(row.name) === nameKey(student.name));
+      return grade && h('p', { class: 'own' }, t('Грейд за семестр: {0}, {1} баллов.', [gradeName(grade.level), grade.points]));
+    })(),
     data.awards.length > 0 && [h('h3', {}, t('Достижения')), h('table', {},
       h('thead', {}, h('tr', {}, [t('Дата'), t('Название'), t('Результат')].map((name) => h('th', {}, name)))),
       h('tbody', {}, data.awards.map((item) => h('tr', {}, h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))),
@@ -4758,6 +4762,8 @@ function chronicleSheet() {
       ? table([t('Студент'), t('Группа'), t('Участий'), t('Роли')], data.active.map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.group), h('td', {}, String(p.count)),
         h('td', {}, Object.entries(p.roles).map(([role, n]) => (n > 1 ? `${role} ×${n}` : role)).join(', ')))))
       : nothing(t('Участий в заданиях, практике и мероприятиях пока нет.')),
+    data.grades.length > 0 && [h('h3', {}, t('Лучшие по грейду')),
+      table([t('Студент'), t('Группа'), t('Баллы за год')], data.grades.map((g) => h('tr', {}, h('td', {}, g.name), h('td', {}, g.group), h('td', {}, String(g.points)))))],
     data.roleLeaders.length > 0 && [h('h3', {}, t('Лидеры по ролям')),
       table([t('Роль'), t('Студент'), t('Раз')], data.roleLeaders.map((r) => h('tr', {}, h('td', {}, r.role), h('td', {}, r.name), h('td', {}, String(r.count)))))],
     h('h3', {}, t('Лучшие группы по посещаемости')),
@@ -4786,6 +4792,75 @@ function drawChronicle() {
   );
 }
 
+/* Грейд студентов */
+
+let gradeCache = { key: null, rows: [] };
+
+/** Баллы всех студентов за текущий семестр. Пересчёт — только когда поменялись события, отметки или день. */
+function currentGrades() {
+  const clock = now();
+  const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
+  if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
+  const { from, to } = semesterOf(clock.iso);
+  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), from, to, nowISO: clock.iso, nowTime: clock.time });
+  gradeCache = { key, rows };
+  return rows;
+}
+
+/** Звания — названия грейдов из IT, одинаковые на всех языках. */
+const gradeName = (name) => name;
+
+/** Поздравления с новым званием: три дня после того, как студент его получил. */
+function gradeItems() {
+  const today = now().iso;
+  return currentGrades().flatMap((row) => row.levelUps
+    .filter((up) => up.date >= addDays(today, -2))
+    .slice(-1)
+    .map((up) => ({ id: `grade-${row.name}-${up.level}`, color: 'trophy', name: t('⭐ {0} — новое звание «{1}»! Так держать!', [greetingName(row.name), gradeName(up.level)]) })));
+}
+
+let gradeGroup = '';
+
+function openGrades() {
+  drawGrades();
+  $('grade').showModal();
+}
+
+function drawGrades() {
+  const dialog = $('grade');
+  const { from, to } = semesterOf(now().iso);
+  const rows = currentGrades().filter((row) => !gradeGroup || row.group === gradeGroup);
+  const groups = [...new Set(currentGrades().map((row) => row.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Грейд студентов')), closeButton(dialog)),
+    h('div', { class: 'targets weektools' },
+      h('select', { id: 'gr-group', 'aria-label': t('Группа'), onchange: (e) => { gradeGroup = e.target.value; drawGrades(); } },
+        h('option', { value: '' }, t('Все группы')),
+        groups.map((name) => h('option', { value: name, selected: name === gradeGroup }, name)))),
+    h('div', { class: 'sheetbody' },
+      h('p', { class: 'help' }, t('Семестр с {0} по {1}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.', [shortDay(from), shortDay(to)])),
+      h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
+      rows.length
+        ? h('div', { class: 'tablewrap' }, h('table', { class: 'gradetable' },
+          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика')]
+            .map((name) => h('th', { scope: 'col' }, name)))),
+          h('tbody', {}, rows.map((row, index) => h('tr', {},
+            h('td', {}, String(index + 1)),
+            h('td', {}, row.name),
+            h('td', {}, row.group),
+            h('td', {}, h('span', { class: `gradebadge level-${GRADE_LEVELS.findIndex((l) => l.name === row.level)}` }, gradeName(row.level))),
+            h('td', { class: 'num' }, h('b', {}, String(row.points))),
+            h('td', {}, row.next ? t('{0}: ещё {1}', [gradeName(row.next.name), row.next.need]) : t('высшее звание')),
+            h('td', { class: 'num' }, String(row.breakdown.day)),
+            h('td', { class: 'num' }, String(row.breakdown.absent)),
+            h('td', { class: 'num' }, String(row.breakdown.late)),
+            h('td', { class: 'num' }, `${row.breakdown.task}${row.breakdown.taskMissed ? ` / −${row.breakdown.taskMissed}` : ''}`),
+            h('td', { class: 'num' }, String(row.breakdown.event)),
+            h('td', { class: 'num' }, String(row.breakdown.practice)))))))
+        : h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))),
+  );
+}
+
 /* Часы и фоновая работа */
 
 function tick() {
@@ -4808,7 +4883,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals', 'groupweek', 'chronicle'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals', 'groupweek', 'chronicle', 'grade'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4838,6 +4913,7 @@ function wire() {
   $('open-gear').addEventListener('click', openGear);
   $('open-groupweek').addEventListener('click', openGroupWeek);
   $('open-chronicle').addEventListener('click', openChronicle);
+  $('open-grade').addEventListener('click', openGrades);
   // Табло перемены: любое касание или нажатие убирает его и откладывает на минуту.
   for (const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, touched, { capture: true, passive: true });
   setInterval(refreshBoard, 5000);

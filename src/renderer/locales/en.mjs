@@ -930,7 +930,27 @@ export default {
     "Лучшая группа каждого месяца": "Best group of each month",
     "Достижения студентов": "Student achievements",
     "Достижение": "Achievement",
-    "Летопись {0}-{1}.pdf": "Chronicle {0}-{1}.pdf"
+    "Летопись {0}-{1}.pdf": "Chronicle {0}-{1}.pdf",
+    "Грейд за семестр: {0}, {1} баллов.": "Semester grade: {0}, {1} points.",
+    "Лучшие по грейду": "Top by grade",
+    "Баллы за год": "Points for the year",
+    "⭐ {0} — новое звание «{1}»! Так держать!": "⭐ {0} has a new rank: “{1}”! Keep it up!",
+    "Грейд студентов": "Student grades",
+    "Семестр с {0} по {1}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.": "Semester {0} to {1}. A day at classes +1, truancy −4, lateness −2, task handed in +3, missed deadline −2, event +5 plus 2 for a role, practicum +2. Points never go below zero.",
+    "{0} — от {1}": "{0} — from {1}",
+    "Звание": "Rank",
+    "Баллы": "Points",
+    "До следующего": "To next rank",
+    "Дни": "Days",
+    "Прогулы": "Truancy",
+    "{0}: ещё {1}": "{0}: {1} more",
+    "высшее звание": "top rank",
+    "Добавьте студентов в «Справочниках».": "Add students in “Directories”.",
+    "Новичок": "Newcomer",
+    "Ассистент": "Assistant",
+    "Оператор": "Camera operator",
+    "Режиссёр": "Director",
+    "Мастер": "Master"
   },
   "plurals": {
     "events": {

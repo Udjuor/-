@@ -1170,5 +1170,122 @@ export function yearChronicle({ events, attendance, students, groups, achievemen
       .map((row) => ({ name: row.name, percent: Math.round(row.share * 100), marks: row.marks })),
     months,
     awards: achievements.filter((item) => item.date >= from && item.date <= until).sort((a, b) => a.date.localeCompare(b.date)),
+    // Лучшие по грейду за год: сумма баллов обоих семестров.
+    grades: [{ from, to: `${year + 1}-01-31` }, { from: `${year + 1}-02-01`, to }]
+      .flatMap((semester) => (semester.from <= until ? gradeReport({ events, attendance, students, groups, ...semester, nowISO, nowTime }) : []))
+      .reduce((all, row) => {
+        const found = all.find((item) => item.name === row.name);
+        if (found) found.points += row.points;
+        else all.push({ name: row.name, group: row.group, points: row.points });
+        return all;
+      }, [])
+      .filter((row) => row.points > 0)
+      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'ru'))
+      .slice(0, 10),
   };
+}
+
+/* Грейд студента: баллы за семестр и звание */
+
+/** Баллы. День считается целиком: прогул в этот день −4, опоздание −2 (и +1 за то, что пришёл), иначе +1. */
+export const GRADE_POINTS = { day: 1, absent: -4, late: -2, task: 3, taskMissed: -2, event: 5, role: 2, practice: 2 };
+/** Болезнь без справки становится пропуском, если справку не принесли за неделю. */
+export const CERTIFICATE_DAYS = 7;
+/** Звания и сколько баллов за семестр для них нужно. */
+export const GRADE_LEVELS = [
+  { name: 'Junior', from: 0 },
+  { name: 'Junior+', from: 25 },
+  { name: 'Middle', from: 60 },
+  { name: 'Senior', from: 100 },
+  { name: 'Lead', from: 140 },
+  { name: 'Principal', from: 180 },
+];
+
+/** Семестр, в который входит день: с 1 сентября по 31 января и с 1 февраля по 31 августа. */
+export function semesterOf(iso) {
+  const year = Number(iso.slice(0, 4));
+  const md = iso.slice(5);
+  if (md >= '09-01') return { from: `${year}-09-01`, to: `${year + 1}-01-31` };
+  if (md <= '01-31') return { from: `${year - 1}-09-01`, to: `${year}-01-31` };
+  return { from: `${year}-02-01`, to: `${year}-08-31` };
+}
+
+export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) => points >= level.from);
+
+/**
+ * Баллы каждого студента за период. Возвращает строки с баллами, званием, разбивкой
+ * и днями, когда студент получил каждое новое звание (для поздравления в бегущей строке).
+ */
+export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime }) {
+  const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group?.name ?? '']));
+  const people = new Map(students.map((student) => [nameKey(student.name), {
+    name: student.name, group: groupOf.get(nameKey(student.name)) ?? '', changes: [], days: new Map(),
+  }]));
+  const add = (name, date, kind, points) => people.get(nameKey(name))?.changes.push({ date, kind, points });
+  const until = nowISO < to ? nowISO : to;
+  const held = events.filter((event) => isHeld(event) && event.date >= from && event.date <= until && hasEnded(event, nowISO, nowTime));
+
+  for (const event of held) {
+    if (event.type === 'lesson') {
+      for (const row of rollCall(event, docs.get(event.id), nowISO, nowTime, events)) {
+        const person = people.get(nameKey(row.name));
+        if (!person) continue;
+        if (!person.days.has(event.date)) person.days.set(event.date, { present: false, late: false, absent: false });
+        const day = person.days.get(event.date);
+        const overdueCertificate = row.status === 'sick' && row.unconfirmed && addDays(event.date, CERTIFICATE_DAYS) < nowISO;
+        if (row.status === 'absent' || overdueCertificate) day.absent = true;
+        else if (row.status === 'present') {
+          day.present = true;
+          if (row.late > 0) day.late = true;
+        }
+      }
+    } else if (event.type === 'event' && takesAttendance(event)) {
+      for (const row of rollCall(event, docs.get(event.id), nowISO, nowTime, events)) {
+        if (row.status !== 'present') continue;
+        add(row.name, event.date, 'event', GRADE_POINTS.event);
+        if (roleOf(event, row.name)) add(row.name, event.date, 'role', GRADE_POINTS.role);
+      }
+    } else if (event.type === 'practice') {
+      for (const name of event.participants) add(name, event.date, 'practice', GRADE_POINTS.practice);
+    }
+  }
+  // Задания со сдачей по студентам: сдал — плюс, срок прошёл, а не сдал — минус.
+  const moment = `${nowISO}T${nowTime}`;
+  for (const event of events) {
+    if (event.type !== 'task' || !event.deadline || !isHeld(event)) continue;
+    const date = event.deadline.slice(0, 10);
+    if (date < from || date > until) continue;
+    for (const name of event.participants) {
+      const status = handInOf(event, name);
+      if (status === 'done') add(name, date, 'task', GRADE_POINTS.task);
+      else if (event.deadline <= moment) add(name, date, 'taskMissed', GRADE_POINTS.taskMissed);
+    }
+  }
+
+  return [...people.values()].map((person) => {
+    for (const [date, day] of person.days) {
+      if (day.absent) person.changes.push({ date, kind: 'absent', points: GRADE_POINTS.absent });
+      else if (day.present) {
+        person.changes.push({ date, kind: 'day', points: GRADE_POINTS.day });
+        if (day.late) person.changes.push({ date, kind: 'late', points: GRADE_POINTS.late });
+      }
+    }
+    // Сумма по дням: ниже нуля не опускается, по ней видно, когда получено каждое звание.
+    const byDate = new Map();
+    for (const change of person.changes) byDate.set(change.date, (byDate.get(change.date) ?? 0) + change.points);
+    let points = 0;
+    let level = GRADE_LEVELS[0];
+    const levelUps = [];
+    for (const date of [...byDate.keys()].sort()) {
+      points = Math.max(0, points + byDate.get(date));
+      const reached = gradeLevel(points);
+      if (reached.from > level.from) levelUps.push({ level: reached.name, date });
+      if (reached.from > level.from) level = reached;
+    }
+    const breakdown = Object.fromEntries(Object.keys(GRADE_POINTS).map((kind) => [kind, person.changes.filter((c) => c.kind === kind).length]));
+    const current = gradeLevel(points);
+    const next = GRADE_LEVELS.find((item) => item.from > points) ?? null;
+    return { name: person.name, group: person.group, points, level: current.name, next: next ? { name: next.name, need: next.from - points } : null, breakdown, levelUps };
+  }).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'ru'));
 }
