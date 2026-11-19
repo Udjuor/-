@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -1848,6 +1848,10 @@ function groupsPane() {
           h('p', { class: 'help' }, t('Дату рождения можно вставить вторым столбцом из Excel: тем, кто уже в списке, она допишется. В день рождения бегущая строка поздравит, возраст нигде не показывается.')),
           refList(members.map((student) => refRow(student, {
             extra: [h('button', {
+              type: 'button',
+              class: 'plain fileopen',
+              onclick: () => openStudentFile(student.id),
+            }, t('Личное дело')), h('button', {
               type: 'button',
               class: 'plain portfolioopen',
               onclick: () => openPortfolio(student.id),
@@ -4734,7 +4738,7 @@ function chronicleSheet() {
   const clock = now();
   const data = yearChronicle({
     events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
-    achievements: refsOf('achievement'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
   });
   const day = (iso) => fmt(iso, { day: 'numeric', month: 'long' });
   const monthName = (month) => fmt(`${month}-01`, { month: 'long', year: 'numeric' });
@@ -4802,13 +4806,14 @@ function currentGrades() {
   const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
   if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
   const { from, to } = semesterOf(clock.iso);
-  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), from, to, nowISO: clock.iso, nowTime: clock.time });
+  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), from, to, nowISO: clock.iso, nowTime: clock.time });
   gradeCache = { key, rows };
   return rows;
 }
 
 /** Звания — названия грейдов из IT, одинаковые на всех языках. */
 const gradeName = (name) => name;
+const studentByName = (name) => refsOf('student').find((s) => nameKey(s.name) === nameKey(name));
 
 /** Поздравления с новым званием: три дня после того, как студент его получил. */
 function gradeItems() {
@@ -4842,11 +4847,13 @@ function drawGrades() {
       h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
       rows.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'gradetable' },
-          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика')]
+          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика'), t('Вручную'), canManage() ? '' : null].filter((name) => name !== null)
             .map((name) => h('th', { scope: 'col' }, name)))),
           h('tbody', {}, rows.map((row, index) => h('tr', {},
             h('td', {}, String(index + 1)),
-            h('td', {}, row.name),
+            h('td', {}, canManage() && studentByName(row.name)
+              ? h('button', { type: 'button', class: 'linkbutton', onclick: () => openStudentFile(studentByName(row.name).id) }, row.name)
+              : row.name),
             h('td', {}, row.group),
             h('td', {}, h('span', { class: `gradebadge level-${GRADE_LEVELS.findIndex((l) => l.name === row.level)}` }, gradeName(row.level))),
             h('td', { class: 'num' }, h('b', {}, String(row.points))),
@@ -4856,8 +4863,192 @@ function drawGrades() {
             h('td', { class: 'num' }, String(row.breakdown.late)),
             h('td', { class: 'num' }, `${row.breakdown.task}${row.breakdown.taskMissed ? ` / −${row.breakdown.taskMissed}` : ''}`),
             h('td', { class: 'num' }, String(row.breakdown.event)),
-            h('td', { class: 'num' }, String(row.breakdown.practice)))))))
+            h('td', { class: 'num' }, String(row.breakdown.practice)),
+            h('td', { class: 'num' }, signed(row.breakdown.manual)),
+            canManage() && studentByName(row.name) && h('td', {},
+              h('button', { type: 'button', class: 'plain small', 'aria-label': t('Баллы вручную: {0}', [row.name]), onclick: () => openBonus(studentByName(row.name).id) }, '±')))))))
         : h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))),
+  );
+}
+
+/** Ручные баллы со знаком: «+5», «−3», пусто для нуля. */
+const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '');
+
+/* Баллы грейда вручную: за олимпиаду, помощь, дежурство — или штраф. Только преподаватель. */
+
+const bonusState = { id: null, message: '' };
+
+function openBonus(studentId) {
+  bonusState.id = studentId;
+  bonusState.message = '';
+  drawBonus();
+  const dialog = $('gradebonus');
+  if (!dialog.open) dialog.showModal();
+  $('gb-points')?.focus();
+}
+
+function drawBonus() {
+  const dialog = $('gradebonus');
+  const student = state.directory.find((ref) => ref.id === bonusState.id);
+  if (!student) {
+    dialog.close();
+    return;
+  }
+  const { from, to } = semesterOf(now().iso);
+  const mine = refsOf('bonus')
+    .filter((item) => nameKey(item.student) === nameKey(student.name) && item.date >= from && item.date <= to)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const points = h('input', { id: 'gb-points', type: 'number', min: -100, max: 100, step: 1, required: true, placeholder: t('+5 или −3'), 'aria-label': t('Баллы') });
+  const reason = h('input', { id: 'gb-reason', required: true, maxlength: 200, placeholder: t('За что: олимпиада, помощь на мероприятии…'), 'aria-label': t('За что') });
+  const date = h('input', { id: 'gb-date', type: 'date', value: now().iso, min: from, max: now().iso, required: true, 'aria-label': t('Дата') });
+  const form = h('form', {
+    class: 'adder bonusadd',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const value = Number(points.value);
+      if (!Number.isInteger(value) || value === 0 || Math.abs(value) > 100) {
+        bonusState.message = t('Баллы — целое число от −100 до 100, не ноль.');
+        drawBonus();
+        return;
+      }
+      if (!reason.value.trim() || !date.value) return;
+      const saved = await api.saveRefs([{ ref: { kind: 'bonus', name: reason.value.trim(), student: student.name, date: date.value, points: value } }]);
+      bonusState.message = saved.ok ? '' : storeMessage(saved);
+      await loadDirectory();
+      drawBonus();
+      if ($('grade').open) drawGrades();
+      refreshTicker();
+    },
+  }, points, reason, date, h('button', { type: 'submit' }, t('Добавить')));
+  const total = mine.reduce((sum, item) => sum + item.points, 0);
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Баллы вручную: {0}', [student.name])),
+        h('p', { class: 'help' }, t('Плюс за то, что программа не видит сама, или минус за нарушение. Причину видят только преподаватели.'))),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      form,
+      bonusState.message && h('p', { class: 'message error' }, bonusState.message),
+      mine.length
+        ? [h('p', { class: 'help' }, t('В этом семестре вручную: {0}', [signed(total) || '0'])),
+          h('ul', { class: 'bonuslist' }, mine.map((item) => h('li', {},
+            h('span', { class: 'awarddate' }, shortDate(item.date)),
+            h('b', { class: item.points > 0 ? 'plus' : 'minus' }, signed(item.points)),
+            h('span', {}, item.name),
+            h('button', {
+              type: 'button',
+              class: 'plain small',
+              'aria-label': t('Удалить {0}', [item.name]),
+              onclick: async () => {
+                const removed = await api.removeRefs([{ id: item.id, base: item.updatedAt }]);
+                bonusState.message = removed.ok ? '' : storeMessage(removed);
+                await loadDirectory();
+                drawBonus();
+                if ($('grade').open) drawGrades();
+              },
+            }, '✕'))))]
+        : h('p', { class: 'free' }, t('В этом семестре ручных баллов нет.'))),
+  );
+}
+
+/* Личное дело студента: для аттестации, педсовета и родителей. Только на компьютерах преподавателей. */
+
+const fileState = { id: null, period: 'semester' };
+
+/** Периоды личного дела: этот семестр, прошлый, учебный год. */
+function filePeriod(kind) {
+  const today = now().iso;
+  const current = semesterOf(today);
+  if (kind === 'previous') return semesterOf(addDays(current.from, -1));
+  if (kind === 'year') {
+    const year = schoolYearOf(today);
+    return { from: `${year}-09-01`, to: `${year + 1}-08-31` };
+  }
+  return current;
+}
+
+function openStudentFile(studentId) {
+  fileState.id = studentId;
+  drawStudentFile();
+  const dialog = $('studentfile');
+  if (!dialog.open) dialog.showModal();
+}
+
+function studentFileSheet() {
+  const student = state.directory.find((ref) => ref.id === fileState.id);
+  if (!student) return h('p', { class: 'help' }, t('Студент не найден.'));
+  const clock = now();
+  const { from, to } = filePeriod(fileState.period);
+  const data = studentFile({
+    student, events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), from, to, nowISO: clock.iso, nowTime: clock.time,
+  });
+  const long = (iso) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
+  const a = data.attendance;
+  const weekdays = Array.from({ length: 6 }, (_, i) => fmt(addDays('2026-11-02', i), { weekday: 'short' }));
+  const taskState = { done: t('сдано'), open: t('в работе'), rework: t('на доработке'), 'rework-late': t('на доработке, срок прошёл'), missed: t('не сдано, срок прошёл') };
+  const table = (head, rows) => h('table', {}, h('thead', {}, h('tr', {}, head.map((name) => h('th', {}, name)))), h('tbody', {}, rows));
+  const fact = (label, value) => [h('dt', {}, label), h('dd', {}, value)];
+  return h('article', { class: 'paper filepaper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, t('Личное дело студента')),
+      h('h2', {}, student.name),
+      h('p', {}, t('За период с {0} по {1}', [long(data.from), long(data.to)]))),
+    h('dl', {},
+      fact(t('Группа'), groupOfStudent(student) || '—'),
+      student.birthday ? fact(t('Дата рождения'), long(student.birthday)) : [],
+      data.grade ? fact(t('Грейд'), t('{0}, баллов: {1}', [gradeName(data.grade.level), data.grade.points])) : []),
+
+    h('h3', {}, t('Посещаемость')),
+    a.total
+      ? [h('p', { class: 'filebig' },
+        h('b', {}, a.share === null ? '—' : `${a.share}%`), ' ',
+        t('пришёл из тех занятий, где должен был быть'),
+        data.groupShare !== null ? t(' (в среднем по группе {0}%)', [data.groupShare]) : ''),
+      h('table', { class: 'compact' }, h('thead', {}, h('tr', {}, [t('Отметок'), t('Пришёл'), t('Опоздал'), t('Прогулы'), t('Болел'), t('Без справки'), t('Приказ'), t('Уваж.')].map((name) => h('th', {}, name)))), h('tbody', {},
+        [h('tr', {}, [a.total, a.present, a.late, a.absent, a.sick, a.noCertificate, a.order, a.excused].map((n) => h('td', { class: 'num' }, String(n))))]))]
+      : h('p', { class: 'free' }, t('За этот период отметок нет.')),
+    data.lateness && [
+      h('p', {}, t('Опозданий: {0}, в среднем на {1} мин. Чаще всего: {2}.', [data.lateness.count, data.lateness.average, data.lateness.worstDays.map((d) => weekdays[d - 1]).join(', ')])),
+      table(weekdays, [h('tr', {}, data.lateness.byWeekday.slice(0, 6).map((n) => h('td', { class: 'num' }, n ? String(n) : '')))])],
+    data.certificates > 0 && h('p', { class: 'filewarn' }, t('Ждём справку о болезни: занятий без справки — {0}.', [data.certificates])),
+
+    h('h3', {}, t('Задания')),
+    data.tasks.length
+      ? table([t('Срок'), t('Задание'), t('Состояние')], data.tasks.map((task) => h('tr', { class: ['missed', 'rework-late'].includes(task.state) ? 'late' : '' },
+        h('td', {}, stampText(task.deadline)), h('td', {}, task.title), h('td', {}, taskState[task.state]))))
+      : h('p', { class: 'free' }, t('Заданий со сдачей за период не было.')),
+
+    data.grade && [h('h3', {}, t('Грейд')),
+      h('p', {}, t('Грейд {0}, баллов: {1}.', [gradeName(data.grade.level), data.grade.points]),
+        data.grade.next ? t(' До {0} — ещё {1}.', [gradeName(data.grade.next.name), data.grade.next.need]) : ''),
+      data.manual.length > 0 && table([t('Дата'), t('Баллы вручную'), t('За что')], data.manual.map((item) => h('tr', {},
+        h('td', {}, shortDate(item.date)), h('td', { class: 'num' }, signed(item.points)), h('td', {}, item.name)))),
+      data.grade.levelUps.length > 0 && h('p', {}, t('Получен: {0}', [data.grade.levelUps.map((up) => `${up.level} — ${fmt(up.date, { day: 'numeric', month: 'long' })}`).join('; ')]))],
+
+    h('h3', {}, t('Участие и достижения')),
+    data.items.length || data.awards.length
+      ? [data.items.length > 0 && table([t('Дата'), t('Вид'), t('Название'), t('Роль')], data.items.map((item) => h('tr', {},
+        h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.role)))),
+      data.awards.length > 0 && table([t('Дата'), t('Достижение'), t('Результат')], data.awards.map((item) => h('tr', {},
+        h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))]
+      : h('p', { class: 'free' }, t('За период участий и достижений нет.')),
+
+    h('footer', { class: 'filesign' },
+      h('p', {}, h('span', {}, t('Куратор')), h('i'), h('span', {}, t('подпись'))),
+      h('p', { class: 'weekfoot' }, t('Составлено в Kerdiis {0}', [long(clock.iso)]))));
+}
+
+function drawStudentFile() {
+  const dialog = $('studentfile');
+  const student = state.directory.find((ref) => ref.id === fileState.id);
+  const periods = [['semester', t('Этот семестр')], ['previous', t('Прошлый семестр')], ['year', t('Учебный год')]];
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Личное дело студента')), closeButton(dialog)),
+    h('div', { class: 'tabs weektools', role: 'group', 'aria-label': t('Период') },
+      periods.map(([id, label]) => h('button', { type: 'button', class: fileState.period === id ? 'active' : '', 'aria-pressed': String(fileState.period === id), onclick: () => { fileState.period = id; drawStudentFile(); } }, label))),
+    h('div', { class: 'sheetbody paperview' }, studentFileSheet()),
+    h('div', { class: 'sheetfoot' }, printButtons(studentFileSheet, () => t('Личное дело {0}.pdf', [student?.name ?? '']))),
   );
 }
 
@@ -4883,7 +5074,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals', 'groupweek', 'chronicle', 'grade'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals', 'groupweek', 'chronicle', 'grade', 'studentfile'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;

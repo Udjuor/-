@@ -1026,8 +1026,34 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .gradetable td.num, .gradetable th:nth-child(n+5) { text-align: center; }
 .gradebadge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-weight: 600; font-size: .9rem; color: #fff; }
 .gradebadge.level-0 { background: #6e7781; }
-.gradebadge.level-1 { background: #1f883d; }
-.gradebadge.level-2 { background: #0969da; }
-.gradebadge.level-3 { background: #8250df; }
-.gradebadge.level-4 { background: #bf3989; }
-.gradebadge.level-5 { background: linear-gradient(90deg, #9a6700, #d4a72c); }
+.gradebadge.level-1 { background: #2da44e; }
+.gradebadge.level-2 { background: #1a7f37; }
+.gradebadge.level-3 { background: #218bff; }
+.gradebadge.level-4 { background: #0550ae; }
+.gradebadge.level-5 { background: #8250df; }
+.gradebadge.level-6 { background: #bf3989; }
+.gradebadge.level-7 { background: linear-gradient(90deg, #9a6700, #d4a72c); }
+
+/* Личное дело студента */
+.filepaper table { margin: 2mm 0 3mm; font-size: 10pt; }
+.filepaper td.num { text-align: center; }
+.filepaper table.compact { font-size: 9pt; table-layout: fixed; width: 100%; }
+.filepaper table.compact th { padding: 1mm .5mm; white-space: normal; word-break: normal; hyphens: auto; }
+.filebig b { font-size: 18pt; }
+.filewarn { font-weight: 600; }
+.filepaper tr.late td { color: #000; font-weight: 600; }
+.filesign { margin-top: 8mm; }
+.filesign > p:first-child { display: flex; gap: 4mm; align-items: flex-end; }
+.filesign i { flex: 1; border-bottom: .5pt solid #000; height: 5mm; }
+
+/* Баллы грейда вручную */
+.bonusadd { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
+.bonusadd input { min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.bonusadd #gb-points { flex: 0 0 9rem; }
+.bonusadd #gb-reason { flex: 2 1 16rem; }
+.bonuslist { list-style: none; margin: 0; padding: 0; }
+.bonuslist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; padding: .4rem 0; border-bottom: .05rem solid var(--border); }
+.bonuslist b { min-width: 3rem; font-variant-numeric: tabular-nums; }
+.bonuslist b.plus { color: var(--success-fg, #3fb950); }
+.bonuslist b.minus { color: var(--danger-fg); }
+.bonuslist li button { margin-left: auto; }

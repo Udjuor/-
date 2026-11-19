@@ -800,18 +800,68 @@ test('грейд: баллы по дням, задания, мероприяти
   assert.equal(early['Вера'].breakdown.practice, 1);
   const late = report('2026-11-20');
   assert.equal(late['Вера'].breakdown.absent, 2, 'справку не принесли за неделю — пропуск');
-  assert.equal(early['Аня'].level, 'Junior');
-  assert.equal(early['Аня'].next.name, 'Junior+');
-  assert.equal(early['Аня'].next.need, 25 - 12);
+  assert.equal(early['Аня'].level, 'Intern');
+  assert.equal(early['Аня'].next.name, 'Junior');
+  assert.equal(early['Аня'].next.need, 15 - 12);
 
   // Звание и день, когда оно получено.
   const many = Array.from({ length: 30 }, (_, i) => pair(`d${i}`, L.addDays('2026-09-01', i)));
   const marks = many.map((event) => ({ eventId: event.id, marks: { Аня: { status: 'present', at: at(event.date, '09:00') } } }));
   const rows = L.gradeReport({ events: many, attendance: marks, students, groups, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
   const anya = rows.find((r) => r.name === 'Аня');
-  assert.deepEqual([anya.points, anya.level, anya.levelUps], [30, 'Junior+', [{ level: 'Junior+', date: '2026-09-25' }]]);
+  assert.deepEqual([anya.points, anya.level, anya.levelUps], [30, 'Junior', [{ level: 'Junior', date: '2026-09-15' }]]);
   assert.equal(rows[0].name, 'Аня', 'по убыванию баллов');
   assert.deepEqual(L.semesterOf('2026-11-19'), { from: '2026-09-01', to: '2027-01-31' });
   assert.deepEqual(L.semesterOf('2027-01-15'), { from: '2026-09-01', to: '2027-01-31' });
   assert.deepEqual(L.semesterOf('2027-03-01'), { from: '2027-02-01', to: '2027-08-31' });
+});
+
+test('личное дело: посещаемость, опоздания, справки, задания, грейд и участие за период', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const at = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const lesson = (id, date) => ({ id, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:00', participants: ['Аня', 'Боря'], equipment: [] });
+  const events = [lesson('l1', '2026-11-02'), lesson('l2', '2026-11-03'), lesson('l3', '2026-11-04'), lesson('old', '2026-03-02'),
+    { id: 't1', type: 'task', title: 'Монтаж', date: '2026-11-02', start: '10:00', end: '11:00', participants: ['Аня'], deadline: '2026-11-05T18:00', handIn: { 'Аня': 'rework' }, equipment: [] },
+    { id: 'e1', type: 'event', title: 'Концерт', date: '2026-11-04', start: '15:00', end: '16:00', participants: ['Аня'], roles: { 'Аня': 'Ведущий' }, equipment: [] }];
+  const attendance = [
+    { eventId: 'l1', marks: { Аня: { status: 'present', at: at('2026-11-02', '09:20') }, Боря: { status: 'present', at: at('2026-11-02', '09:00') } } },
+    { eventId: 'l2', marks: { Аня: { status: 'absent', at: at('2026-11-03', '09:00') }, Боря: { status: 'present', at: at('2026-11-03', '09:00') } } },
+    { eventId: 'l3', marks: { Аня: { status: 'sick', confirmed: false, at: at('2026-11-04', '09:00') }, Боря: { status: 'present', at: at('2026-11-04', '09:00') } } },
+    { eventId: 'e1', marks: { Аня: { status: 'present', at: at('2026-11-04', '15:00') } } },
+  ];
+  const file = L.studentFile({ student: students[0], events, attendance, students, groups, achievements: [{ student: 'Аня', name: 'Олимпиада', result: '2 место', date: '2026-10-10' }],
+    from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-10', nowTime: '12:00' });
+  assert.deepEqual([file.attendance.total, file.attendance.present, file.attendance.late, file.attendance.absent, file.attendance.sick, file.attendance.share], [4, 2, 1, 1, 1, 67]);
+  assert.equal(file.lateness.count, 1);
+  assert.deepEqual(file.lateness.worstDays, [1], 'понедельник');
+  assert.equal(file.certificates, 1);
+  assert.deepEqual(file.tasks.map((task) => [task.title, task.state]), [['Монтаж', 'rework-late']]);
+  assert.ok(file.grade && file.grade.level);
+  assert.deepEqual(file.items.map((item) => [item.title, item.role]), [['Концерт', 'Ведущий'], ['Монтаж', '']]);
+  assert.deepEqual(file.awards.map((item) => item.name), ['Олимпиада']);
+  assert.equal(file.to, '2026-11-10', 'период — до сегодняшнего дня');
+});
+
+test('грейд: баллы вручную — плюс и минус, по дате, в звании и в личном деле', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const bonuses = [
+    { student: 'Аня', name: 'Олимпиада', date: '2026-10-01', points: 20 },
+    { student: 'аня', name: 'Помощь', date: '2026-10-05', points: 5 },
+    { student: 'Боря', name: 'Нарушение', date: '2026-10-02', points: -10 },
+    { student: 'Аня', name: 'Прошлый семестр', date: '2026-05-01', points: 50 },
+    { student: 'Аня', name: 'Будущее', date: '2026-12-01', points: 50 },
+  ];
+  const rows = Object.fromEntries(L.gradeReport({ events: [], attendance: [], students, groups, bonuses, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' }).map((r) => [r.name, r]));
+  assert.equal(rows['Аня'].points, 25, 'только этот семестр и не позже сегодня, имя без учёта регистра');
+  assert.equal(rows['Аня'].breakdown.manual, 25);
+  assert.equal(rows['Аня'].level, 'Junior');
+  assert.deepEqual(rows['Аня'].levelUps, [{ level: 'Junior', date: '2026-10-01' }]);
+  assert.equal(rows['Боря'].points, 0, 'ниже нуля не опускается');
+  assert.equal(rows['Боря'].breakdown.manual, -10);
+  const file = L.studentFile({ student: students[0], events: [], attendance: [], students, groups, achievements: [], bonuses,
+    from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
+  assert.deepEqual(file.manual.map((item) => [item.name, item.points]), [['Олимпиада', 20], ['Помощь', 5]]);
+  assert.equal(file.grade.points, 25);
 });

@@ -232,6 +232,8 @@ const today = (() => {
   await page.click('#open-sections');
   await page.click('#open-grade');
   await page.waitForSelector('#grade[open] h2:has-text("Грейд студентов")');
+  assert.equal(await page.locator('#grade .gradetable .linkbutton').count(), 0, 'личное дело на панели не открывается');
+  assert.equal(await page.locator('#grade .gradetable button:has-text("±")').count(), 0, 'баллы вручную на панели не добавляют');
   await page.click('#grade [aria-label=Закрыть]');
 
   // Табло перемены: через минуту без касаний панель показывает следующее в аудитории, касание убирает.

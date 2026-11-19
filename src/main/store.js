@@ -139,7 +139,7 @@ const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'mo
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
 const HAND_IN = new Set(['done', 'rework']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
@@ -195,6 +195,13 @@ function normalizeRef(raw) {
     ref.date = DATE_RE.test(raw.date ?? '') ? raw.date : '';
     ref.result = String(raw.result ?? '').trim().slice(0, 200);
     if (!ref.student || !ref.date) return null;
+  }
+  if (raw.kind === 'bonus') {
+    // Баллы грейда вручную: за что — в name, студент, дата и сколько (от −100 до +100, не ноль).
+    ref.student = String(raw.student ?? '').trim().slice(0, 200);
+    ref.date = DATE_RE.test(raw.date ?? '') ? raw.date : '';
+    ref.points = Number.isInteger(raw.points) && raw.points !== 0 && Math.abs(raw.points) <= 100 ? raw.points : 0;
+    if (!ref.student || !ref.date || !ref.points) return null;
   }
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);

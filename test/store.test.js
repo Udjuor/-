@@ -595,6 +595,15 @@ test('день рождения хранится у студентов и пре
   assert.equal(teacher.birthday, '', 'только в виде ГГГГ-ММ-ДД');
 });
 
+test('баллы грейда вручную: студент, дата, целое число от −100 до 100', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const bonus = await store.saveRef({ kind: 'bonus', name: 'Олимпиада', student: 'Иванов Иван', date: '2026-11-03', points: -7 });
+  assert.deepEqual([bonus.kind, bonus.name, bonus.student, bonus.date, bonus.points], ['bonus', 'Олимпиада', 'Иванов Иван', '2026-11-03', -7]);
+  for (const bad of [{ points: 0 }, { points: 101 }, { points: 2.5 }, { points: '5' }, { date: '' }, { student: '' }]) {
+    await assert.rejects(store.saveRef({ kind: 'bonus', name: 'X', student: 'Иванов Иван', date: '2026-11-03', points: 5, ...bad }));
+  }
+});
+
 test('изменения с панели: предложение, замена, утверждение и отклонение', async (t) => {
   const dir = tempDir(t);
   const teacher = new EventStore(dir, 'teacher-1');

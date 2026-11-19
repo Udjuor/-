@@ -1018,9 +1018,38 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Грейд студентов: баллы за семестр и звания, виден всем.
   await openSection('#open-grade');
   await page.waitForSelector('#grade[open] .gradetable tbody tr');
-  assert.match(await page.textContent('#grade .gradetable tbody tr:first-child'), /Junior|Middle|Senior|Lead|Principal/);
+  assert.match(await page.textContent('#grade .gradetable tbody tr:first-child'), /Intern|Junior|Middle|Senior|Lead|Principal/);
   await page.selectOption('#gr-group', 'ИС-21');
+  // Баллы вручную: преподаватель добавляет +10 за олимпиаду последнему в списке.
+  const lastRow = '#grade .gradetable tbody tr:last-child';
+  const bonusName = (await page.textContent(`${lastRow} .linkbutton`)).trim();
+  const pointsBefore = Number(await page.textContent(`${lastRow} td:nth-child(5)`));
+  await page.click(`${lastRow} button:has-text("±")`);
+  await page.waitForSelector('#gradebonus[open] #gb-points');
+  await page.fill('#gb-points', '0');
+  await page.fill('#gb-reason', 'Олимпиада по программированию');
+  await page.click('#gradebonus button[type=submit]');
+  await page.waitForSelector('#gradebonus .message.error');
+  await page.fill('#gb-points', '10');
+  await page.fill('#gb-reason', 'Олимпиада по программированию');
+  await page.click('#gradebonus button[type=submit]');
+  await page.waitForSelector('#gradebonus .bonuslist li:has-text("Олимпиада по программированию")');
+  assert.match(await page.textContent('#gradebonus .bonuslist'), /\+10/);
+  await shot('gradebonus');
+  await page.click('#gradebonus [aria-label=Закрыть]');
+  const bonusRow = page.locator('#grade .gradetable tbody tr', { has: page.locator(`.linkbutton:text-is("${bonusName}")`) });
+  assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10, 'баллы выросли на 10');
+  assert.equal((await bonusRow.locator('td:nth-child(13)').textContent()).trim(), '+10');
   await shot('grade');
+  // Из грейда преподаватель открывает личное дело студента.
+  await bonusRow.locator('.linkbutton').click();
+  await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Олимпиада по программированию")');
+  await page.waitForSelector('#studentfile[open] .filepaper h2');
+  await page.waitForSelector('#studentfile .filepaper h3:has-text("Посещаемость")');
+  await page.click('#studentfile .tabs button:has-text("Учебный год")');
+  await page.waitForSelector('#studentfile .tabs button[aria-pressed=true]:has-text("Учебный год")');
+  await shot('studentfile');
+  await page.click('#studentfile [aria-label=Закрыть]');
   await page.click('#grade [aria-label=Закрыть]');
 
   // Сроки сдачи.

@@ -1118,7 +1118,7 @@ export function bestGroupOfMonth({ events, attendance, students, groups, nowISO,
 export const schoolYearOf = (iso) => (iso.slice(5) >= '09-01' ? Number(iso.slice(0, 4)) : Number(iso.slice(0, 4)) - 1);
 
 /** Итоги учебного года: что прошло, кто участвовал, кто в каких ролях, лучшие группы и достижения. */
-export function yearChronicle({ events, attendance, students, groups, achievements, year, nowISO, nowTime }) {
+export function yearChronicle({ events, attendance, students, groups, achievements, year, nowISO, nowTime, bonuses = [] }) {
   const from = `${year}-09-01`;
   const to = `${year + 1}-08-31`;
   const until = nowISO < to ? nowISO : to;
@@ -1172,7 +1172,7 @@ export function yearChronicle({ events, attendance, students, groups, achievemen
     awards: achievements.filter((item) => item.date >= from && item.date <= until).sort((a, b) => a.date.localeCompare(b.date)),
     // Лучшие по грейду за год: сумма баллов обоих семестров.
     grades: [{ from, to: `${year + 1}-01-31` }, { from: `${year + 1}-02-01`, to }]
-      .flatMap((semester) => (semester.from <= until ? gradeReport({ events, attendance, students, groups, ...semester, nowISO, nowTime }) : []))
+      .flatMap((semester) => (semester.from <= until ? gradeReport({ events, attendance, students, groups, ...semester, nowISO, nowTime, bonuses }) : []))
       .reduce((all, row) => {
         const found = all.find((item) => item.name === row.name);
         if (found) found.points += row.points;
@@ -1193,11 +1193,13 @@ export const GRADE_POINTS = { day: 1, absent: -4, late: -2, task: 3, taskMissed:
 export const CERTIFICATE_DAYS = 7;
 /** Звания и сколько баллов за семестр для них нужно. */
 export const GRADE_LEVELS = [
-  { name: 'Junior', from: 0 },
-  { name: 'Junior+', from: 25 },
+  { name: 'Intern', from: 0 },
+  { name: 'Junior', from: 15 },
+  { name: 'Junior+', from: 35 },
   { name: 'Middle', from: 60 },
-  { name: 'Senior', from: 100 },
-  { name: 'Lead', from: 140 },
+  { name: 'Middle+', from: 85 },
+  { name: 'Senior', from: 110 },
+  { name: 'Lead', from: 145 },
   { name: 'Principal', from: 180 },
 ];
 
@@ -1216,7 +1218,7 @@ export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) =
  * Баллы каждого студента за период. Возвращает строки с баллами, званием, разбивкой
  * и днями, когда студент получил каждое новое звание (для поздравления в бегущей строке).
  */
-export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime }) {
+export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses = [] }) {
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group?.name ?? '']));
   const people = new Map(students.map((student) => [nameKey(student.name), {
@@ -1263,6 +1265,11 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
     }
   }
 
+  // Баллы, добавленные или снятые преподавателем вручную.
+  for (const bonus of bonuses) {
+    if (bonus.date >= from && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points);
+  }
+
   return [...people.values()].map((person) => {
     for (const [date, day] of person.days) {
       if (day.absent) person.changes.push({ date, kind: 'absent', points: GRADE_POINTS.absent });
@@ -1284,8 +1291,53 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
       if (reached.from > level.from) level = reached;
     }
     const breakdown = Object.fromEntries(Object.keys(GRADE_POINTS).map((kind) => [kind, person.changes.filter((c) => c.kind === kind).length]));
+    breakdown.manual = person.changes.filter((c) => c.kind === 'manual').reduce((sum, c) => sum + c.points, 0);
     const current = gradeLevel(points);
     const next = GRADE_LEVELS.find((item) => item.from > points) ?? null;
     return { name: person.name, group: person.group, points, level: current.name, next: next ? { name: next.name, need: next.from - points } : null, breakdown, levelUps };
   }).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'ru'));
+}
+
+/* Личное дело студента */
+
+/**
+ * Всё о студенте за период одним листом: посещаемость, опоздания по дням недели, справки,
+ * задания, грейд, участие и достижения. Без контактов и записей — только то, что считает программа.
+ */
+export function studentFile({ student, events, attendance, students, groups, achievements, from, to, nowISO, nowTime, bonuses = [] }) {
+  const key = nameKey(student.name);
+  const until = nowISO < to ? nowISO : to;
+  const report = buildReport({ events, attendance, students, groups, filters: { from, to: until, types: [...MARKED_TYPES] }, nowISO, nowTime });
+  const row = report.students.find((item) => nameKey(item.name) === key)
+    ?? { total: 0, present: 0, late: 0, sick: 0, noCertificate: 0, order: 0, excused: 0, absent: 0, percent: null };
+  const late = report.lateness.find((item) => nameKey(item.name) === key) ?? null;
+  const groupRow = report.groups.find((item) => item.name === row.group);
+
+  const moment = `${nowISO}T${nowTime}`;
+  const tasks = events
+    .filter((event) => event.type === 'task' && event.deadline && isHeld(event) && event.deadline.slice(0, 10) >= from && event.deadline.slice(0, 10) <= to
+      && event.participants.some((name) => nameKey(name) === key))
+    .map((event) => {
+      const own = handInOf(event, student.name);
+      const state = own === 'done' ? 'done' : event.deadline <= moment ? (own === 'rework' ? 'rework-late' : 'missed') : (own === 'rework' ? 'rework' : 'open');
+      return { title: event.title, deadline: event.deadline, state };
+    })
+    .sort((a, b) => a.deadline.localeCompare(b.deadline));
+
+  const grade = gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses }).find((item) => nameKey(item.name) === key) ?? null;
+  const manual = bonuses.filter((bonus) => nameKey(bonus.student) === key && bonus.date >= from && bonus.date <= until).sort((a, b) => a.date.localeCompare(b.date));
+  const work = portfolio({ name: student.name, events, attendance, achievements, nowISO, nowTime });
+  return {
+    from,
+    to: until,
+    attendance: { ...row, share: row.present + row.absent ? Math.round((row.present / (row.present + row.absent)) * 100) : null },
+    groupShare: groupRow && groupRow.present + groupRow.absent ? Math.round((groupRow.present / (groupRow.present + groupRow.absent)) * 100) : null,
+    lateness: late ? { count: late.late, average: late.average, byWeekday: late.byWeekday, worstDays: late.worstDays } : null,
+    certificates: pendingCertificates(attendance, events).find((person) => nameKey(person.name) === key)?.classes.length ?? 0,
+    tasks,
+    grade,
+    items: work.items.filter((item) => item.date >= from && item.date <= to),
+    awards: work.awards.filter((item) => item.date >= from && item.date <= to),
+    manual,
+  };
 }
