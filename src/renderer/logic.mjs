@@ -1055,3 +1055,120 @@ export function pickGreeting(name, iso, count) {
   for (const char of `${name}|${iso}`) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
   return hash % count;
 }
+
+/* Расписание группы на неделю */
+
+/** События группы (хотя бы один её студент участвует) с понедельника по субботу, по дням. */
+export function groupWeek({ events, group, groups, students, monday }) {
+  const members = new Set(groupMembers(group, groups, students).map((student) => nameKey(student.name)));
+  const days = Array.from({ length: 6 }, (_, i) => ({ date: addDays(monday, i), events: [] }));
+  for (const event of events) {
+    const day = days.find((d) => d.date === event.date);
+    if (day && event.participants.some((name) => members.has(nameKey(name)))) day.events.push(event);
+  }
+  for (const day of days) day.events.sort(byTime);
+  return days;
+}
+
+/* Табло перемены на панели */
+
+/** Что показать на панели между парами: ближайшее событие сегодня или в ближайшие дни. Во время пары — ничего. */
+export function breakBoard(events, nowISO, nowTime) {
+  const held = events.filter(isHeld).sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b));
+  const today = held.filter((event) => event.date === nowISO && !event.allDay);
+  if (today.some((event) => event.start <= nowTime && event.end > nowTime)) return null;
+  const next = today.find((event) => event.start > nowTime);
+  if (next) return { next, minutes: toMinutes(next.start) - toMinutes(nowTime), today: true };
+  const later = held.find((event) => event.date > nowISO && event.date <= addDays(nowISO, 3) && !event.allDay);
+  return later ? { next: later, minutes: null, today: false } : { next: null, minutes: null, today: false };
+}
+
+/* Лучшая группа месяца */
+
+/** Посещаемость без учёта уважительных причин: пришли из тех, кто должен был прийти. */
+const presentShare = (row) => (row.present + row.absent ? row.present / (row.present + row.absent) : null);
+
+/** Лучшие группы за период: только конечные группы (без подгрупп) и с достаточным числом отметок. */
+export function groupRanking({ events, attendance, students, groups, from, to, nowISO, nowTime, minMarks = 20 }) {
+  const report = buildReport({ events, attendance, students, groups, filters: { from, to, types: [...MARKED_TYPES] }, nowISO, nowTime });
+  const parents = new Set(groups.map((group) => parentGroup(group, groups)?.name).filter(Boolean));
+  return report.groups
+    .filter((row) => !parents.has(row.name) && groups.some((group) => group.name === row.name) && row.present + row.absent >= minMarks)
+    .map((row) => ({ name: row.name, share: presentShare(row), marks: row.present + row.absent }))
+    .sort((a, b) => b.share - a.share || b.marks - a.marks || a.name.localeCompare(b.name, 'ru'));
+}
+
+/** Ниже этой посещаемости лучшую группу не объявляем: хвалить не за что. */
+export const BEST_GROUP_MIN = 75;
+
+/** Лучшая группа прошлого месяца: объявляется первую неделю нового месяца. */
+export function bestGroupOfMonth({ events, attendance, students, groups, nowISO, nowTime }) {
+  if (Number(nowISO.slice(8, 10)) > 7) return null;
+  const firstOfThis = `${nowISO.slice(0, 7)}-01`;
+  const from = `${addDays(firstOfThis, -1).slice(0, 7)}-01`;
+  const to = addDays(firstOfThis, -1);
+  const [best] = groupRanking({ events, attendance, students, groups, from, to, nowISO, nowTime });
+  if (!best || best.share * 100 < BEST_GROUP_MIN) return null;
+  return { ...best, month: from.slice(0, 7), percent: Math.round(best.share * 100) };
+}
+
+/* Летопись года */
+
+/** Начало учебного года: 1 сентября того же или прошлого года. */
+export const schoolYearOf = (iso) => (iso.slice(5) >= '09-01' ? Number(iso.slice(0, 4)) : Number(iso.slice(0, 4)) - 1);
+
+/** Итоги учебного года: что прошло, кто участвовал, кто в каких ролях, лучшие группы и достижения. */
+export function yearChronicle({ events, attendance, students, groups, achievements, year, nowISO, nowTime }) {
+  const from = `${year}-09-01`;
+  const to = `${year + 1}-08-31`;
+  const until = nowISO < to ? nowISO : to;
+  const held = events.filter((event) => isHeld(event) && event.date >= from && event.date <= until && hasEnded(event, nowISO, nowTime));
+  const counts = Object.fromEntries(EVENT_TYPES.map(([type]) => [type, held.filter((event) => event.type === type).length]));
+  const marked = groupRanking({ events, attendance, students, groups, from, to: until, nowISO, nowTime, minMarks: 1 });
+  const totals = marked.reduce((sum, row) => ({ present: sum.present + row.share * row.marks, marks: sum.marks + row.marks }), { present: 0, marks: 0 });
+
+  // Кто чаще всех участвовал в заданиях, практике и мероприятиях и в каких ролях.
+  const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group?.name ?? '']));
+  const people = new Map();
+  for (const event of held.filter((item) => PORTFOLIO_TYPES.includes(item.type))) {
+    for (const name of event.participants) {
+      const key = nameKey(name);
+      if (!people.has(key)) people.set(key, { name, group: groupOf.get(key) ?? '', count: 0, roles: {} });
+      const person = people.get(key);
+      person.count += 1;
+      const role = roleOf(event, name);
+      if (role) person.roles[role] = (person.roles[role] ?? 0) + 1;
+    }
+  }
+  const active = [...people.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')).slice(0, 10);
+
+  // Кто чаще всех был в каждой роли (по прошедшим событиям, как и активность).
+  const roles = [...new Set([...people.values()].flatMap((person) => Object.keys(person.roles)))].sort((a, b) => a.localeCompare(b, 'ru'));
+  const roleLeaders = roles.map((role) => {
+    const [leader] = [...people.values()].filter((person) => person.roles[role]).sort((a, b) => b.roles[role] - a.roles[role] || a.name.localeCompare(b.name, 'ru'));
+    return { role, name: leader.name, count: leader.roles[role] };
+  });
+
+  // Лучшая группа каждого месяца.
+  const months = [];
+  for (let month = from; month <= until; month = `${addDays(`${month.slice(0, 7)}-28`, 7).slice(0, 7)}-01`) {
+    const end = addDays(`${addDays(`${month.slice(0, 7)}-28`, 7).slice(0, 7)}-01`, -1);
+    const [best] = groupRanking({ events, attendance, students, groups, from: month, to: end < until ? end : until, nowISO, nowTime });
+    if (best) months.push({ month: month.slice(0, 7), name: best.name, percent: Math.round(best.share * 100) });
+  }
+
+  return {
+    from,
+    to: until,
+    counts,
+    attendance: totals.marks ? Math.round((totals.present / totals.marks) * 100) : null,
+    events: held.filter((event) => event.type === 'event').sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b))
+      .map((event) => ({ date: event.date, title: event.title, people: event.participants.length, responsible: event.responsible ?? '' })),
+    active,
+    roleLeaders,
+    groups: groupRanking({ events, attendance, students, groups, from, to: until, nowISO, nowTime, minMarks: 50 }).slice(0, 5)
+      .map((row) => ({ name: row.name, percent: Math.round(row.share * 100), marks: row.marks })),
+    months,
+    awards: achievements.filter((item) => item.date >= from && item.date <= until).sort((a, b) => a.date.localeCompare(b.date)),
+  };
+}

@@ -999,6 +999,22 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#rolestats [aria-label=Закрыть]');
   await page.click('#catalog [aria-label=Закрыть]');
 
+  // Расписание группы на неделю: лист для доски объявлений.
+  await openSection('#open-groupweek');
+  await page.waitForSelector('#groupweek[open] .weekpaper h2:has-text("неделя с")');
+  assert.equal(await page.locator('#groupweek .weekday').count(), 6, 'с понедельника по субботу');
+  await page.click('#gw-next');
+  await page.click('#gw-this');
+  await shot('groupweek');
+  await page.click('#groupweek [aria-label=Закрыть]');
+
+  // Летопись года.
+  await openSection('#open-chronicle');
+  await page.waitForSelector('#chronicle[open] .yearnumbers li:has-text("занятий")');
+  assert.match(await page.textContent('#chronicle .paper h2'), /2026–2027 учебный год/);
+  await shot('chronicle');
+  await page.click('#chronicle [aria-label=Закрыть]');
+
   // Сроки сдачи.
   await page.click('#today');
   await page.click('#add');

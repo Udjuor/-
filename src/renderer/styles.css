@@ -987,3 +987,37 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
   .garlanditem, .garlanditem path { animation: none !important; }
   #snow { display: none; }
 }
+
+/* Расписание группы на неделю и летопись года: лист для печати */
+.weektools { display: flex; flex-wrap: wrap; gap: .5rem; padding: .6rem 1.25rem 0; }
+.weektools select { min-width: 12rem; min-height: 2.75rem; font-size: 1rem; }
+.weekpaper { page: wide; max-width: 270mm; }
+.weekgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+.weekday { break-inside: avoid; border: .5pt solid #000; padding: 2mm 3mm; min-height: 40mm; }
+.weekday h3 { margin: 0 0 2mm; font-size: 12pt; }
+.weekday ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 1.6mm; }
+.weekday li { display: grid; grid-template-columns: 24mm 1fr; column-gap: 2mm; }
+.weekday li .what { font-weight: 600; overflow-wrap: anywhere; }
+.weekday li .meta { grid-column: 2; color: #444; font-size: 9pt; }
+.weekday li.cancelled .what { text-decoration: line-through; }
+.weekday .free { color: #666; margin: 0; }
+.weekfoot { margin-top: 4mm; color: #666; font-size: 8.5pt; }
+.chroniclepaper table { margin-bottom: 3mm; font-size: 10pt; }
+.yearnumbers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2mm 6mm; margin: 0; padding: 0; list-style: none; }
+.yearnumbers li { display: flex; align-items: baseline; gap: 2mm; }
+.yearnumbers b { font-size: 20pt; }
+.chroniclepaper .free { color: #666; }
+
+/* Табло перемены на панели: поверх календаря, любое касание убирает. */
+#breakboard { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--canvas); color: var(--fg); cursor: pointer; }
+#breakboard[hidden] { display: none; }
+.boardinner { display: grid; justify-items: center; gap: 1.2rem; max-width: 90vw; text-align: center; }
+.boardroom { margin: 0; color: var(--fg-muted); font-size: 2.4rem; }
+.boardclock { font-size: 7rem; font-weight: 600; line-height: 1; }
+.boardlabel { margin: 1.5rem 0 0; color: var(--fg-muted); font-size: 2rem; }
+.boardtitle { margin: 0; padding-left: 1.2rem; border-left: .6rem solid var(--type, var(--accent-fg)); font-size: 4.2rem; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+.boardwhen { margin: 0; font-size: 3rem; color: var(--accent-fg); }
+.boardmeta { margin: 0; font-size: 2rem; color: var(--fg-muted); }
+.boardhint { margin-top: 2rem; color: var(--fg-muted); font-size: 1.2rem; }
+/* Лучшая группа месяца: золотая плашка в бегущей строке. */
+.notice-trophy { background: linear-gradient(90deg, #9a6700, #d4a72c, #9a6700); color: #fff; }

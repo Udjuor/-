@@ -228,6 +228,13 @@ const today = (() => {
   assert.match(await page.textContent('#roll .rollrow:has-text("Иванов")'), /Нет отметки|Нажмите/);
   await page.click('#roll [aria-label=Закрыть]');
 
+  // Табло перемены: через минуту без касаний панель показывает следующее в аудитории, касание убирает.
+  await page.clock.setFixedTime(new Date(`${today}T20:30`));
+  await page.waitForSelector('#breakboard:not([hidden]) .boardroom:has-text("Ауд. 101")', { timeout: 15000 });
+  await shot('client-breakboard');
+  await page.mouse.click(400, 400);
+  await page.waitForSelector('#breakboard', { state: 'hidden' });
+
   // В настройках только язык, размер и версия.
   await page.click('#settings');
   await page.waitForSelector('#preferences[open]');

@@ -708,3 +708,65 @@ test('дни рождения: разбор дат, обращение, позд
   assert.deepEqual(L.birthdaysOn(refs, '2028-02-28'), [], 'в високосный — в свой день');
   assert.equal(L.pickGreeting('Иван Иванов', '2026-11-17', 8), L.pickGreeting('Иван Иванов', '2026-11-17', 8));
 });
+
+test('расписание группы на неделю, табло перемены, лучшая группа и летопись', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }, { id: 'g2', kind: 'group', name: 'ИС-22' }];
+  const students = [
+    ...['Аня', 'Боря', 'Вера', 'Гена'].map((name, i) => ({ id: `a${i}`, kind: 'student', name, groupId: 'g1' })),
+    ...['Дина', 'Егор', 'Жора', 'Зоя'].map((name, i) => ({ id: `b${i}`, kind: 'student', name, groupId: 'g2' })),
+  ];
+  const lesson = (id, date, start, end, participants, extra = {}) => ({ id, type: 'lesson', title: `Пара ${id}`, date, start, end, participants, equipment: [], ...extra });
+  const g1 = ['Аня', 'Боря', 'Вера', 'Гена'];
+  const g2 = ['Дина', 'Егор', 'Жора', 'Зоя'];
+  // Неделя 2 – 7 ноября 2026: понедельник 2 ноября.
+  const week = L.groupWeek({ events: [lesson('w1', '2026-11-03', '10:00', '11:30', g1), lesson('w0', '2026-11-03', '08:30', '10:00', ['Аня']), lesson('w2', '2026-11-03', '12:00', '13:00', g2), lesson('w3', '2026-11-09', '10:00', '11:00', g1)],
+    group: groups[0], groups, students, monday: '2026-11-02' });
+  assert.equal(week.length, 6);
+  assert.deepEqual(week[1].events.map((e) => e.id), ['w0', 'w1'], 'свои пары по времени, чужие и вне недели — нет');
+
+  const room = [lesson('r1', '2026-11-03', '09:00', '10:30', g1), lesson('r2', '2026-11-03', '12:00', '13:30', g1), lesson('r3', '2026-11-05', '09:00', '10:00', g1)];
+  assert.equal(L.breakBoard(room, '2026-11-03', '10:00'), null, 'во время пары табло нет');
+  assert.deepEqual([L.breakBoard(room, '2026-11-03', '11:20').next.id, L.breakBoard(room, '2026-11-03', '11:20').minutes], ['r2', 40]);
+  assert.deepEqual([L.breakBoard(room, '2026-11-03', '14:00').next.id, L.breakBoard(room, '2026-11-03', '14:00').today], ['r3', false]);
+  assert.equal(L.breakBoard(room, '2026-11-06', '09:00').next, null);
+
+  // Октябрь: ИС-21 ходит лучше ИС-22, у обеих по 20+ отметок.
+  const events = [];
+  const attendance = [];
+  for (let d = 1; d <= 6; d += 1) {
+    const date = `2026-10-${String(d).padStart(2, '0')}`;
+    for (const [id, names, absent] of [[`a${d}`, g1, []], [`b${d}`, g2, ['Зоя', 'Жора']]]) {
+      events.push(lesson(id, date, '09:00', '10:00', names));
+      attendance.push({ eventId: id, marks: Object.fromEntries(names.filter((n) => !absent.includes(n)).map((n) => [n, { status: 'present', at: `${date}T00:00:00.000Z` }])) });
+    }
+  }
+  events.push({ id: 'ev', type: 'event', title: 'Концерт', date: '2026-10-10', start: '15:00', end: '17:00', participants: ['Аня', 'Дина'], roles: { 'Аня': 'Ведущий' }, equipment: [] });
+  const best = L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-03', nowTime: '12:00' });
+  assert.deepEqual([best.name, best.percent, best.month], ['ИС-21', 96, '2026-10'], 'концерт без отметок — пропуск');
+  assert.equal(L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-10', nowTime: '12:00' }), null, 'объявляется первую неделю');
+  assert.equal(L.schoolYearOf('2026-11-03'), 2026);
+  assert.equal(L.schoolYearOf('2027-03-03'), 2026);
+  const year = L.yearChronicle({ events, attendance, students, groups, achievements: [{ student: 'Аня', name: 'Олимпиада', result: '1 место', date: '2026-10-20' }, { student: 'Аня', name: 'Старое', date: '2025-05-01' }], year: 2026, nowISO: '2026-11-03', nowTime: '12:00' });
+  assert.equal(year.counts.lesson, 12);
+  assert.equal(year.counts.event, 1);
+  assert.equal(year.attendance, 72, '(24 + 12) из 50');
+  assert.deepEqual(year.events.map((e) => [e.title, e.people]), [['Концерт', 2]]);
+  assert.deepEqual(year.active.map((p) => [p.name, p.count, p.roles['Ведущий'] ?? 0]), [['Аня', 1, 1], ['Дина', 1, 0]]);
+  assert.deepEqual(year.roleLeaders, [{ role: 'Ведущий', name: 'Аня', count: 1 }]);
+  assert.deepEqual(year.months.map((m) => [m.month, m.name]), [['2026-10', 'ИС-21']]);
+  assert.deepEqual(year.awards.map((a) => a.name), ['Олимпиада']);
+});
+
+test('лучшую группу с низкой посещаемостью не объявляем', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const names = ['Аня', 'Боря', 'Вера', 'Гена'];
+  const students = names.map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const events = [];
+  const attendance = [];
+  for (let d = 1; d <= 6; d += 1) {
+    const date = `2026-10-0${d}`;
+    events.push({ id: `e${d}`, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:00', participants: names, equipment: [] });
+    attendance.push({ eventId: `e${d}`, marks: { Аня: { status: 'present', at: `${date}T00:00:00.000Z` }, Боря: { status: 'present', at: `${date}T00:00:00.000Z` } } });
+  }
+  assert.equal(L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-02', nowTime: '12:00' }), null, '50% — не повод для похвалы');
+});

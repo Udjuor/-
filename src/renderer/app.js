@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -2131,7 +2131,7 @@ const canManage = () => !isClient();
 
 /** Клиент на панели не показывает разделы преподавателя. Запрет проверяется и в основном процессе. */
 function applyEdition() {
-  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal']) $(id).hidden = isClient();
+  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal', 'open-chronicle']) $(id).hidden = isClient();
 }
 
 /* Отметки на паре */
@@ -3401,7 +3401,7 @@ function petItems() {
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
   const holiday = holidayGreeting(state.skin, now().iso);
-  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -4612,6 +4612,180 @@ async function openNetCheck() {
   await run();
 }
 
+/* Расписание группы на неделю для доски объявлений */
+
+const weekPrint = { groupId: '', monday: '' };
+
+function openGroupWeek() {
+  const groups = refsOf('group');
+  if (!weekPrint.groupId || !groups.some((g) => g.id === weekPrint.groupId)) weekPrint.groupId = groups[0]?.id ?? '';
+  weekPrint.monday = weekStart(state.date);
+  drawGroupWeek();
+  $('groupweek').showModal();
+}
+
+function groupWeekSheet() {
+  const group = refsOf('group').find((g) => g.id === weekPrint.groupId);
+  if (!group) return h('p', { class: 'help' }, t('Добавьте группы и студентов в «Справочниках».'));
+  const days = groupWeek({ events: state.allEvents, group, groups: refsOf('group'), students: refsOf('student'), monday: weekPrint.monday });
+  const saturday = addDays(weekPrint.monday, 5);
+  return h('article', { class: 'paper weekpaper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, t('Расписание группы')),
+      h('h2', {}, t('{0}: неделя с {1} по {2}', [group.name, shortDay(weekPrint.monday), fmt(saturday, { day: 'numeric', month: 'long', year: 'numeric' })]))),
+    h('div', { class: 'weekgrid' }, days.map((day) => h('section', { class: 'weekday' },
+      h('h3', {}, capitalize(fmt(day.date, { weekday: 'long', day: 'numeric', month: 'long' }))),
+      day.events.length
+        ? h('ul', {}, day.events.map((event) => h('li', { class: event.cancelled ? 'cancelled' : '' },
+          h('b', {}, event.allDay ? t('Весь день') : `${event.start}–${event.end}`),
+          h('span', { class: 'what' }, event.title),
+          h('span', { class: 'meta' }, [event.type !== 'lesson' && typeLabel(event.type), event.place, event.responsible, event.cancelled && t('не состоится')].filter(Boolean).join(', ')))))
+        : h('p', { class: 'free' }, t('Нет занятий'))))),
+    h('footer', { class: 'weekfoot' }, h('p', {}, t('Составлено в Kerdiis {0}', [fmt(now().iso, { day: 'numeric', month: 'long', year: 'numeric' })]))));
+}
+
+function drawGroupWeek() {
+  const dialog = $('groupweek');
+  const select = h('select', { id: 'gw-group', 'aria-label': t('Группа'), onchange: (e) => { weekPrint.groupId = e.target.value; drawGroupWeek(); } },
+    refsOf('group').map((g) => h('option', { value: g.id, selected: g.id === weekPrint.groupId }, g.name)));
+  const move = (days) => { weekPrint.monday = addDays(weekPrint.monday, days); drawGroupWeek(); };
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Расписание группы')), closeButton(dialog)),
+    h('div', { class: 'targets weektools' },
+      select,
+      h('button', { type: 'button', class: 'plain', id: 'gw-prev', onclick: () => move(-7) }, t('Прошлая неделя')),
+      h('button', { type: 'button', class: 'plain', id: 'gw-this', onclick: () => { weekPrint.monday = weekStart(now().iso); drawGroupWeek(); } }, t('Эта неделя')),
+      h('button', { type: 'button', class: 'plain', id: 'gw-next', onclick: () => move(7) }, t('Следующая неделя'))),
+    h('div', { class: 'sheetbody paperview' }, groupWeekSheet()),
+    h('div', { class: 'sheetfoot' }, printButtons(groupWeekSheet, () => {
+      const group = refsOf('group').find((g) => g.id === weekPrint.groupId);
+      return t('Расписание {0} {1}.pdf', [group?.name ?? '', weekPrint.monday]);
+    })),
+  );
+}
+
+/* Табло перемены на панели */
+
+/** Сколько секунд без касаний, прежде чем панель покажет табло. */
+const BOARD_IDLE_SECONDS = 60;
+let lastTouch = Date.now();
+
+function touched() {
+  lastTouch = Date.now();
+  if (!$('breakboard').hidden) $('breakboard').hidden = true;
+}
+
+/** Между парами панель крупно показывает, что будет в аудитории дальше. Любое касание убирает табло. */
+function refreshBoard() {
+  const box = $('breakboard');
+  const clock = now();
+  const anyOpen = document.querySelector('dialog[open]');
+  const board = isClient() && !anyOpen && Date.now() - lastTouch >= BOARD_IDLE_SECONDS * 1000
+    ? breakBoard(state.events, clock.iso, clock.time) : null;
+  if (!board) {
+    box.hidden = true;
+    return;
+  }
+  const { next } = board;
+  const when = !next ? ''
+    : board.today
+      ? (board.minutes <= 60 ? t('через {0} мин, в {1}', [board.minutes, next.start]) : t('сегодня в {0}', [next.start]))
+      : t('{0} в {1}', [fmt(next.date, { weekday: 'long', day: 'numeric', month: 'long' }), next.start]);
+  box.replaceChildren(
+    h('div', { class: 'boardinner' },
+      h('p', { class: 'boardroom' }, state.settings.deviceName || t('Аудитория')),
+      h('time', { class: 'boardclock' }, clock.time),
+      next
+        ? [h('p', { class: 'boardlabel' }, board.today ? t('Следующее в этой аудитории') : t('Сегодня здесь больше ничего нет. Ближайшее')),
+          h('p', { class: `boardtitle t-${next.type}` }, next.title),
+          h('p', { class: 'boardwhen' }, when),
+          h('p', { class: 'boardmeta' }, [typeLabel(next.type), next.responsible].filter(Boolean).join(' · '))]
+        : h('p', { class: 'boardlabel' }, t('В ближайшие дни в этой аудитории ничего не запланировано')),
+      h('p', { class: 'boardhint' }, t('Коснитесь экрана, чтобы открыть календарь'))),
+  );
+  box.hidden = false;
+}
+
+/* Лучшая группа месяца */
+
+function bestGroupItems() {
+  const clock = now();
+  const best = bestGroupOfMonth({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), nowISO: clock.iso, nowTime: clock.time });
+  if (!best) return [];
+  const month = fmt(`${best.month}-01`, { month: 'long' });
+  return [{ id: `best-${best.month}`, color: 'trophy', name: t('🏆 Лучшая группа за {0} — {1}: посещаемость {2}%! Так держать!', [month, best.name, best.percent]) }];
+}
+
+/* Летопись года */
+
+let chronicleYear = null;
+
+function openChronicle() {
+  chronicleYear = chronicleYear ?? schoolYearOf(now().iso);
+  drawChronicle();
+  $('chronicle').showModal();
+}
+
+function chronicleSheet() {
+  const clock = now();
+  const data = yearChronicle({
+    events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
+    achievements: refsOf('achievement'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
+  });
+  const day = (iso) => fmt(iso, { day: 'numeric', month: 'long' });
+  const monthName = (month) => fmt(`${month}-01`, { month: 'long', year: 'numeric' });
+  const table = (head, rows) => h('table', {}, h('thead', {}, h('tr', {}, head.map((name) => h('th', {}, name)))), h('tbody', {}, rows));
+  const nothing = (text) => h('p', { class: 'free' }, text);
+  return h('article', { class: 'paper chroniclepaper' },
+    h('header', {},
+      h('p', { class: 'kicker' }, t('Летопись года')),
+      h('h2', {}, t('{0}–{1} учебный год', [chronicleYear, chronicleYear + 1])),
+      h('p', {}, t('С {0} по {1}', [fmt(data.from, { day: 'numeric', month: 'long', year: 'numeric' }), fmt(data.to, { day: 'numeric', month: 'long', year: 'numeric' })]))),
+    h('h3', {}, t('Год в цифрах')),
+    h('ul', { class: 'yearnumbers' },
+      h('li', {}, h('b', {}, String(data.counts.lesson)), t('занятий')),
+      h('li', {}, h('b', {}, String(data.counts.event)), t('мероприятий')),
+      h('li', {}, h('b', {}, String(data.counts.practice)), t('практик')),
+      h('li', {}, h('b', {}, String(data.counts.task)), t('заданий')),
+      h('li', {}, h('b', {}, String(data.counts.meeting)), t('собраний')),
+      data.attendance !== null && h('li', {}, h('b', {}, `${data.attendance}%`), t('посещаемость'))),
+    h('h3', {}, t('Мероприятия года')),
+    data.events.length
+      ? table([t('Дата'), t('Мероприятие'), t('Участников'), t('Ответственный')], data.events.map((e) => h('tr', {}, h('td', {}, day(e.date)), h('td', {}, e.title), h('td', {}, String(e.people)), h('td', {}, e.responsible))))
+      : nothing(t('Мероприятий пока не было.')),
+    h('h3', {}, t('Самые активные студенты')),
+    data.active.length
+      ? table([t('Студент'), t('Группа'), t('Участий'), t('Роли')], data.active.map((p) => h('tr', {}, h('td', {}, p.name), h('td', {}, p.group), h('td', {}, String(p.count)),
+        h('td', {}, Object.entries(p.roles).map(([role, n]) => (n > 1 ? `${role} ×${n}` : role)).join(', ')))))
+      : nothing(t('Участий в заданиях, практике и мероприятиях пока нет.')),
+    data.roleLeaders.length > 0 && [h('h3', {}, t('Лидеры по ролям')),
+      table([t('Роль'), t('Студент'), t('Раз')], data.roleLeaders.map((r) => h('tr', {}, h('td', {}, r.role), h('td', {}, r.name), h('td', {}, String(r.count)))))],
+    h('h3', {}, t('Лучшие группы по посещаемости')),
+    data.groups.length
+      ? table([t('Группа'), t('Посещаемость'), t('Отметок')], data.groups.map((g) => h('tr', {}, h('td', {}, g.name), h('td', {}, `${g.percent}%`), h('td', {}, String(g.marks)))))
+      : nothing(t('Отметок пока мало для сравнения.')),
+    data.months.length > 0 && [h('h3', {}, t('Лучшая группа каждого месяца')),
+      table([t('Месяц'), t('Группа'), t('Посещаемость')], data.months.map((m) => h('tr', {}, h('td', {}, monthName(m.month)), h('td', {}, m.name), h('td', {}, `${m.percent}%`))))],
+    data.awards.length > 0 && [h('h3', {}, t('Достижения студентов')),
+      table([t('Дата'), t('Студент'), t('Достижение'), t('Результат')], data.awards.map((a) => h('tr', {}, h('td', {}, day(a.date)), h('td', {}, a.student), h('td', {}, a.name), h('td', {}, a.result))))],
+    h('footer', { class: 'weekfoot' }, h('p', {}, t('Составлено в Kerdiis {0}', [fmt(clock.iso, { day: 'numeric', month: 'long', year: 'numeric' })]))));
+}
+
+function drawChronicle() {
+  const dialog = $('chronicle');
+  const first = state.allEvents.reduce((min, e) => (e.date < min ? e.date : min), now().iso);
+  const years = [];
+  for (let y = schoolYearOf(now().iso); y >= schoolYearOf(first); y -= 1) years.push(y);
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Летопись года')), closeButton(dialog)),
+    h('div', { class: 'targets weektools' },
+      h('select', { id: 'ch-year', 'aria-label': t('Учебный год'), onchange: (e) => { chronicleYear = Number(e.target.value); drawChronicle(); } },
+        years.map((y) => h('option', { value: y, selected: y === chronicleYear }, t('{0}–{1} учебный год', [y, y + 1]))))),
+    h('div', { class: 'sheetbody paperview' }, chronicleSheet()),
+    h('div', { class: 'sheetfoot' }, printButtons(chronicleSheet, () => t('Летопись {0}-{1}.pdf', [chronicleYear, chronicleYear + 1]))),
+  );
+}
+
 /* Часы и фоновая работа */
 
 function tick() {
@@ -4634,7 +4808,7 @@ function tick() {
 /** Панель общая: после паузы возвращается к текущей неделе. */
 function resetIdle() {
   state.lastActivity = Date.now();
-  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals'].some((id) => $(id).open)) return;
+  if (['form', 'preferences', 'catalog', 'roll', 'reports', 'paper', 'pet', 'memo', 'welcome', 'gear', 'notices', 'deadlines', 'journal', 'netcheck', 'handin', 'rolestats', 'proposals', 'groupweek', 'chronicle'].some((id) => $(id).open)) return;
   if ($('details').open) $('details').close();
   state.view = 'week';
   state.date = now().iso;
@@ -4662,6 +4836,11 @@ function wire() {
     if (event.target.closest('button')) $('sections').hidePopover();
   });
   $('open-gear').addEventListener('click', openGear);
+  $('open-groupweek').addEventListener('click', openGroupWeek);
+  $('open-chronicle').addEventListener('click', openChronicle);
+  // Табло перемены: любое касание или нажатие убирает его и откладывает на минуту.
+  for (const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, touched, { capture: true, passive: true });
+  setInterval(refreshBoard, 5000);
   $('open-proposals').addEventListener('click', () => openProposals());
   $('open-deadlines').addEventListener('click', openDeadlines);
   $('open-journal').addEventListener('click', openJournal);
