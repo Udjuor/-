@@ -639,3 +639,24 @@ test('праздничное оформление общее: одна запи�
   await teacher.setSkin('off');
   assert.equal(await teacher.skin(), 'off');
 });
+
+test('с панели практика и мероприятие ждут согласования: флаг ставит программа, снимает только утверждение', async (t) => {
+  const dir = tempDir(t);
+  const panel = new EventStore(dir, 'panel-1', { deviceName: () => 'Ауд. 204' });
+  const teacher = new EventStore(dir, 'teacher-1');
+  const added = await panel.save({ ...sample, type: 'event' }, null, { pending: true });
+  assert.deepEqual([added.pending, added.pendingFrom], [true, 'Ауд. 204']);
+  const own = await teacher.save({ ...sample, type: 'event', pending: true });
+  assert.equal('pending' in own, false, 'присланный флаг не учитывается');
+  const edited = await teacher.save({ ...added, title: 'Олимпиада по сетям', pending: false }, added.updatedAt);
+  assert.equal(edited.pending, true, 'правка не снимает согласование');
+  await assert.rejects(teacher.saveMark(edited.id, 'Иванов', 'present'), { code: 'pending' });
+  const approved = await teacher.approve(edited.id, edited.updatedAt);
+  assert.equal('pending' in approved, false);
+  await assert.rejects(teacher.approve(approved.id, approved.updatedAt), { code: 'not-found' });
+  const other = await panel.save({ ...sample, type: 'practice' }, null, { pending: true });
+  await teacher.decline(other.id, other.updatedAt);
+  assert.equal((await teacher.list()).some((event) => event.id === other.id), false);
+  const actions = (await teacher.changes()).map((entry) => entry.action);
+  assert.ok(actions.includes('approve') && actions.includes('decline'));
+});

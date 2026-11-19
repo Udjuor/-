@@ -227,6 +227,11 @@ main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .block.cancelled { border-style: dashed; border-left-style: solid; background: var(--canvas-subtle); color: var(--fg-muted); }
 .block.cancelled strong { text-decoration: line-through; }
 .blockcancelled { color: var(--danger-fg); font-weight: 600; }
+/* Добавлено с панели и ждёт согласования */
+.block.pending { border-style: dashed; border-left-style: solid; background-image: repeating-linear-gradient(135deg, transparent 0 .5rem, rgb(210 153 34 / .12) .5rem 1rem); }
+.blockpending { color: #d29922; font-weight: 600; }
+.pendingnote { border-left: .25rem solid #d29922; }
+.pendinglist { margin-bottom: 1.2rem; }
 .cancelfield { flex: 1 1 100%; }
 .block.past { border-color: var(--border); border-left-color: var(--type); background: var(--canvas-subtle); color: var(--fg-muted); }
 .block.now { border-color: var(--now-ring); border-left-color: var(--now-ring); background: var(--type); color: #fff; }
@@ -697,7 +702,7 @@ dialog#welcome { width: min(40rem, 94vw); }
   to { transform: translateX(var(--to, -100%)); }
 }
 
-.notice { display: block; height: 1.8rem; padding: 0 .7rem; border-radius: .3rem; color: #fff; font-size: 1.1rem; font-weight: 600; line-height: 1.8rem; white-space: nowrap; }
+.tickertrack .notice { display: block; margin: 0; border: 0; height: 1.8rem; padding: 0 .7rem; border-radius: .3rem; color: #fff; font-size: 1.1rem; font-weight: 600; line-height: 1.8rem; white-space: nowrap; }
 .notice-blue { background: #1f6feb; }
 .notice-green { background: #1a7f37; }
 .notice-yellow { background: #9a6700; }

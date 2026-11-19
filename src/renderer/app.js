@@ -117,9 +117,10 @@ function eventBlock(item, range, dayView) {
   }
   const excusedCount = event.cancelled ? 0 : roll(event).filter((row) => row.excusedFor).length;
   if (excusedCount) details.splice(2, 0, h('span', { class: 'blockexcused' }, t('По приказу: {0}', [excusedCount])));
+  if (event.pending) details.splice(1, 0, h('span', { class: 'blockpending' }, t('На согласовании')));
   if (event.cancelled) details.splice(1, 0, h('span', { class: 'blockcancelled' }, event.cancelReason ? t('Не состоялось: {0}', [event.cancelReason]) : t('Не состоялось')));
   const block = h('button', {
-    class: `block t-${event.type} ${status}${event.cancelled ? ' cancelled' : ''}${!dayView && columns > 1 ? ' narrow' : ''}`,
+    class: `block t-${event.type} ${status}${event.cancelled ? ' cancelled' : ''}${event.pending ? ' pending' : ''}${!dayView && columns > 1 ? ' narrow' : ''}`,
     'aria-label': eventLabel(event),
     onclick: (e) => { e.stopPropagation(); openEvent(event.id); },
   }, details);
@@ -541,6 +542,7 @@ const refsOf = (kind) => state.directory
 function setEvents(all) {
   state.allEvents = all;
   state.events = all.filter((e) => visibleOn(e, state.settings.deviceId, state.settings.showAll));
+  updateApprovals();
 }
 
 async function loadDevices() {
@@ -570,7 +572,11 @@ const storeMessage = (result) => (result.code === 'conflict'
         ? t('Это можно сделать только в версии для преподавателей.')
         : result.code === 'cancelled'
           ? t('Занятие не состоялось: отметки на нём не ставятся.')
-          : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
+          : result.code === 'pending'
+            ? t('Событие ещё не согласовано преподавателем: отметки появятся после согласования.')
+            : result.code === 'not-found'
+              ? t('Уже рассмотрено на другом устройстве.')
+              : t('Не удалось сохранить на этом компьютере. Попробуйте ещё раз.'));
 
 /* Карточка мероприятия */
 
@@ -650,9 +656,42 @@ async function loadProposals() {
   if (!result.ok) return;
   const changed = JSON.stringify(result.value) !== JSON.stringify(state.proposals);
   state.proposals = result.value;
-  $('open-proposals').hidden = !canManage() || !state.proposals.length;
-  $('proposal-count').textContent = String(state.proposals.length);
+  updateApprovals();
   if (changed && $('proposals').open) drawProposals();
+}
+
+/** Добавленные студентами с панели практика и мероприятия: ждут согласования. Ближайшие сверху. */
+const pendingEvents = () => state.allEvents.filter((event) => event.pending)
+  .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+
+let approvalsCount = -1;
+
+/** Кнопка «На утверждение»: правки и новые события с панелей вместе. */
+function updateApprovals() {
+  const button = $('open-proposals');
+  if (!button) return;
+  const count = (state.proposals?.length ?? 0) + pendingEvents().length;
+  button.hidden = !canManage() || !count;
+  $('proposal-count').textContent = String(count);
+  if (count !== approvalsCount && $('proposals').open) {
+    approvalsCount = count;
+    drawProposals();
+  }
+  approvalsCount = count;
+}
+
+/** Согласовать или отклонить событие, добавленное с панели. */
+async function resolvePending(event, approve) {
+  const result = approve ? await api.approveEvent(event.id, event.updatedAt) : await api.declineEvent(event.id, event.updatedAt);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return false;
+  }
+  const rest = state.allEvents.filter((x) => x.id !== event.id);
+  setEvents(approve ? [...rest, result.value] : rest);
+  render();
+  toast(approve ? t('Согласовано: {0}', [event.title]) : t('Отклонено и удалено: {0}', [event.title]));
+  return true;
 }
 
 /** В карточке: изменения ждут утверждения. */
@@ -688,10 +727,36 @@ function drawProposals() {
     }
     await loadProposals();
     if (proposalFocus && !proposalsFor(proposalFocus).length) proposalFocus = null;
-    if (!state.proposals.length) dialog.close();
+    if (!state.proposals.length && !pendingEvents().length) dialog.close();
     else drawProposals();
   };
+  const pending = proposalFocus ? [] : pendingEvents();
+  const decide = async (event, approve) => {
+    if (!(await resolvePending(event, approve))) return;
+    if (!state.proposals.length && !pendingEvents().length) dialog.close();
+    else drawProposals();
+  };
+  const fresh = pending.length > 0 && h('div', { class: 'pendinglist' },
+    h('h3', {}, t('Новые с панелей: {0}', [pending.length])),
+    pending.map((event) => h('section', { class: 'proposal', 'data-pending': event.id },
+      h('h3', {}, event.title),
+      h('p', { class: 'help' }, t('{0}. Добавлено с устройства «{1}»', [
+        `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`,
+        event.pendingFrom || t('панель'),
+      ])),
+      h('ul', { class: 'jfields' },
+        event.place && h('li', {}, h('span', { class: 'jfield' }, t('Место')), h('span', {}, event.place)),
+        event.responsible && h('li', {}, h('span', { class: 'jfield' }, t('Ответственный')), h('span', {}, event.responsible)),
+        event.participants.length > 0 && h('li', {}, h('span', { class: 'jfield' }, t('Участники')), h('span', {}, event.participants.join(', '))),
+        event.equipment.length > 0 && h('li', {}, h('span', { class: 'jfield' }, t('Техника')), h('span', {}, event.equipment.map((name) => gearLabel(event, name)).join(', '))),
+        event.notes && h('li', {}, h('span', { class: 'jfield' }, t('Примечание')), h('span', {}, event.notes))),
+      h('div', { class: 'targets' },
+        h('button', { type: 'button', class: 'primary', 'data-approve-event': event.id, onclick: () => decide(event, true) }, t('Согласовать')),
+        h('button', { type: 'button', class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
+        h('button', { type: 'button', class: 'plain', 'data-decline-event': event.id, onclick: () => decide(event, false) }, t('Отклонить'))))));
   const body = h('div', { class: 'sheetbody' },
+    fresh,
+    pending.length > 0 && list.length > 0 && h('h3', {}, t('Изменения: {0}', [list.length])),
     list.length ? list.map((proposal) => {
       const event = state.allEvents.find((e) => e.id === proposal.eventId);
       // Сравниваем с тем, что записано сейчас: событие могли поменять после предложения.
@@ -708,11 +773,11 @@ function drawProposals() {
         h('div', { class: 'targets' },
           h('button', { type: 'button', class: 'primary', 'data-approve': proposal.id, onclick: () => resolve(proposal, true) }, t('Утвердить')),
           h('button', { type: 'button', class: 'plain', 'data-decline': proposal.id, onclick: () => resolve(proposal, false) }, t('Отклонить'))));
-    }) : h('p', { class: 'help' }, t('Изменений на утверждение нет.')));
+    }) : !pending.length && h('p', { class: 'help' }, t('Изменений на утверждение нет.')));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Изменения на утверждение')), closeButton(dialog)),
     h('div', { class: 'sheetbody' },
-      h('p', { class: 'help' }, t('С панелей в аудиториях мероприятия и задания не меняются сразу: изменения ждут здесь. Утвердите или отклоните их.')),
+      h('p', { class: 'help' }, t('С панелей в аудиториях ничего не меняется сразу: новые практики и мероприятия от студентов и правки ждут здесь. Утвердите или отклоните их.')),
       body),
   );
 }
@@ -740,12 +805,19 @@ function showDetails(id) {
   const footer = h('div', { class: 'sheetfoot' });
   const excused = roll(event).filter((row) => row.excusedFor);
 
-  const showActions = () => footer.replaceChildren(
+  // Добавлено с панели и ждёт согласования: преподаватель согласует, правит или отклоняет, панель только смотрит.
+  const showPending = () => footer.replaceChildren(
+    canManage() && h('button', { class: 'primary', id: 'approve-event', onclick: async () => { if (await resolvePending(event, true)) { dialog.close(); showDetails(event.id); } } }, t('Согласовать')),
+    canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
+    h('div', { class: 'spacer' }),
+    canManage() && h('button', { class: 'plain', id: 'decline-event', onclick: async () => { if (await resolvePending(event, false)) dialog.close(); } }, t('Отклонить')),
+  );
+  const showActions = () => (event.pending ? showPending() : footer.replaceChildren(
     canManage() && h('button', { class: 'plain', onclick: () => { dialog.close(); openForm(event); } }, t('Изменить')),
     // На панели мероприятие и задание не меняют сразу, а предлагают изменения преподавателю.
     isClient() && PROPOSAL_TYPES.includes(event.type) && h('button', { class: 'plain', id: 'propose-event', onclick: () => { dialog.close(); openForm(event); } }, t('Предложить изменения')),
     canManage() && proposalsFor(event.id).length > 0 && h('button', { class: 'primary', id: 'review-proposal', onclick: () => { dialog.close(); openProposals(event.id); } }, t('Рассмотреть изменения')),
-    event.participants.length > 0 && !event.cancelled && takesAttendance(event) && h('button', {
+    event.participants.length > 0 && !event.cancelled && !event.pending && takesAttendance(event) && h('button', {
       class: 'primary',
       onclick: () => { dialog.close(); openRoll(event.id); },
     }, t('Отметка: {0} из {1}', [countPresent(event), event.participants.length])),
@@ -770,7 +842,7 @@ function showDetails(id) {
       : h('button', { class: 'plain', id: 'cancel-event', onclick: showCancel }, t('Не состоялось'))),
     h('div', { class: 'spacer' }),
     canManage() && h('button', { class: 'plain', onclick: showConfirm }, t('Удалить')),
-  );
+  ));
 
   // Занятие не состоялось: причина по желанию, отметки и отчёты его больше не учитывают.
   const setCancelled = async (target, cancelled, reason = '') => {
@@ -845,6 +917,9 @@ function showDetails(id) {
         event.offsite ? fact(t('Отметка'), t('Проходит вне колледжа: отметки вносит преподаватель в версии для преподавателей')) : [],
         fact(t('Ответственный'), event.responsible || t('Не указан')),
         fact(t('Показывать на'), event.devices.map(deviceName).join(', '))),
+      event.pending && h('p', { class: 'notice pendingnote' }, canManage()
+        ? t('Добавлено с устройства «{0}» и ждёт согласования. До согласования не учитывается в отметках, грейде и отчётах.', [event.pendingFrom || t('панель')])
+        : t('Ждёт согласования преподавателем. Отметки появятся после согласования.')),
       proposalNote(event),
       decisionsSection(event),
       listGroup(t('Участники: {0}', [event.participants.length]), event.participants.map((name) => roleText(event, name)), true),
@@ -1368,7 +1443,8 @@ async function openForm(source = {}) {
 
   // На панели правка мероприятия или задания уходит преподавателю на утверждение.
   const proposing = isClient() && Boolean(source.id);
-  const save = h('button', { class: 'primary', type: 'submit' }, proposing ? t('Отправить на утверждение') : source.id ? t('Сохранить') : t('Добавить событие'));
+  // Новое с панели (практика или мероприятие от студентов) тоже ждёт согласования преподавателя.
+  const save = h('button', { class: 'primary', type: 'submit' }, proposing ? t('Отправить на утверждение') : source.id ? t('Сохранить') : isClient() ? t('Отправить на согласование') : t('Добавить событие'));
 
   const finish = (date) => {
     state.date = date;
@@ -1387,7 +1463,7 @@ async function openForm(source = {}) {
     }
     setEvents([...state.allEvents, ...result.value]);
     finish(event.date);
-    toast(t('Добавлено событий: {0}', [result.value.length]));
+    toast(isClient() ? t('Отправлено на согласование преподавателю: {0}', [tp('events', result.value.length)]) : t('Добавлено событий: {0}', [result.value.length]));
     if (canManage() && needsMemo(result.value[0], source)) createMemo(result.value[0]);
   };
 
@@ -1470,7 +1546,8 @@ async function openForm(source = {}) {
       state.date = result.value.date;
       dialog.close();
       render();
-      if (event.devices.length) toast(t('Событие отправлено: {0}', [event.devices.map(deviceName).join(', ')]));
+      if (result.value.pending && !source.id) toast(t('Отправлено на согласование преподавателю. До согласования событие видно с пометкой «На согласовании».'));
+      else if (event.devices.length) toast(t('Событие отправлено: {0}', [event.devices.map(deviceName).join(', ')]));
       if (canManage() && needsMemo(result.value, source)) createMemo(result.value);
     },
   },
@@ -2159,7 +2236,7 @@ const stampText = (at) => new Date(at).toLocaleString(locale(), { day: 'numeric'
 function openRoll(id) {
   const dialog = $('roll');
   const event = state.allEvents.find((e) => e.id === id);
-  if (!event || !takesAttendance(event)) return;
+  if (!event || !takesAttendance(event) || event.pending) return;
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
   const autoBox = h('div', { class: 'autobox', hidden: true });

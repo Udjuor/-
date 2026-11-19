@@ -311,7 +311,8 @@ function registerHandlers() {
   ipcMain.handle('events:save', (_e, event, base) => {
     const save = async () => {
       if (!panelAllowed(event)) throw teacherOnly();
-      const saved = await store.save(event, base);
+      // Добавленное с панели ждёт согласования преподавателем.
+      const saved = await store.save(event, base, { pending: edition === 'client' });
       sync?.nudge();
       return saved;
     };
@@ -325,7 +326,7 @@ function registerHandlers() {
     }
     if (!events.every(panelAllowed)) throw teacherOnly();
     const saved = [];
-    for (const event of events) saved.push(await store.save(event, null, { journal: saved.length === 0 && events.length === 1 }));
+    for (const event of events) saved.push(await store.save(event, null, { journal: saved.length === 0 && events.length === 1, pending: edition === 'client' }));
     // Цепочка в журнале одной строкой, а не сотней.
     if (saved.length > 1) {
       const first = saved[0];
@@ -355,6 +356,18 @@ function registerHandlers() {
     const saved = await store.resolveProposal(String(id), approve === true);
     sync?.nudge();
     return saved;
+  }));
+
+  // Практика и мероприятия, добавленные студентами с панели: согласует или отклоняет преподаватель.
+  ipcMain.handle('events:approve', (_e, id, base) => managed(async () => {
+    const saved = await store.approve(String(id), base ?? null);
+    sync?.nudge();
+    return saved;
+  }));
+  ipcMain.handle('events:decline', (_e, id, base) => managed(async () => {
+    await store.decline(String(id), base ?? null);
+    sync?.nudge();
+    return true;
   }));
 
   // Перед массовым удалением всегда делается копия, чтобы ошибку в периоде можно было исправить.

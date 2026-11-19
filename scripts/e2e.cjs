@@ -1185,12 +1185,24 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Изменения с панели: панель предлагает, преподаватель утверждает.
   const concertTask = await teacherStore.save({ title: 'Афиша к концерту', type: 'task', date: day(1), start: '12:00', end: '12:40', place: 'Ауд. 5', participants: [], devices: [deviceId] });
   await teacherStore.propose(concertTask.id, { place: 'Ауд. 7', notes: 'Формат А3' });
+  // Студенты добавили с панели мероприятие и практику: ждут согласования.
+  const studentEvent = await teacherStore.save({ title: 'Квиз от студсовета', type: 'event', date: day(2), start: '15:00', end: '16:00', place: 'Холл', participants: ['Борисов Илья'], devices: [deviceId] }, null, { pending: true });
+  const studentPractice = await teacherStore.save({ title: 'Съёмка без согласования', type: 'practice', date: day(2), start: '10:00', end: '11:00', participants: [], devices: [deviceId] }, null, { pending: true });
   await teacher.syncWith('127.0.0.1:47800');
-  await page.waitForSelector('#open-proposals:not([hidden]):has-text("1")', { timeout: 15000 });
+  await page.waitForSelector('#open-proposals:not([hidden]):has-text("3")', { timeout: 15000 });
   await page.click('#open-proposals');
-  await page.waitForSelector('#proposals[open] .proposal:has-text("Афиша к концерту")');
-  assert.match(await page.textContent('#proposals .proposal'), /Ауд\. 5[\s\S]*Ауд\. 7/);
+  await page.waitForSelector(`#proposals[open] [data-pending="${studentEvent.id}"]`);
+  await page.waitForSelector('#proposals .proposal:has-text("Афиша к концерту")');
+  assert.match(await page.textContent(`#proposals [data-pending="${studentEvent.id}"]`), /Холл[\s\S]*Борисов Илья/);
+  assert.match(await page.textContent('#proposals .proposal:has-text("Афиша к концерту")'), /Ауд\. 5[\s\S]*Ауд\. 7/);
   await shot('proposals');
+  await page.click(`#proposals [data-approve-event="${studentEvent.id}"]`);
+  await page.waitForSelector(`#proposals [data-pending="${studentEvent.id}"]`, { state: 'detached' });
+  await page.click(`#proposals [data-decline-event="${studentPractice.id}"]`);
+  await page.waitForSelector(`#proposals [data-pending="${studentPractice.id}"]`, { state: 'detached' });
+  const afterDecide = (await page.evaluate(() => window.calendar.list())).value;
+  assert.equal(afterDecide.find((e) => e.id === studentEvent.id).pending, undefined, 'согласовано');
+  assert.equal(afterDecide.some((e) => e.id === studentPractice.id), false, 'отклонённое удалено');
   await page.click('#proposals [data-approve]');
   await page.waitForSelector('#proposals', { state: 'hidden' });
   await page.waitForSelector('#open-proposals', { state: 'hidden' });

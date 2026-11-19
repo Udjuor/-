@@ -122,7 +122,8 @@ export const nameKey = (name) => name.trim().toLocaleLowerCase('ru').replace(/ё
  * в пересекающихся по времени мероприятиях.
  */
 /** Занятие не состоялось: не занимает людей и технику, не идёт в отчёты, питомца и сигналы. */
-export const isHeld = (event) => event.cancelled !== true;
+/** Состоялось и учитывается: не отменено и не ждёт согласования (добавлено с панели). */
+export const isHeld = (event) => event.cancelled !== true && event.pending !== true;
 
 /** Подсказки причины, почему занятие не состоялось. Можно написать свою. */
 export const CANCEL_REASONS = ['Преподаватель на больничном', 'Перенесено на другой день', 'Замена в расписании', 'Мероприятие колледжа', 'Технические причины'];
@@ -130,7 +131,8 @@ export const CANCEL_REASONS = ['Преподаватель на больничн
 export function findConflicts(draft, events, stock = []) {
   const result = [];
   if (!draft.date || !draft.start || !draft.end || draft.start >= draft.end) return result;
-  const others = events.filter((e) => e.id !== draft.id && isHeld(e) && overlaps(draft, e)).sort(byTime);
+  // Ждущие согласования тоже занимают место и технику: иначе их нельзя будет утвердить.
+  const others = events.filter((e) => e.id !== draft.id && e.cancelled !== true && overlaps(draft, e)).sort(byTime);
   const people = [...draft.participants];
   if (draft.responsible) people.push(draft.responsible);
 
@@ -170,7 +172,7 @@ function usedElsewhere(draft, events, name) {
   const key = nameKey(name);
   let used = 0;
   for (const event of events) {
-    if (event.id === draft.id || !isHeld(event) || !overlaps(draft, event)) continue;
+    if (event.id === draft.id || event.cancelled === true || !overlaps(draft, event)) continue;
     const match = event.equipment.find((item) => nameKey(item) === key);
     if (match) used += equipmentCount(event, match);
   }
@@ -521,7 +523,7 @@ const scheduledEnd = (event) => {
  * list — обычный список: не занятие, не время, отменено или отчёт закрыт.
  */
 export function rollStage(event, doc, nowMs, callDone = false) {
-  if (!countsLateness(event) || event.cancelled === true || doc?.lock || !event.participants.length) return 'list';
+  if (!countsLateness(event) || !isHeld(event) || doc?.lock || !event.participants.length) return 'list';
   const scheduled = scheduledStart(event).getTime();
   if (!doc?.start) {
     const open = nowMs >= scheduled - START_EARLY_MINUTES * 60_000 && nowMs <= scheduled + ABSENT_FROM_MINUTE * 60_000;
@@ -534,7 +536,7 @@ export function rollStage(event, doc, nowMs, callDone = false) {
 
 /** Открывать ли занятие сразу на отметке, а не карточкой: сегодня, от 30 минут до начала и до конца. */
 export function lessonIsNow(event, doc, nowMs) {
-  if (!countsLateness(event) || event.cancelled === true || doc?.lock || !event.participants.length) return false;
+  if (!countsLateness(event) || !isHeld(event) || doc?.lock || !event.participants.length) return false;
   return nowMs >= scheduledStart(event).getTime() - START_EARLY_MINUTES * 60_000 && nowMs <= scheduledEnd(event).getTime();
 }
 
@@ -770,6 +772,8 @@ export const JOURNAL_ACTIONS = {
   'create-series': 'Добавлена цепочка',
   'delete-range': 'Удалены события за период',
   restore: 'Восстановлено из копии',
+  approve: 'Согласовано',
+  decline: 'Отклонено',
 };
 
 /* Ранний сигнал для кураторов */
@@ -1064,7 +1068,7 @@ export function groupWeek({ events, group, groups, students, monday }) {
   const days = Array.from({ length: 6 }, (_, i) => ({ date: addDays(monday, i), events: [] }));
   for (const event of events) {
     const day = days.find((d) => d.date === event.date);
-    if (day && event.participants.some((name) => members.has(nameKey(name)))) day.events.push(event);
+    if (day && event.pending !== true && event.participants.some((name) => members.has(nameKey(name)))) day.events.push(event);
   }
   for (const day of days) day.events.sort(byTime);
   return days;

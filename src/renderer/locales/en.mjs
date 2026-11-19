@@ -995,7 +995,24 @@ export default {
     "Приказ": "Order",
     "Уваж.": "Excused",
     "Грейд {0}, баллов: {1}.": "Grade {0}, points: {1}.",
-    "Баллы вручную": "Manual points"
+    "Баллы вручную": "Manual points",
+    "На согласовании": "Awaiting approval",
+    "Событие ещё не согласовано преподавателем: отметки появятся после согласования.": "A teacher hasn't approved this event yet: attendance opens after approval.",
+    "Уже рассмотрено на другом устройстве.": "Already handled on another device.",
+    "Согласовано: {0}": "Approved: {0}",
+    "Отклонено и удалено: {0}": "Declined and deleted: {0}",
+    "Новые с панелей: {0}": "New from panels: {0}",
+    "{0}. Добавлено с устройства «{1}»": "{0}. Added on “{1}”",
+    "Согласовать": "Approve",
+    "Изменения: {0}": "Changes: {0}",
+    "С панелей в аудиториях ничего не меняется сразу: новые практики и мероприятия от студентов и правки ждут здесь. Утвердите или отклоните их.": "Nothing changes straight away from classroom panels: new practices and events from students, and edits, wait here. Approve or decline them.",
+    "Добавлено с устройства «{0}» и ждёт согласования. До согласования не учитывается в отметках, грейде и отчётах.": "Added on “{0}” and awaiting approval. Until approved it doesn't count in attendance, grades or reports.",
+    "Ждёт согласования преподавателем. Отметки появятся после согласования.": "Awaiting a teacher's approval. Attendance opens after approval.",
+    "Отправить на согласование": "Send for approval",
+    "Отправлено на согласование преподавателю: {0}": "Sent to a teacher for approval: {0}",
+    "Отправлено на согласование преподавателю. До согласования событие видно с пометкой «На согласовании».": "Sent to a teacher for approval. Until then the event shows as “Awaiting approval”.",
+    "Согласовано": "Approved",
+    "Отклонено": "Declined"
   },
   "plurals": {
     "events": {

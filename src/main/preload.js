@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('calendar', {
   setSkin: (mode) => ipcRenderer.invoke('skin:set', mode),
   propose: (eventId, changes, note) => ipcRenderer.invoke('proposals:add', eventId, changes, note),
   resolveProposal: (id, approve) => ipcRenderer.invoke('proposals:resolve', id, approve),
+  approveEvent: (id, base) => ipcRenderer.invoke('events:approve', id, base),
+  declineEvent: (id, base) => ipcRenderer.invoke('events:decline', id, base),
   summaryStatus: () => ipcRenderer.invoke('summary:status'),
   summarySet: (auto) => ipcRenderer.invoke('summary:set', auto),
   summaryChooseDir: () => ipcRenderer.invoke('summary:choose-dir'),

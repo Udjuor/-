@@ -865,3 +865,11 @@ test('грейд: баллы вручную — плюс и минус, по д�
   assert.deepEqual(file.manual.map((item) => [item.name, item.points]), [['Олимпиада', 20], ['Помощь', 5]]);
   assert.equal(file.grade.points, 25);
 });
+
+test('ждущее согласования не учитывается, но занимает место и технику', () => {
+  const pending = { id: 'a', type: 'event', title: 'Концерт', date: '2026-11-10', start: '10:00', end: '12:00', place: 'Зал', participants: ['Аня'], equipment: ['Проектор'], pending: true };
+  assert.equal(L.isHeld(pending), false);
+  assert.equal(L.isHeld({ ...pending, pending: undefined }), true);
+  const draft = { ...pending, id: 'b', pending: undefined };
+  assert.ok(L.findConflicts(draft, [pending]).length > 0, 'конфликт с ждущим согласования виден');
+});

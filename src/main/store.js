@@ -105,6 +105,14 @@ function normalizeEvent(raw) {
   // Пара вне колледжа (физкультура в другом учреждении): отметки вносит только преподаватель.
   event.offsite = raw.offsite === true;
   // Занятие не состоялось (преподаватель заболел, перенос): отметок нет, в отчёты не идёт.
+  // Добавлено с панели студентами и ждёт согласования преподавателем: в учёт не входит.
+  if (raw.pending === true) {
+    event.pending = true;
+    event.pendingFrom = String(raw.pendingFrom ?? '').slice(0, 80);
+  } else {
+    delete event.pending;
+    delete event.pendingFrom;
+  }
   event.cancelled = raw.cancelled === true;
   event.cancelReason = event.cancelled ? String(raw.cancelReason ?? '').trim().slice(0, 200) : '';
   // Цепочка повторяющихся событий: у каждого своя запись, общий номер цепочки.
@@ -333,7 +341,7 @@ const CHANGE_DAYS = 180;
 
 /** Поля события, изменения которых попадают в журнал. Служебные метки не нужны. */
 const JOURNAL_FIELDS = ['title', 'type', 'date', 'start', 'end', 'allDay', 'offsite', 'cancelled', 'cancelReason', 'place', 'responsible', 'participants', 'equipment', 'equipmentQty', 'ownCameras', 'prepMinutes', 'notes', 'deadline', 'deadlineDone', 'devices', 'roles', 'handIn', 'decisions'];
-const CHANGE_ACTIONS = new Set(['create', 'edit', 'delete', 'create-series', 'delete-range', 'restore']);
+const CHANGE_ACTIONS = new Set(['create', 'edit', 'delete', 'create-series', 'delete-range', 'restore', 'approve', 'decline']);
 
 const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
 
@@ -647,6 +655,7 @@ class EventStore {
       if (current?.lock && !teacher) throw new StoreError('locked', 'Отчёт по паре зафиксирован');
       const event = await this.readCurrent(eventId);
       if (event?.cancelled === true && status) throw new StoreError('cancelled', 'Занятие не состоялось');
+      if (event?.pending === true && status) throw new StoreError('pending', 'Событие ещё не согласовано');
       // Отметка ведётся только на занятиях и мероприятиях.
       if (status && event && !event.kind && !['lesson', 'event'].includes(event.type)) throw new StoreError('no-attendance', 'Отметки нет у практики и заданий');
       if (student) {
@@ -780,7 +789,11 @@ class EventStore {
     this.cache.delete(path.basename(target));
   }
 
-  async save(input, baseUpdatedAt = null, { journal = true } = {}) {
+  /**
+   * pending: событие добавлено с панели и ждёт согласования. Признак ставит только сама программа
+   * по версии: присланный с панели флаг не учитывается, а снять его можно только утверждением.
+   */
+  async save(input, baseUpdatedAt = null, { journal = true, pending = false } = {}) {
     const isNew = !input.id;
     const draft = normalizeEvent({
       ...input,
@@ -790,6 +803,12 @@ class EventStore {
     });
     if (!draft) throw new StoreError('invalid', 'Проверьте название, дату и время');
     const current = isNew ? null : await this.assertUnchanged(draft.id, baseUpdatedAt);
+    delete draft.pending;
+    delete draft.pendingFrom;
+    if (isNew ? pending : current.pending) {
+      draft.pending = true;
+      draft.pendingFrom = isNew ? this.deviceName() : current.pendingFrom ?? '';
+    }
     if (current && LOCKED_FIELDS.some((field) => JSON.stringify(current[field]) !== JSON.stringify(draft[field]))) {
       await this.assertNotLocked(draft.id);
     }
@@ -869,6 +888,26 @@ class EventStore {
     if (!current.kind) await this.assertNotLocked(id);
     await this.write({ id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
     if (journal && !current.kind) await this.journal('delete', current);
+  }
+
+  /** Преподаватель согласует событие, добавленное с панели: оно становится обычным. */
+  async approve(id, baseUpdatedAt = null) {
+    const current = await this.assertUnchanged(String(id), baseUpdatedAt);
+    if (current.kind || !current.pending) throw new StoreError('not-found', 'Событие уже согласовано');
+    const event = { ...current, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId };
+    delete event.pending;
+    delete event.pendingFrom;
+    await this.write(event);
+    await this.journal('approve', event);
+    return event;
+  }
+
+  /** Преподаватель отклоняет событие, добавленное с панели: оно удаляется. */
+  async decline(id, baseUpdatedAt = null) {
+    const current = await this.assertUnchanged(String(id), baseUpdatedAt);
+    if (current.kind || !current.pending) throw new StoreError('not-found', 'Событие уже согласовано');
+    await this.write({ id: current.id, deleted: true, updatedAt: nextStamp(current.updatedAt), updatedBy: this.deviceId });
+    await this.journal('decline', current);
   }
 
   /** Принимает записи с другого устройства, оставляя более новую версию. */

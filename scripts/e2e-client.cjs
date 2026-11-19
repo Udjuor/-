@@ -59,7 +59,7 @@ const today = (() => {
   await page.clock.setFixedTime(new Date(`${today}T00:20`));
 
   const shot = (name) => (process.env.SHOTS ? page.screenshot({ path: path.join(process.env.SHOTS, `${name}.png`) }) : null);
-  const refused = async (work) => assert.equal((await page.evaluate(work)).code, 'teacher-only');
+  const refused = async (work, arg) => assert.equal((await page.evaluate(work, arg)).code, 'teacher-only');
 
   // Разделов преподавателя нет ни на экране, ни при прямом обращении к программе.
   for (const button of ['#open-catalog', '#open-reports', '#notices-open', '#open-journal', '#open-signals']) {
@@ -86,9 +86,21 @@ const today = (() => {
   assert.equal(await page.getAttribute('#form .targets .t-event', 'aria-pressed'), 'true');
   const forged = await page.evaluate(() => window.calendar.save({ title: 'Подделка', type: 'lesson', date: '2026-11-03', start: '10:00', end: '11:00', participants: [], equipment: [], devices: [] }, null));
   assert.equal(forged.code, 'teacher-only', 'занятие с панели не сохраняется');
+  // Добавленное с панели ждёт согласования преподавателем.
+  assert.equal((await page.textContent('dialog#form button[type=submit]')).trim(), 'Отправить на согласование');
   await page.click('dialog#form button[type=submit]');
   await page.waitForSelector('dialog#form', { state: 'hidden' });
-  await page.waitForSelector('.block:has-text("Событие студента")');
+  await page.waitForSelector('.block.pending:has-text("Событие студента")');
+  await page.waitForFunction(() => document.getElementById('toast').textContent.includes('на согласование'));
+  const studentEvent = (await page.evaluate(() => window.calendar.list())).value.find((e) => e.title === 'Событие студента');
+  assert.deepEqual([studentEvent.pending, studentEvent.pendingFrom], [true, 'Ауд. 101']);
+  await page.click('.block:has-text("Событие студента")');
+  await page.waitForSelector('#details .pendingnote:has-text("Ждёт согласования")');
+  assert.equal(await page.locator('#details #approve-event, #details #propose-event, #details .sheetfoot .primary').count(), 0, 'на панели не согласуют и не отмечают');
+  await shot('client-pending');
+  await page.click('#details [aria-label=Закрыть]');
+  await refused((id) => window.calendar.approveEvent(id, null), studentEvent.id);
+  await refused((id) => window.calendar.declineEvent(id, null), studentEvent.id);
 
   // Имя питомца студенты меняют и с панели, а остальное в группе панель не трогает.
   await page.waitForSelector('#pet-open:not([hidden])');
