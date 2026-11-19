@@ -189,6 +189,9 @@ function normalizeRef(raw) {
   // День рождения студента или преподавателя: поздравление в бегущей строке. Возраст нигде не показывается.
   if (raw.kind === 'student' || raw.kind === 'teacher') ref.birthday = DATE_RE.test(raw.birthday ?? '') ? raw.birthday : '';
   else delete ref.birthday;
+  // Нет согласия на показ: на панелях студента не видно в грейде и поздравлениях.
+  if ((raw.kind === 'student' || raw.kind === 'teacher') && raw.hidePublic === true) ref.hidePublic = true;
+  else delete ref.hidePublic;
   if (raw.kind === 'student') {
     ref.groupId = String(raw.groupId ?? '');
     ref.ownCamera = raw.ownCamera === true;
@@ -209,6 +212,7 @@ function normalizeRef(raw) {
     ref.student = String(raw.student ?? '').trim().slice(0, 200);
     ref.date = DATE_RE.test(raw.date ?? '') ? raw.date : '';
     ref.points = Number.isInteger(raw.points) && raw.points !== 0 && Math.abs(raw.points) <= 100 ? raw.points : 0;
+    ref.by = String(raw.by ?? '').trim().slice(0, 80);
     if (!ref.student || !ref.date || !ref.points) return null;
   }
   if (raw.kind === 'group') {

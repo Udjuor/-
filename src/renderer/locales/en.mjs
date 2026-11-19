@@ -1012,7 +1012,20 @@ export default {
     "Отправлено на согласование преподавателю: {0}": "Sent to a teacher for approval: {0}",
     "Отправлено на согласование преподавателю. До согласования событие видно с пометкой «На согласовании».": "Sent to a teacher for approval. Until then the event shows as “Awaiting approval”.",
     "Согласовано": "Approved",
-    "Отклонено": "Declined"
+    "Отклонено": "Declined",
+    "С панели можно отправить не больше {0} повторов за раз: сейчас {1}. Сократите срок повторения.": "A panel can send at most {0} repeats at once: this is {1}. Shorten the repeat period.",
+    "{0} ч": "{0} h",
+    "Часы этого компьютера отстают от других устройств примерно на {0}. Опоздания и время отметок будут неверны: проверьте дату и время Windows.": "This computer's clock is about {0} behind other devices. Lateness and mark times will be wrong: check the Windows date and time.",
+    "Часы этого компьютера спешат относительно других устройств примерно на {0}. Опоздания и время отметок будут неверны: проверьте дату и время Windows.": "This computer's clock is about {0} ahead of other devices. Lateness and mark times will be wrong: check the Windows date and time.",
+    "Неверные часы": "Wrong clock",
+    "Часы компьютера": "Computer clock",
+    "Совпадают с другими устройствами": "Matches other devices",
+    "Включите в Windows «Устанавливать время автоматически» или поправьте дату и время вручную, затем перезапустите Kerdiis.": "Turn on “Set time automatically” in Windows or fix the date and time by hand, then restart Kerdiis.",
+    "Нет согласия на показ: на панелях в аудиториях человека не будет в грейде и поздравлениях": "No consent to display: on classroom panels this person is left out of grades and greetings",
+    "Не показывать на панелях": "Hide on panels",
+    "не показывается на панелях": "hidden on panels",
+    "{0} ({1})": "{0} ({1})",
+    "Кто поставил": "Given by"
   },
   "plurals": {
     "events": {

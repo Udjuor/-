@@ -321,7 +321,9 @@ function registerHandlers() {
   });
   // Цепочка добавляется целиком; новые события можно добавлять и с панели.
   ipcMain.handle('events:save-many', (_e, events) => respond(async () => {
-    if (!Array.isArray(events) || events.length > 400 || events.some((event) => event?.id)) {
+    // С панели — не больше 30 событий за раз: каждое преподаватель согласует отдельно.
+    const limit = edition === 'client' ? 30 : 400;
+    if (!Array.isArray(events) || events.length > limit || events.some((event) => event?.id)) {
       throw Object.assign(new Error('invalid'), { code: 'invalid' });
     }
     if (!events.every(panelAllowed)) throw teacherOnly();
@@ -386,7 +388,8 @@ function registerHandlers() {
   ipcMain.handle('directory:list', () => respond(() => store.directory()));
   ipcMain.handle('directory:save', (_e, refs) => managed(async () => {
     const saved = [];
-    for (const { ref, base } of refs) saved.push(await store.saveRef(ref, base));
+    // Ручные баллы подписываются компьютером преподавателя: видно, кто поставил.
+    for (const { ref, base } of refs) saved.push(await store.saveRef(ref?.kind === 'bonus' && !base ? { ...ref, by: config.deviceName } : ref, base));
     sync?.nudge();
     return saved;
   }));

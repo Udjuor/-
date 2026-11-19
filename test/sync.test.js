@@ -420,3 +420,19 @@ test('адрес вручную проверяется и сразу даёт о
   assert.deepEqual(await a.node.addManual(b.node.at), { address: b.node.at, status: 'ok' });
   assert.equal((await a.store.list()).length, 1);
 });
+
+test('часы: расхождение с другими устройствами видно, мелкое — нет', async (t) => {
+  let skewed = Date.parse('2026-11-20T10:00:00Z');
+  const panel = await device(t, 'panel', { clock: () => skewed });
+  const a = await device(t, 'a', { clock: () => Date.parse('2026-11-20T10:42:00Z') });
+  const b = await device(t, 'b', { clock: () => Date.parse('2026-11-20T10:42:00Z') });
+  await panel.node.syncWith(a.node.at);
+  await panel.node.syncWith(b.node.at);
+  const skew = panel.node.status().clockSkew;
+  assert.equal(Math.round(skew.ms / 60000), 42, 'часы панели отстают на 42 минуты');
+  assert.equal(Math.round(a.node.status().clockSkew.ms / 60000), -42, 'и другим видно, что панель расходится');
+  skewed = Date.parse('2026-11-20T10:40:00Z');
+  await panel.node.syncWith(a.node.at);
+  await panel.node.syncWith(b.node.at);
+  assert.equal(panel.node.status().clockSkew, null, 'две минуты — не повод');
+});

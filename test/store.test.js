@@ -660,3 +660,15 @@ test('с панели практика и мероприятие ждут сог
   const actions = (await teacher.changes()).map((entry) => entry.action);
   assert.ok(actions.includes('approve') && actions.includes('decline'));
 });
+
+test('согласие на показ: отметка «не показывать на панелях» хранится только у людей', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', hidePublic: true });
+  assert.equal('hidePublic' in group, false);
+  const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, hidePublic: true });
+  assert.equal(student.hidePublic, true);
+  const shown = await store.saveRef({ ...student, hidePublic: false }, student.updatedAt);
+  assert.equal('hidePublic' in shown, false);
+  const bonus = await store.saveRef({ kind: 'bonus', name: 'Олимпиада', student: 'Иванов Иван', date: '2026-11-03', points: 5, by: 'Кабинет 204' });
+  assert.equal(bonus.by, 'Кабинет 204');
+});

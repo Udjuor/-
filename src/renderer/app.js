@@ -539,6 +539,9 @@ const refsOf = (kind) => state.directory
   .filter((ref) => ref.kind === kind)
   .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 
+/** Сколько повторов можно отправить с панели за раз (столько же проверяет программа). */
+const PANEL_SERIES_MAX = 30;
+
 function setEvents(all) {
   state.allEvents = all;
   state.events = all.filter((e) => visibleOn(e, state.settings.deviceId, state.settings.showAll));
@@ -1454,7 +1457,13 @@ async function openForm(source = {}) {
 
   const saveSeries = async (event, every, last) => {
     const seriesId = crypto.randomUUID();
-    const result = await api.saveMany(repeatDates(event.date, every, last)
+    const dates = repeatDates(event.date, every, last);
+    if (isClient() && dates.length > PANEL_SERIES_MAX) {
+      save.disabled = false;
+      message.textContent = t('С панели можно отправить не больше {0} повторов за раз: сейчас {1}. Сократите срок повторения.', [PANEL_SERIES_MAX, dates.length]);
+      return;
+    }
+    const result = await api.saveMany(dates
       .map((date) => ({ ...event, id: null, date, seriesId, repeat: { every, until: last } })));
     save.disabled = false;
     if (!result.ok) {
@@ -1851,7 +1860,11 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
     const birthday = ref.kind === 'student' || ref.kind === 'teacher'
       ? h('input', { id: 'c-birthday', type: 'date', value: ref.birthday ?? '', max: now().iso, 'aria-label': t('День рождения'), title: t('День рождения') })
       : null;
-    return h('li', { class: 'refrow editing' }, input, move, limit, birthday,
+    const hide = ref.kind === 'student' || ref.kind === 'teacher'
+      ? h('label', { class: 'check hidepublic', title: t('Нет согласия на показ: на панелях в аудиториях человека не будет в грейде и поздравлениях') },
+        h('input', { id: 'c-hide', type: 'checkbox', checked: ref.hidePublic === true }), t('Не показывать на панелях'))
+      : null;
+    return h('li', { class: 'refrow editing' }, input, move, limit, birthday, hide,
       h('button', {
         type: 'button',
         class: 'primary',
@@ -1860,7 +1873,7 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
           if (!name) return;
           catalog.message = '';
           await commitCatalog(await api.saveRefs([{
-            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}), ...(birthday ? { birthday: birthday.value } : {}) },
+            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}), ...(birthday ? { birthday: birthday.value } : {}), ...(hide ? { hidePublic: hide.querySelector('input').checked } : {}) },
             base: ref.updatedAt,
           }]));
         },
@@ -1882,6 +1895,7 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
   }
   // У студентов и преподавателей под именем — день рождения, без года: возраст не показывается.
   if (!detail && ref.birthday) detail = t('🎂 {0}', [fmt(ref.birthday, { day: 'numeric', month: 'long' })]);
+  if (ref.hidePublic) detail = [detail, t('не показывается на панелях')].filter(Boolean).join(' · ');
   const label = open
     ? h('button', { type: 'button', class: 'refname link', 'aria-pressed': String(active), onclick: open }, h('strong', {}, ref.name), detail && h('span', {}, detail))
     : h('div', { class: 'refname' }, h('p', {}, ref.name), detail && h('span', {}, detail));
@@ -3457,9 +3471,13 @@ const LATE_GREETINGS = (name) => [
   t('🎉 {0}, с прошедшим днём рождения! Праздник продолжается!', [name]),
 ];
 
+/** На панелях не показываются те, кто не дал согласия на показ. */
+const shownPublicly = (person) => !(isClient() && person.hidePublic);
+const hiddenOnPanel = () => new Set(isClient() ? refsOf('student').filter((s) => s.hidePublic).map((s) => nameKey(s.name)) : []);
+
 function birthdayItems() {
   const today = now().iso;
-  return birthdaysOn([...refsOf('student'), ...refsOf('teacher')], today).map((person) => {
+  return birthdaysOn([...refsOf('student'), ...refsOf('teacher')].filter(shownPublicly), today).map((person) => {
     const texts = person.late ? LATE_GREETINGS(person.name) : GREETINGS(person.name);
     return { id: `birthday-${person.id}`, color: 'birthday', name: texts[pickGreeting(person.name, today, texts.length)] };
   });
@@ -4513,9 +4531,20 @@ function netState(status) {
   return { level: 'bad', text: t('Нет связи'), title };
 }
 
+/** Часы этого компьютера расходятся с другими: опоздания и «идёт сейчас» будут неверны. */
+function skewText(skew) {
+  const minutes = Math.round(Math.abs(skew.ms) / 60000);
+  const amount = minutes >= 120 ? t('{0} ч', [Math.round(minutes / 60)]) : t('{0} мин', [minutes]);
+  return skew.ms > 0
+    ? t('Часы этого компьютера отстают от других устройств примерно на {0}. Опоздания и время отметок будут неверны: проверьте дату и время Windows.', [amount])
+    : t('Часы этого компьютера спешат относительно других устройств примерно на {0}. Опоздания и время отметок будут неверны: проверьте дату и время Windows.', [amount]);
+}
+
 async function refreshNet() {
   const status = await api.syncStatus();
-  const net = netState(status);
+  const net = status.clockSkew
+    ? { level: 'bad', text: t('Неверные часы'), title: skewText(status.clockSkew) }
+    : netState(status);
   const button = $('net');
   button.dataset.level = net.level;
   button.title = net.title;
@@ -4559,6 +4588,9 @@ function netChecks(report) {
   add(online.length ? (online.length === report.peers.length ? 'good' : 'warn') : 'bad', t('Связь с устройствами'),
     t('На связи: {0} из {1}', [online.length, report.peers.length]),
     online.length ? '' : t('Ни одно устройство не отвечает. Проверьте, что компьютеры преподавателей включены, и добавьте адрес одного из них ниже.'));
+  add(report.clockSkew ? 'bad' : 'good', t('Часы компьютера'),
+    report.clockSkew ? skewText(report.clockSkew) : t('Совпадают с другими устройствами'),
+    report.clockSkew ? t('Включите в Windows «Устанавливать время автоматически» или поправьте дату и время вручную, затем перезапустите Kerdiis.') : '');
   if (report.inbound === 'blocked') {
     add('bad', t('Другие видят этот компьютер'), t('Нет: другие устройства не могут подключиться к нему.'),
       t('Обычно это брандмауэр Windows. Нажмите «Починить брандмауэр» — понадобится пароль администратора компьютера. Пока он не починен, этот компьютер сам забирает и отправляет данные раз в минуту.'));
@@ -4895,7 +4927,8 @@ const studentByName = (name) => refsOf('student').find((s) => nameKey(s.name) ==
 /** Поздравления с новым званием: три дня после того, как студент его получил. */
 function gradeItems() {
   const today = now().iso;
-  return currentGrades().flatMap((row) => row.levelUps
+  const hidden = hiddenOnPanel();
+  return currentGrades().filter((row) => !hidden.has(nameKey(row.name))).flatMap((row) => row.levelUps
     .filter((up) => up.date >= addDays(today, -2))
     .slice(-1)
     .map((up) => ({ id: `grade-${row.name}-${up.level}`, color: 'trophy', name: t('⭐ {0} — новое звание «{1}»! Так держать!', [greetingName(row.name), gradeName(up.level)]) })));
@@ -4911,7 +4944,8 @@ function openGrades() {
 function drawGrades() {
   const dialog = $('grade');
   const { from, to } = semesterOf(now().iso);
-  const rows = currentGrades().filter((row) => !gradeGroup || row.group === gradeGroup);
+  const hidden = hiddenOnPanel();
+  const rows = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)));
   const groups = [...new Set(currentGrades().map((row) => row.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Грейд студентов')), closeButton(dialog)),
@@ -5011,7 +5045,7 @@ function drawBonus() {
           h('ul', { class: 'bonuslist' }, mine.map((item) => h('li', {},
             h('span', { class: 'awarddate' }, shortDate(item.date)),
             h('b', { class: item.points > 0 ? 'plus' : 'minus' }, signed(item.points)),
-            h('span', {}, item.name),
+            h('span', {}, item.by ? t('{0} ({1})', [item.name, item.by]) : item.name),
             h('button', {
               type: 'button',
               class: 'plain small',
@@ -5099,8 +5133,8 @@ function studentFileSheet() {
     data.grade && [h('h3', {}, t('Грейд')),
       h('p', {}, t('Грейд {0}, баллов: {1}.', [gradeName(data.grade.level), data.grade.points]),
         data.grade.next ? t(' До {0} — ещё {1}.', [gradeName(data.grade.next.name), data.grade.next.need]) : ''),
-      data.manual.length > 0 && table([t('Дата'), t('Баллы вручную'), t('За что')], data.manual.map((item) => h('tr', {},
-        h('td', {}, shortDate(item.date)), h('td', { class: 'num' }, signed(item.points)), h('td', {}, item.name)))),
+      data.manual.length > 0 && table([t('Дата'), t('Баллы вручную'), t('За что'), t('Кто поставил')], data.manual.map((item) => h('tr', {},
+        h('td', {}, shortDate(item.date)), h('td', { class: 'num' }, signed(item.points)), h('td', {}, item.name), h('td', {}, item.by || '—')))),
       data.grade.levelUps.length > 0 && h('p', {}, t('Получен: {0}', [data.grade.levelUps.map((up) => `${up.level} — ${fmt(up.date, { day: 'numeric', month: 'long' })}`).join('; ')]))],
 
     h('h3', {}, t('Участие и достижения')),

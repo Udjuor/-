@@ -659,7 +659,10 @@ function latenessReport(students) {
 /** CSV для Excel: точка с запятой и метка кодировки, чтобы кириллица открылась верно. */
 export function toCsv(header, rows) {
   const cell = (value) => {
-    const text = String(value ?? '');
+    let text = String(value ?? '');
+    // Текст, который Excel принял бы за формулу (=, +, @, «-» не перед числом), открывается как текст:
+    // названия и имена могут ввести студенты на панелях.
+    if (typeof value !== 'number' && /^(?:[=+@\t\r]|-(?!\d+(?:[.,]\d+)?$))/.test(text)) text = `'${text}`;
     return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   return `\uFEFF${[header, ...rows].map((row) => row.map(cell).join(';')).join('\r\n')}\r\n`;

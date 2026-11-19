@@ -31,6 +31,10 @@ const HEAL_MS = 15 * 60_000;
 /** Что умеет узел сверх обмена: проверку связи (ping) и встречную проверку (probe). */
 const CAPS = ['diag'];
 const ADDRESS = /^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/;
+/** С какого расхождения часов предупреждать: опоздания и «идёт сейчас» считаются по часам компьютера. */
+const SKEW_WARN_MS = 5 * 60_000;
+/** Сведения о чужих часах старше этого не учитываются. */
+const SKEW_FRESH_MS = 60 * 60_000;
 
 // Версия обмена. С 2 в записях есть типы событий: устройство старой версии
 // потеряло бы их, сохраняя копию, поэтому такие устройства ждут обновления.
@@ -236,7 +240,7 @@ class SyncNode {
   }
 
   identity() {
-    return { id: this.device.id, name: this.device.name, port: this.port, protocol: this.protocol, version: this.version, edition: this.edition, caps: CAPS };
+    return { id: this.device.id, name: this.device.name, port: this.port, protocol: this.protocol, version: this.version, edition: this.edition, caps: CAPS, time: this.clock() };
   }
 
   /** Сообщает о себе в подсетях. Посторонние не смогут прочитать пакет. */
@@ -310,7 +314,7 @@ class SyncNode {
     }
     try {
       const address = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
-      this.remember(message.from?.id, message.from?.name, address && `${address}:${message.from?.port}`, { ...about(message.from), contactAt: this.clock() });
+      this.remember(message.from?.id, message.from?.name, address && `${address}:${message.from?.port}`, { ...about(message.from), ...this.skewOf(message.from), contactAt: this.clock() });
       this.learn(message.peers);
       const reply = await this.answer(message);
       res.writeHead(200, { 'Content-Type': 'application/octet-stream' })
@@ -385,7 +389,7 @@ class SyncNode {
       const reply = await this.request(address, { type: 'sync', manifest });
       if (reply.from?.id === this.device.id) return false; // в списке адресов оказался свой
       if (!(reply.from?.protocol >= PROTOCOL)) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
-      this.remember(reply.from?.id, reply.from?.name, address, about(reply.from));
+      this.remember(reply.from?.id, reply.from?.name, address, { ...about(reply.from), ...this.skewOf(reply.from) });
       this.learn(reply.peers);
       await this.accept(reply.send ?? []);
       const wanted = new Set(reply.want ?? []);
@@ -530,7 +534,32 @@ class SyncNode {
       inbound,
       lastOkAt: this.lastOkAt,
       heals: this.heals,
+      clockSkew: this.clockSkew(),
     };
+  }
+
+  /** На сколько часы другого устройства впереди наших (по времени в его сообщении). */
+  skewOf(from) {
+    const time = Number(from?.time);
+    if (!Number.isFinite(time) || time <= 0) return {};
+    const now = this.clock();
+    return { skew: Math.round(time - now), skewAt: now };
+  }
+
+  /**
+   * Расхождение часов этого компьютера с остальными: середина свежих расхождений.
+   * Положительное — наши часы отстают. Предупреждаем, только если большинство согласно.
+   */
+  clockSkew() {
+    const now = this.clock();
+    const fresh = [...this.peers.values()].filter((p) => Number.isFinite(p.skew) && now - (p.skewAt ?? 0) <= SKEW_FRESH_MS);
+    if (!fresh.length) return null;
+    const sorted = fresh.map((p) => p.skew).sort((a, b) => a - b);
+    const middle = sorted[Math.floor(sorted.length / 2)];
+    if (Math.abs(middle) < SKEW_WARN_MS) return null;
+    const agree = fresh.filter((p) => Math.sign(p.skew) === Math.sign(middle) && Math.abs(p.skew) >= SKEW_WARN_MS);
+    if (agree.length * 2 < fresh.length + (fresh.length === 1 ? 0 : 1)) return null;
+    return { ms: middle, peers: fresh.length, names: agree.map((p) => p.name).slice(0, 3) };
   }
 
   /** Просит разослать изменения вскоре, собирая несколько правок в один обмен. */
@@ -551,6 +580,7 @@ class SyncNode {
       enabled: true,
       keyPrint: this.print,
       lastOkAt: Math.max(this.lastOkAt ?? 0, ...lastSyncs) || null,
+      clockSkew: this.clockSkew(),
       now: this.clock(),
       discovery: Boolean(this.discoveryReady),
       addresses: localNetworks().addresses,
@@ -573,4 +603,4 @@ function about(from) {
   return out;
 }
 
-module.exports = { SyncNode, generateKey, seal, open, deriveKey, keyPrint, sameSubnet, failure, DEFAULT_PORT, localNetworks, HEAL_MS };
+module.exports = { SyncNode, generateKey, seal, open, deriveKey, keyPrint, sameSubnet, failure, DEFAULT_PORT, localNetworks, HEAL_MS, SKEW_WARN_MS };

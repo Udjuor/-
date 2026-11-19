@@ -252,6 +252,13 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.fill('#c-edit', 'Лебедева Ольга Викторовна');
   await page.click('#catalog .refrow.editing >> text=Сохранить');
   await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна")');
+  // Нет согласия на показ: отметка видна в справочнике и сохраняется.
+  await page.click('#catalog li:has-text("Лебедева Ольга Викторовна") >> text=Изменить');
+  await page.check('#c-hide');
+  await page.click('#catalog .refrow.editing >> text=Сохранить');
+  await page.waitForSelector('#catalog li:has-text("Лебедева Ольга Викторовна"):has-text("не показывается на панелях")');
+  const hiddenTeacher = (await page.evaluate(() => window.calendar.directory())).value.find((r) => r.name === 'Лебедева Ольга Викторовна');
+  assert.equal(hiddenTeacher.hidePublic, true);
   // Преподаватель с датой рождения сегодня: вставка двух столбцов, в бегущей строке поздравление.
   const [, bm, bd] = day(0).split('-');
   await paste('#c-add-teacher', `Морозова Вера Павловна\t${bd}.${bm}.1985\nКузнецов Пётр Ильич\t01.01.1979\n`);

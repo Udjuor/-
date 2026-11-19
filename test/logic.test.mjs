@@ -873,3 +873,9 @@ test('ждущее согласования не учитывается, но з
   const draft = { ...pending, id: 'b', pending: undefined };
   assert.ok(L.findConflicts(draft, [pending]).length > 0, 'конфликт с ждущим согласования виден');
 });
+
+test('CSV: текст, похожий на формулу, открывается в Excel как текст, числа — как числа', () => {
+  const csv = L.toCsv(['a', 'b', 'c', 'd', 'e'], [['=HYPERLINK("http://x")', '-4', -4, '+1', '-Иван']]);
+  const line = csv.split('\r\n')[1];
+  assert.equal(line, `"'=HYPERLINK(""http://x"")";-4;-4;'+1;'-Иван`);
+});
