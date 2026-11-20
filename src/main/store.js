@@ -175,6 +175,30 @@ function normalizePortal(raw) {
   };
 }
 
+/** Сколько раз и с какой паузой повторять замену файла, занятого другой программой. */
+const REPLACE_TRIES = 12;
+const REPLACE_PAUSE_MS = 60;
+
+/**
+ * Заменяет файл готовой копией. В Windows файл может на мгновение держать антивирус,
+ * индексатор или чтение с другого устройства — тогда rename отвечает EPERM/EBUSY/EACCES.
+ * Повторяем с растущей паузой (до ~5 с), а если не вышло — убираем черновик и сообщаем об ошибке.
+ */
+async function replaceFile(temp, target) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await fsp.rename(temp, target);
+      return;
+    } catch (err) {
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes(err.code) || attempt >= REPLACE_TRIES) {
+        await fsp.rm(temp, { force: true }).catch(() => {});
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, REPLACE_PAUSE_MS * attempt));
+    }
+  }
+}
+
 /** Запись справочника: группа, студент, техника или преподаватель. */
 function normalizeRef(raw) {
   if (!raw || !REF_KINDS.has(raw.kind)) return null;
@@ -793,7 +817,7 @@ class EventStore {
     const target = this.fileFor(record.id);
     const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
     await fsp.writeFile(temp, JSON.stringify(record, null, 2), 'utf8');
-    await fsp.rename(temp, target);
+    await replaceFile(temp, target);
     // Две записи подряд могут получить то же время изменения и размер: свою запись читаем заново.
     this.cache.delete(path.basename(target));
   }

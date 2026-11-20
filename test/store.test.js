@@ -684,3 +684,27 @@ test('вид питомца хранится в группе, неизвестн
   const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, petKind: 'lynx' });
   assert.equal('petKind' in student, false);
 });
+
+test('запись переживает файл, на мгновение занятый антивирусом (EPERM при замене)', async (t) => {
+  const fsp = require('node:fs/promises');
+  const store = new EventStore(tempDir(t));
+  const original = fsp.rename;
+  let failures = 0;
+  fsp.rename = async (...args) => {
+    if (failures < 3) {
+      failures += 1;
+      throw Object.assign(new Error('busy'), { code: 'EPERM' });
+    }
+    return original(...args);
+  };
+  t.after(() => { fsp.rename = original; });
+  const saved = await store.save({ ...sample });
+  assert.equal(failures, 3);
+  assert.equal((await store.list()).find((e) => e.id === saved.id)?.title, sample.title);
+  // Если файл так и не освободился — ошибка, а черновик убран.
+  failures = -100;
+  await assert.rejects(store.save({ ...sample, title: 'Не сохранится' }), { code: 'EPERM' });
+  fsp.rename = original;
+  const leftovers = require('node:fs').readdirSync(store.dir).filter((name) => name.endsWith('.tmp'));
+  assert.deepEqual(leftovers, []);
+});
