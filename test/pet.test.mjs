@@ -148,13 +148,14 @@ test('питомец группы живёт посещаемостью подг
   assert.equal(pet.last.present, 1);
 });
 
-test('спрайты целые: 16 на 16, все пиксели окрашены', () => {
+test('спрайты целые: 32 на 32, все пиксели окрашены, кадры различаются', () => {
   for (const mood of ['play', 'fine', 'sad', 'sick', 'dead']) {
     for (const frame of [0, 1]) {
       const pixels = petPixels(mood, frame);
-      assert.ok(pixels.length > 100, mood);
-      assert.ok(pixels.every((p) => p.fill && p.x >= 0 && p.x < 16 && p.y >= 0 && p.y < 16), mood);
+      assert.ok(pixels.length > 400, mood);
+      assert.ok(pixels.every((p) => p.fill && p.x >= 0 && p.x < 32 && p.y >= 0 && p.y < 32), mood);
     }
+    if (mood !== 'dead') assert.notDeepEqual(petPixels(mood, 0), petPixels(mood, 1), `${mood}: два кадра`);
   }
 });
 
@@ -198,5 +199,5 @@ test('наряд: выбор учителя из полученного, ина�
   assert.deepEqual(petLook({ head: 'crown', left: 'spotlight', right: 'tripod' }, prizes), { head: '', left: '', right: 'tripod' }, 'неполученное не надевается');
   assert.deepEqual(petLook({ head: '', left: '', right: '' }, prizes), { head: '', left: '', right: '' }, 'можно снять всё');
   const pixels = dressedPixels('play', { head: 'crown', left: 'tripod', right: 'camera' });
-  assert.ok(pixels.every((p) => p.x >= 0 && p.x < 32 && p.y >= 0 && p.y < 20));
+  assert.ok(pixels.every((p) => p.x >= 0 && p.x < 64 && p.y >= 0 && p.y < 40));
 });
