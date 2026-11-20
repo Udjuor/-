@@ -786,142 +786,240 @@ export function petPixels(mood, frame = 0, kind = DEFAULT_PET_KIND) {
 /** Насколько опустить головной убор для этого вида. */
 export const headDropOf = (kind) => SPECIES[petKindOf(kind)].headDrop;
 
-/* Призы рисуются поверх сцены 96×60: питомец в середине, предметы по бокам. Их рисунок втрое крупнее сетки, с объёмом. */
+/*
+ * Призы рисуются в масштабе питомца: точка рисунка — точка сцены 96×60.
+ * Каждый приз — на своём холсте 48×48: предметы рядом занимают левые 24 столбца
+ * и стоят на нижней строке, головные уборы совпадают с холстом питомца.
+ * Объём — свет сверху слева, тень снизу справа, снаружи тёмная обводка.
+ */
 
-const PRIZE_COLORS = {
-  k: '#1b1f24',
-  g: '#6e7781',
-  s: '#adb5bd',
-  w: '#ffffff',
-  l: '#54aeff',
-  y: '#f2cc60',
-  o: '#d4a72c',
-  r: '#e5534b',
-  p: '#8250df',
-  q: '#c297ff',
-  n: '#bc4c00',
+const METAL = { light: '#eef1f4', base: '#b4bcc5', shade: '#7d8790', deep: '#4f5861' };
+const DARK = { light: '#7d8791', base: '#4b535c', shade: '#30363d', deep: '#1f242a' };
+const GOLD = { light: '#fff5c2', base: '#f2cc60', shade: '#d4a72c', deep: '#9a6700' };
+const RED = { light: '#ffa198', base: '#e5534b', shade: '#c43a33', deep: '#8e1519' };
+const PURPLE = { light: '#d8bcff', base: '#8a5ae6', shade: '#6639ba', deep: '#472c82' };
+const GLASS = { light: '#c8ebff', base: '#54aeff', shade: '#1f6feb', deep: '#0a3069' };
+const CHALK = '#d8dee4';
+
+/** Вертикальная труба: свет слева, тень справа. */
+const pipe = (pal, x0, x1) => (x) => {
+  const k = (x - x0) / (x1 - x0);
+  return k < 0.3 ? pal.light : k < 0.68 ? pal.base : pal.shade;
 };
 
-// Головные уборы: сетка 16 в ширину, в сцене втрое крупнее; headDropOf опускает их на голову питомца.
-const HEAD_ART = {
-  headphones: { y: 2, rows: [
-    '....ssssssss....',
-    '..ss........ss..',
-    '.s............s.',
-    '.s............s.',
-    '.s............s.',
-    'srrs........srrs',
-    'srrs........srrs',
-    'srrs........srrs',
-    '.ss..........ss.',
-  ] },
-  beret: { y: 1, rows: [
-    '........kk......',
-    '.....kkkppkkk...',
-    '...kkppppppqpkk.',
-    '..kpppppppppppk.',
-    '...kkkkkkkkkkk..',
-  ] },
-  crown: { y: 0, rows: [
-    '....y...y...y...',
-    '....yy.yry.yy...',
-    '....yyyyyyyyy...',
-    '....yryyyyyry...',
-    '....ooooooooo...',
-  ] },
+/** Прямоугольник со скруглёнными углами. */
+const rounded = (x0, y0, x1, y1, r) => (x, y) => {
+  if (x < x0 || x > x1 || y < y0 || y > y1) return false;
+  const cx = Math.min(Math.max(x, x0 + r), x1 - r);
+  const cy = Math.min(Math.max(y, y0 + r), y1 - r);
+  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 };
 
-// Предметы рядом: сетка 8 в ширину, стоят на земле (нижняя строка сцены 18).
-const SIDE_ART = {
-  camera: [
-    '..kkk...',
-    'kkkkkkkk',
-    'kgglllgk',
-    'kgllwlgk',
-    'kgglllgk',
-    'kkkkkkkk',
-  ],
-  tripod: [
-    '.ssssss.',
-    '.sgggss.',
-    '.ssssss.',
-    '...ss...',
-    '...ss...',
-    '...ss...',
-    '..s..s..',
-    '..s..s..',
-    '.s....s.',
-    '.s....s.',
-    's......s',
-  ],
-  microphone: [
-    '..ssss..',
-    '.ssssgs.',
-    '.sssggs.',
-    '..ssss..',
-    '...ss...',
-    '...ss...',
-    '...ss...',
-    '...ss...',
-    '...ss...',
-    '...ss...',
-    '.ssssss.',
-  ],
-  spotlight: [
-    'yy......',
-    'yyyy....',
-    'yyssss..',
-    '.sggggs.',
-    '.sgggggs',
-    '..sssss.',
-    '....ss..',
-    '....ss..',
-    '...s..s.',
-    '..s....s',
-  ],
-  clapper: [
-    'kwkwkwk.',
-    '.kwkwkwk',
-    'kkkkkkkk',
-    'kwwwwwwk',
-    'kwkkkkwk',
-    'kwwwwwwk',
-    'kkkkkkkk',
-  ],
-};
+/** Кольцо между двумя овалами. */
+const ring = (cx, cy, rx, ry, width) => (x, y) => ellipse(cx, cy, rx, ry)(x, y) && !ellipse(cx, cy, rx - width, ry - width)(x, y);
 
-/** Смешивает цвет с белым (amount > 0) или чёрным (amount < 0). */
-function tint(hex, amount) {
-  const n = parseInt(hex.slice(1), 16);
-  const target = amount > 0 ? 255 : 0;
-  const k = Math.abs(amount);
-  const ch = (shift) => Math.round(((n >> shift) & 255) * (1 - k) + target * k);
-  return `#${[16, 8, 0].map((shift) => ch(shift).toString(16).padStart(2, '0')).join('')}`;
+/** Толстая прямая: ножки штатива, ручки. */
+function rod(cells, x0, y0, x1, y1, r, color) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2) || 1;
+  for (let i = 0; i <= steps; i += 1) paint(cells, ellipse(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, r, r), color);
 }
 
-/** Во сколько раз рисунок приза крупнее своей сетки: в масштабе питомца 48×48. */
-const PRIZE_SCALE = 3;
+/** Жемчужина или камень с бликом. */
+function gem(cells, x, y, r, pal) {
+  paint(cells, ellipse(x, y, r, r), shaded(pal, x, y, r, r));
+  dot(cells, x - r * 0.45, y - r * 0.45, '#ffffff');
+}
 
-/**
- * Рисунок приза: каждая точка сетки — квадрат 3×3, у краёв свет сверху и слева,
- * тень снизу и справа. Так предметы не выглядят грубее питомца.
- */
-const art = (rows, left, top) => rows.flatMap((row, y) => [...row].flatMap((char, x) => {
-  if (char === '.') return [];
-  const base = PRIZE_COLORS[char];
-  const empty = (dx, dy) => (rows[y + dy]?.[x + dx] ?? '.') === '.';
-  const out = [];
-  const last = PRIZE_SCALE - 1;
-  for (let j = 0; j < PRIZE_SCALE; j += 1) {
-    for (let i = 0; i < PRIZE_SCALE; i += 1) {
-      let color = base;
-      if ((j === 0 && empty(0, -1)) || (i === 0 && empty(-1, 0))) color = tint(base, 0.35);
-      if ((j === last && empty(0, 1)) || (i === last && empty(1, 0))) color = tint(base, -0.3);
-      out.push({ x: left + x * PRIZE_SCALE + i, y: top + y * PRIZE_SCALE + j, fill: color });
-    }
+function drawCamera(c, frame) {
+  paint(c, rounded(2.5, 28.5, 9, 34, 1.2), DARK.base);
+  paint(c, rounded(3.5, 29.5, 8, 31.5, 0.6), frame === 7 ? '#ffffff' : '#fff1b8');
+  paint(c, rounded(9.5, 26.5, 16.5, 34, 1.6), (x, y) => (y < 28 ? DARK.light : DARK.base));
+  paint(c, rounded(11.5, 27.5, 14.5, 29, 0.5), GLASS.deep);
+  paint(c, rounded(18, 29.5, 21.5, 33, 1), shaded(RED, 19.7, 31, 2, 1.6));
+  paint(c, rounded(0.5, 32, 23.5, 47, 2.6), shaded(DARK, 12, 38, 12, 9));
+  // Кожаная вставка с мелкой фактурой.
+  paint(c, (x, y) => y > 35.5 && y < 44.5 && x > 1 && x < 23, (x, y) => ((Math.floor(x) + Math.floor(y) * 2) % 3 === 0 ? DARK.deep : DARK.shade));
+  paint(c, (x, y) => y > 33 && y < 34 && x > 1.5 && x < 22.5, DARK.light);
+  // Объектив: серебряное кольцо, чёрная оправа, синее стекло с отражениями.
+  paint(c, ellipse(12, 40, 7.4, 7.4), shaded(METAL, 12, 40, 7.4, 7.4));
+  paint(c, ellipse(12, 40, 5.8, 5.8), DARK.deep);
+  paint(c, ellipse(12, 40, 4.6, 4.6), shaded(GLASS, 12, 40, 4.6, 4.6));
+  paint(c, ellipse(12, 40, 2.2, 2.2), GLASS.deep);
+  dot(c, 10, 38, '#ffffff');
+  dot(c, 11, 38, '#ffffff');
+  dot(c, 10, 39, GLASS.light);
+  dot(c, 14, 42, GLASS.light);
+  dot(c, 20.5, 35, '#2ea043');
+}
+
+function drawTripod(c) {
+  rod(c, 12.2, 27, 13.2, 46, 0.9, DARK.light);
+  rod(c, 11.5, 27, 2.6, 46, 1.1, METAL.base);
+  rod(c, 12.5, 27, 21.4, 46, 1.1, METAL.shade);
+  for (const [x, y] of [[7, 36.5], [16.9, 36.5]]) paint(c, rounded(x - 1.8, y - 1.3, x + 1.8, y + 1.3, 0.7), DARK.shade);
+  for (const x of [2.6, 13.2, 21.4]) paint(c, ellipse(x, 46.6, 1.8, 1), DARK.deep);
+  paint(c, rounded(7.5, 24.5, 16.5, 28.5, 1.5), shaded(DARK, 12, 26.5, 4.5, 2));
+  paint(c, (x, y) => x > 10.5 && x < 13.5 && y > 16.5 && y < 25, pipe(METAL, 10.5, 13.5));
+  paint(c, rounded(9.5, 19.5, 14.5, 21.5, 0.6), DARK.shade);
+  paint(c, rounded(4.5, 12.5, 19.5, 17, 1.6), shaded(DARK, 12, 14.5, 7.5, 2.3));
+  paint(c, rounded(6.5, 10.5, 17.5, 12.8, 0.6), (x, y) => (y < 11.6 ? METAL.light : METAL.base));
+  rod(c, 18.5, 16, 21.5, 20.5, 0.8, DARK.base);
+  rod(c, 21, 19.8, 22.6, 22.4, 1.3, RED.base);
+  dot(c, 21.4, 20.2, RED.light);
+}
+
+function drawMicrophone(c) {
+  paint(c, ellipse(12, 46, 8.5, 2.2), shaded(DARK, 12, 45.5, 8.5, 2.2));
+  paint(c, (x, y) => x > 10.8 && x < 13.2 && y > 29 && y < 45.5, pipe(METAL, 10.8, 13.2));
+  paint(c, rounded(9.2, 27, 14.8, 30.5, 1), DARK.shade);
+  paint(c, rounded(9, 19, 15, 28.5, 2.2), pipe(DARK, 9, 15));
+  dot(c, 12, 24, RED.base);
+  paint(c, (x, y) => x > 8.6 && x < 15.4 && y > 17.6 && y < 20, pipe(GOLD, 8.6, 15.4));
+  // Сетка: косые нити по серебру, шов посередине и блик.
+  paint(c, ellipse(12, 12, 6.4, 6.6), (x, y) => {
+    const base = shaded(METAL, 12, 12, 6.4, 6.6)(x, y);
+    return (Math.floor(x) + Math.floor(y)) % 3 === 0 || (Math.floor(x) - Math.floor(y) + 30) % 3 === 0 ? (base === METAL.light ? METAL.base : METAL.shade) : base;
+  });
+  paint(c, (x, y) => y > 11.8 && y < 13 && ellipse(12, 12, 6.4, 6.6)(x, y), METAL.deep);
+  paint(c, ellipse(9.8, 9, 1.6, 1.2), '#ffffff');
+}
+
+const SPOT_BACK = [17.5, 26];
+const SPOT_FRONT = [7.5, 18.5];
+const SPOT_DIR = (() => {
+  const dx = SPOT_FRONT[0] - SPOT_BACK[0];
+  const dy = SPOT_FRONT[1] - SPOT_BACK[1];
+  const len = Math.hypot(dx, dy);
+  return { dx: dx / len, dy: dy / len, nx: dy / len, ny: -dx / len, len };
+})();
+
+function drawSpotlight(c) {
+  const { dx, dy, nx, ny, len } = SPOT_DIR;
+  rod(c, 12, 41.5, 5, 46.5, 0.9, DARK.base);
+  rod(c, 12, 41.5, 19, 46.5, 0.9, DARK.shade);
+  rod(c, 12, 41.5, 12.5, 47, 0.9, DARK.light);
+  paint(c, (x, y) => x > 10.9 && x < 13.1 && y > 30 && y < 42, pipe(METAL, 10.9, 13.1));
+  rod(c, 5.5, 22, 5.5, 30.5, 0.9, DARK.light);
+  rod(c, 19, 26, 19, 30.5, 0.9, DARK.light);
+  rod(c, 5.5, 30.5, 19, 30.5, 0.9, DARK.light);
+  // Корпус — повёрнутый цилиндр: верхняя сторона светлее.
+  const [bx, by] = SPOT_BACK;
+  const at = (t, side, r) => [bx + dx * len * t + nx * side * r, by + dy * len * t + ny * side * r];
+  const body = polygon([at(0, 1, 4.6), at(1, 1, 5.6), at(1, -1, 5.6), at(0, -1, 4.6)]);
+  const mx = (bx + SPOT_FRONT[0]) / 2;
+  const my = (by + SPOT_FRONT[1]) / 2;
+  paint(c, body, (x, y) => {
+    const s = ((x - mx) * nx + (y - my) * ny) / 5;
+    return s < -0.5 ? DARK.light : s < 0.1 ? DARK.base : s < 0.6 ? DARK.shade : DARK.deep;
+  });
+  // Рёбра охлаждения сзади.
+  for (const t of [0.12, 0.26, 0.4]) {
+    const [x0, y0] = at(t, 1, 4.4);
+    const [x1, y1] = at(t, -1, 4.4);
+    line(c, x0, y0, x1, y1, DARK.deep);
   }
-  return out;
-}));
+  // Створки у линзы.
+  for (const side of [1, -1]) {
+    const [x0, y0] = at(1, side, 5.8);
+    rod(c, x0, y0, x0 + dx * 2.6 + nx * side * 1.6, y0 + dy * 2.6 + ny * side * 1.6, 0.6, DARK.shade);
+  }
+  const angle = Math.atan2(dy, dx);
+  const [fx, fy] = SPOT_FRONT;
+  paint(c, tilted(fx, fy, 2.4, 5.8, angle), METAL.shade);
+  paint(c, tilted(fx + dx * 0.4, fy + dy * 0.4, 1.8, 4.8, angle), (x, y) => (ellipse(fx - 0.6, fy - 1.2, 1.6, 2.4)(x, y) ? '#fffbe6' : GOLD.base));
+}
+
+/** Хлопушка: верхняя планка поднята, в кадрах 4–5 захлопнута, рядом с ними — на полпути. */
+const CLAP_ANGLE = [-0.32, -0.32, -0.32, -0.16, 0, 0, -0.16, -0.32];
+
+function drawClapper(c, frame) {
+  const stripes = (u, v) => (Math.floor((u - v + 40) / 4) % 2 ? '#f6f8fa' : DARK.deep);
+  paint(c, rounded(0.5, 30.5, 23.5, 47, 1.6), shaded(DARK, 12, 38, 12, 9));
+  for (const y of [36, 41]) paint(c, (x, yy) => yy > y && yy < y + 1 && x > 1.5 && x < 22.5, CHALK);
+  paint(c, (x, y) => x > 12 && x < 13 && y > 31 && y < 36, CHALK);
+  paint(c, (x, y) => x > 8 && x < 9 && y > 41 && y < 46, CHALK);
+  for (const [x0, x1, y] of [[3, 7, 33], [14, 18, 33], [3, 6, 38], [8, 10, 38], [14, 20, 38], [3, 6, 43], [11, 16, 43], [17, 20, 44]]) {
+    paint(c, (x, yy) => yy > y && yy < y + 1 && x > x0 && x < x1, '#8c959f');
+  }
+  // Нижняя планка и верхняя на петле: полосы идут вдоль планки, по краю тёмная кромка.
+  paint(c, (x, y) => x > 0.5 && x < 23.5 && y > 25.5 && y < 30.5, (x, y) => (y > 29.5 || y < 26.5 || x > 22.5 ? DARK.deep : stripes(x, 30.5 - y)));
+  const a = CLAP_ANGLE[frame] ?? 0;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const hx = 1.5;
+  const hy = 25.6;
+  const local = (x, y) => [(x - hx) * cos + (y - hy) * sin, -(x - hx) * sin + (y - hy) * cos];
+  paint(c, (x, y) => {
+    const [u, v] = local(x, y);
+    return u > -1 && u < 22 && v > -5 && v < 0;
+  }, (x, y) => {
+    const [u, v] = local(x, y);
+    return v > -1 || v < -4 || u > 21 ? DARK.deep : stripes(u, -v);
+  });
+  paint(c, ellipse(1.8, 25.8, 1.4, 1.4), shaded(METAL, 1.8, 25.8, 1.4, 1.4));
+}
+
+function drawHeadphones(c) {
+  // Дужка: светлая снаружи, темнее внутри; сверху красная мягкая накладка.
+  paint(c, (x, y) => y < 25 && ring(24, 30, 21.5, 24.5, 3)(x, y), (x, y) => (((x - 24) / 21.5) ** 2 + ((y - 30) / 24.5) ** 2 > 0.9 ? DARK.light : DARK.shade));
+  paint(c, (x, y) => Math.abs(x - 24) < 9 && ring(24, 30, 22.2, 25.4, 4.6)(x, y), (x, y) => (y < 6.4 ? RED.light : y < 8 ? RED.base : RED.shade));
+  for (const xx of [15, 33]) paint(c, (x, y) => x > xx - 0.5 && x < xx + 0.5 && ring(24, 30, 22.2, 25.4, 4.6)(x, y), RED.deep);
+  for (const [x0, x1] of [[2.6, 5.4], [42.6, 45.4]]) paint(c, (x, y) => x > x0 && x < x1 && y > 15 && y < 21, pipe(METAL, x0, x1));
+  for (const [cx, cap] of [[5, 2.4], [43, 45.6]]) {
+    paint(c, ellipse(cx, 26.5, 4.6, 6.8), shaded(RED, cx, 26.5, 4.6, 6.8));
+    paint(c, ellipse(cap, 26.5, 2, 4.6), shaded(METAL, cap, 26.5, 2, 4.6));
+    dot(c, cap - 0.4, 24.4, '#ffffff');
+  }
+}
+
+function drawBeret(c) {
+  paint(c, ellipse(24, 15, 14.6, 2.6), (x, y) => (y < 14.5 ? PURPLE.shade : PURPLE.deep));
+  paint(c, tilted(25, 10, 17.2, 6, -0.09), shaded(PURPLE, 22, 8, 17, 6));
+  // Мягкие складки ткани.
+  curve(c, 13, 22, (x) => 11.8 + Math.sin((x - 13) / 3) * 0.6, PURPLE.shade);
+  curve(c, 29, 37, (x) => 9.6 + Math.sin((x - 29) / 3) * 0.6, PURPLE.shade);
+  paint(c, ellipse(18, 6.6, 4.4, 1.4), PURPLE.light);
+  dot(c, 16.5, 6.2, '#ffffff');
+  rod(c, 27.2, 3.6, 28.6, 5.4, 0.8, PURPLE.deep);
+  // Значок художника: золотая палитра.
+  paint(c, ellipse(35.5, 11.3, 1.9, 1.5), shaded(GOLD, 35.5, 11.3, 1.9, 1.5));
+  dot(c, 35, 11, RED.base);
+  dot(c, 36, 12, GLASS.base);
+}
+
+function drawCrown(c) {
+  // Пять зубцов: крайние и средний выше, на них жемчуг.
+  const shape = [[11.6, 15.6], [11.6, 4.4], [15.4, 9.4], [18.4, 5.6], [21.4, 9.4], [24, 2.6], [26.6, 9.4], [29.6, 5.6], [32.6, 9.4], [36.4, 4.4], [36.4, 15.6]];
+  paint(c, polygon(shape), shaded(GOLD, 20, 6, 14, 9));
+  paint(c, (x, y) => x > 11.6 && x < 36.4 && y > 10 && y < 15.6, (x, y) => (y < 11 ? GOLD.light : y > 14.6 ? GOLD.deep : x > 31 ? GOLD.shade : GOLD.base));
+  for (let x = 13; x < 36; x += 2) dot(c, x, 14.6, GOLD.shade);
+  for (const [x, y] of [[12.8, 5], [24, 3.4], [35.2, 5]]) gem(c, x, y, 1.6, METAL);
+  gem(c, 24, 12.8, 1.9, RED);
+  // Боковые камни — зелёные ромбы, без бликов: иначе похожи на глаза.
+  for (const x of [17.5, 30.5]) {
+    paint(c, polygon([[x, 10.9], [x + 1.6, 12.8], [x, 14.7], [x - 1.6, 12.8]]), (xx) => (xx < x ? '#56d364' : '#1a7f37'));
+  }
+}
+
+const PRIZE_ART = { camera: drawCamera, tripod: drawTripod, microphone: drawMicrophone, spotlight: drawSpotlight, clapper: drawClapper, headphones: drawHeadphones, beret: drawBeret, crown: drawCrown };
+const HEAD_PRIZES = new Set(['headphones', 'beret', 'crown']);
+const prizeCache = new Map();
+
+/** Точки приза на его холсте 48×48 для кадра. */
+function prizePixels(id, frame) {
+  const draw = PRIZE_ART[id];
+  if (!draw) return [];
+  const animated = id === 'camera' || id === 'clapper';
+  const key = `${id}:${animated ? frame : 0}`;
+  if (!prizeCache.has(key)) {
+    const cells = blank();
+    draw(cells, frame);
+    const pixels = [];
+    outline(cells, INK).forEach((row, y) => row.forEach((fill, x) => fill && pixels.push({ x, y, fill })));
+    prizeCache.set(key, pixels);
+  }
+  return prizeCache.get(key);
+}
 
 /** Искорка из точек сцены. */
 const glint = (x, y, size, color = '#ffffff') => {
@@ -930,57 +1028,55 @@ const glint = (x, y, size, color = '#ffffff') => {
   return out;
 };
 
-/** Оживление призов по кадрам: вспышка камеры, луч прожектора, хлопушка, ноты, блеск короны. */
-function prizeMotion(id, left, top, frame, rows) {
-  const s = PRIZE_SCALE;
-  if (id === 'camera' && frame === 7) return glint(left + 5 * s + 1, top + 3 * s + 1, 3);
-  if (id === 'camera' && frame === 0) return glint(left + 5 * s + 1, top + 3 * s + 1, 1);
+/** Оживление призов по кадрам: вспышка камеры, луч прожектора, звук микрофона, ноты, блеск короны. ox, oy — угол холста приза в сцене. */
+function prizeMotion(id, ox, oy, frame) {
+  if (id === 'camera' && frame === 7) return glint(ox + 6, oy + 30, 3);
+  if (id === 'camera' && frame === 0) return glint(ox + 6, oy + 30, 1);
   if (id === 'spotlight' && frame % 4 < 2) {
+    const { dx, dy, nx, ny } = SPOT_DIR;
+    const seen = new Set();
     const out = [];
-    for (let k = 0; k < 9; k += 1) for (let w = -k; w <= k; w += 1) out.push({ x: left + 3 - k, y: top + 2 + w, fill: '#f2cc6033' });
-    return out.filter((p) => p.x >= 0);
+    for (let k = 1; k <= 26; k += 0.5) {
+      const half = 3.5 + k * 0.55;
+      for (let w = -half; w <= half; w += 0.5) {
+        const x = Math.round(ox + SPOT_FRONT[0] + dx * k + nx * w);
+        const y = Math.round(oy + SPOT_FRONT[1] + dy * k + ny * w);
+        if (seen.has(`${x},${y}`)) continue;
+        seen.add(`${x},${y}`);
+        out.push({ x, y, fill: '#f2cc602e' });
+      }
+    }
+    return out;
   }
   if (id === 'microphone' && frame % 4 !== 3) {
     const r = 3 + (frame % 4) * 2;
-    const cx = left + 4 * s;
-    const cy = top + 2 * s;
     const out = [];
-    for (let a = -0.7; a <= 0.7; a += 0.25) out.push({ x: Math.round(cx + r + 6 + Math.cos(a) * r * 0.4), y: Math.round(cy + Math.sin(a) * r), fill: '#adb5bd' });
+    for (let a = -0.7; a <= 0.7; a += 0.2) out.push({ x: Math.round(ox + 18 + r * 0.5 + Math.cos(a) * r * 0.4), y: Math.round(oy + 12 + Math.sin(a) * r), fill: '#8c959f' });
     return out;
   }
   if (id === 'headphones') {
-    const y = top + 14 - (frame % 4) * 3;
-    const note = (x, yy) => [{ x, y: yy, fill: '#c297ff' }, { x: x + 1, y: yy, fill: '#c297ff' }, { x: x + 1, y: yy - 1, fill: '#c297ff' }, { x: x + 1, y: yy - 2, fill: '#c297ff' }, { x: x + 2, y: yy - 3, fill: '#c297ff' }];
-    return frame % 4 === 3 ? [] : [...note(left - 4, y), ...note(left + 16 * s + 2, y - 4)];
+    const y = oy + 20 - (frame % 4) * 3;
+    const note = (x, yy) => [[0, 0], [1, 0], [0, 1], [1, 1], [2, 0], [2, -1], [2, -2], [2, -3], [3, -3], [4, -2]].map(([a, b]) => ({ x: x + a, y: yy + b, fill: '#a371f7' }));
+    return frame % 4 === 3 ? [] : [...note(ox - 6, y), ...note(ox + 50, y - 4)];
   }
-  if (id === 'crown' && (frame === 2 || frame === 3)) return glint(left + 8 * s + 1, top - 2, frame === 2 ? 1 : 2, '#fff3b0');
+  if (id === 'crown' && (frame === 2 || frame === 3)) return glint(ox + 27, oy + 6, frame === 2 ? 1 : 2, '#fff8d6');
   return [];
 }
-
-/** Хлопушка хлопает: в кадрах 4–5 верхняя планка закрыта. */
-const clapperRows = (rows, frame) => (frame === 4 || frame === 5 ? ['........', rows[1].replace(/^\./, 'k'), ...rows.slice(2)] : rows);
 
 /** Пиксели сцены 96×60 с питомцем и призами. Кадр 0–7. */
 export function dressedPixels(mood, look, frame = 0, kind = DEFAULT_PET_KIND) {
   const pixels = [];
   const f = ((frame % PET_FRAMES) + PET_FRAMES) % PET_FRAMES;
-  const side = (id, left) => {
-    let rows = SIDE_ART[id];
-    if (!rows) return;
-    if (id === 'clapper') rows = clapperRows(rows, f);
-    const top = 59 - rows.length * PRIZE_SCALE;
-    pixels.push(...art(rows, left, top), ...prizeMotion(id, left, top, f, rows));
-  };
-  side(look.left, 0);
-  side(look.right, 72);
+  const place = (id, ox, oy) => pixels.push(...prizePixels(id, f).map((p) => ({ ...p, x: p.x + ox, y: p.y + oy })), ...prizeMotion(id, ox, oy, f));
+  // Предметы рядом стоят на земле: нижняя строка холста приза — нижняя строка сцены.
+  if (PRIZE_ART[look.left] && !HEAD_PRIZES.has(look.left)) place(look.left, 0, 12);
+  if (PRIZE_ART[look.right] && !HEAD_PRIZES.has(look.right)) place(look.right, 72, 12);
   // Питомец 48×48 стоит на земле посередине.
   pixels.push(...petPixels(mood, f, kind).map((p) => ({ ...p, x: p.x + 24, y: p.y + 12 })));
-  const head = HEAD_ART[look.head];
-  if (head && mood !== 'dead') {
+  if (HEAD_PRIZES.has(look.head) && mood !== 'dead') {
     // Головной убор двигается вместе с головой: дыхание и прыжки.
     const q = pose(mood, f);
-    const top = head.y * PRIZE_SCALE + headDropOf(kind) + Math.round(q.breath) - q.lift;
-    pixels.push(...art(head.rows, 24, top), ...prizeMotion(look.head, 24, top, f, head.rows));
+    place(look.head, 24, headDropOf(kind) + Math.round(q.breath) - q.lift);
   }
   return pixels.filter((p) => p.x >= 0 && p.x < 96 && p.y >= 0 && p.y < 60);
 }
@@ -1017,17 +1113,23 @@ function layer(pixels, className) {
   return g;
 }
 
-/** Значок приза для списка: только сам предмет. */
+/** Значок приза для списка: только сам предмет, по центру квадрата. */
 export function prizeIcon(id) {
   const svg = document.createElementNS(NS, 'svg');
-  const head = HEAD_ART[id];
-  const rows = head ? head.rows : SIDE_ART[id] ?? [];
-  const width = (head ? 16 : 8) * PRIZE_SCALE;
-  svg.setAttribute('viewBox', `0 0 ${width} ${Math.max(rows.length * PRIZE_SCALE, 1)}`);
+  const pixels = prizePixels(id, 0);
+  const xs = pixels.map((p) => p.x);
+  const ys = pixels.map((p) => p.y);
+  const left = pixels.length ? Math.min(...xs) : 0;
+  const top = pixels.length ? Math.min(...ys) : 0;
+  const width = pixels.length ? Math.max(...xs) - left + 1 : 1;
+  const height = pixels.length ? Math.max(...ys) - top + 1 : 1;
+  // Квадрат по большей стороне: высокие и широкие предметы выглядят одного размера.
+  const side = Math.max(width, height);
+  svg.setAttribute('viewBox', `${left - (side - width) / 2} ${top - (side - height) / 2} ${side} ${side}`);
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add('prizeicon');
-  svg.append(layer(art(rows, 0, 0), 'still'));
+  svg.append(layer(pixels, 'still'));
   return svg;
 }
 
