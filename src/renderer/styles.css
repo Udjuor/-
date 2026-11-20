@@ -656,6 +656,7 @@ dialog::backdrop { background: var(--backdrop); }
 .petkind { display: flex; flex-direction: column; align-items: center; gap: .2rem; min-width: 0; padding: .4rem .2rem; font-size: .85rem; }
 .petkind .petsprite { width: 100%; max-width: 3.6rem; }
 .petkind[aria-pressed="true"] { border-color: var(--accent-emphasis, #1f6feb); background: var(--accent-subtle, rgba(56, 139, 253, .15)); }
+.petkind:disabled { opacity: .7; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
   .petsprite, .petsprite .frame { animation: none; }

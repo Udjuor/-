@@ -150,6 +150,13 @@ const HAND_IN = new Set(['done', 'rework']);
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus']);
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+// Виды питомцев. Список совпадает с PET_KINDS в src/renderer/pet.mjs.
+const PET_KINDS = ['mammoth', 'foal', 'hare', 'lynx', 'owl'];
+// Вид выбран на текущего питомца: студенты его больше не меняют до смерти питомца.
+// Ключ — дата заведения питомца (petSince). Новый питомец меняет ключ, и выбор снова открыт.
+// Правило то же, что petKindLocked в pet.mjs.
+const petKindLockKey = (group) => group.petSince || 'pet';
+const petKindLocked = (group) => Boolean(group.petKindFor) && group.petKindFor === petKindLockKey(group);
 
 /** «В колледже с …» со страницы студента прежних версий: запись принимается при обмене, но не используется. */
 function normalizePresence(raw) {
@@ -244,8 +251,11 @@ function normalizeRef(raw) {
     ref.petSince = MOMENT_RE.test(raw.petSince ?? '') ? raw.petSince : '';
     // Вид питомца: мамонт, кулунчук, куобах, бэдэр, хаар эбэ. Зайчонок из 1.56 стал куобахом.
     const petKind = raw.petKind === 'bunny' ? 'hare' : raw.petKind;
-    if (['mammoth', 'foal', 'hare', 'lynx', 'owl'].includes(petKind)) ref.petKind = petKind;
+    if (PET_KINDS.includes(petKind)) ref.petKind = petKind;
     else delete ref.petKind;
+    // Ключ выбора вида: на какого питомца (его дата заведения) вид уже выбран. См. petKindLocked.
+    ref.petKindFor = /^[\w:.-]{0,40}$/.test(raw.petKindFor ?? '') ? String(raw.petKindFor ?? '') : '';
+    if (!ref.petKindFor) delete ref.petKindFor;
     // Что надето на питомце и что стоит рядом: только названия призов.
     const look = raw.petLook && typeof raw.petLook === 'object' ? raw.petLook : null;
     if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
@@ -977,4 +987,4 @@ class EventStore {
   }
 }
 
-module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId, eventDiff, CHANGE_DAYS };
+module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId, eventDiff, CHANGE_DAYS, PET_KINDS, petKindLockKey, petKindLocked };

@@ -6,7 +6,7 @@ import {
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
-import { petChange, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
+import { petChange, petKindLockKey, petKindLocked, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -3060,7 +3060,7 @@ function refreshPet() {
   refreshTicker();
   if (!group) return;
   const pet = petOf(group);
-  const key = `${group.id}:${group.petName}:${pet.mood}:${pet.health}`;
+  const key = `${group.id}:${group.petName}:${group.petKind}:${pet.mood}:${pet.health}`;
   if (key !== petButtonKey) {
     petButtonKey = key;
     button.setAttribute('aria-label', t('Тамагочи группы {0}', [group.name]));
@@ -3258,7 +3258,7 @@ function drawPet() {
         : h('div', { class: 'field petname' },
           h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать'))))),
       failure,
-      pet.mood !== 'dead' && kindSection(group, saveGroup),
+      pet.mood !== 'dead' && kindSection(group, saveGroup, failure),
       pet.mood !== 'dead' && prizeSection(pet, prizes, look, (next) => saveGroup({ petLook: next })),
       healthChart(pet),
       petGraves(group),
@@ -3267,19 +3267,59 @@ function drawPet() {
   );
 }
 
-/** Вид питомца: выбирает преподаватель, на панели видно только, кто это. */
-function kindSection(group, saveGroup) {
+/**
+ * Вид питомца. Преподаватель выбирает в любой момент. Студент на панели выбирает один раз:
+ * после выбора вид не меняется до смерти питомца (или заведения нового).
+ */
+function kindSection(group, saveGroup, failure) {
+  const teacher = canManage();
+  const locked = !teacher && petKindLocked(group);
   const current = petKindOf(group.petKind);
-  if (!canManage()) return null;
+  let picked = current;
+  const buttons = PET_KINDS.map((kind) => h('button', {
+    type: 'button',
+    class: 'petkind',
+    'data-kind': kind.id,
+    disabled: locked,
+    'aria-pressed': String(kind.id === current),
+    onclick: () => {
+      if (teacher) {
+        if (kind.id !== current) saveGroup({ petKind: kind.id, petKindFor: petKindLockKey(group) });
+        return;
+      }
+      picked = kind.id;
+      paint();
+    },
+  }, petSprite('fine', null, kind.id), h('span', {}, t(kind.name))));
+  const confirm = h('button', {
+    type: 'button',
+    class: 'primary petchoose',
+    hidden: teacher || locked,
+    onclick: async () => {
+      const result = await api.choosePetKind(group.id, picked);
+      if (!result.ok) {
+        failure.textContent = result.code === 'locked' ? t('Вид уже выбран для этого питомца.') : t('Не удалось сохранить. Попробуйте ещё раз.');
+        return;
+      }
+      await loadDirectory();
+      petButtonKey = '';
+      refreshPet();
+      drawPet();
+    },
+  }, t('Выбрать этот вид'));
+  const hint = h('p', { class: 'help' }, teacher
+    ? t('Студент на панели выбирает вид один раз. Ваш выбор тоже закрывает его до смерти питомца.')
+    : locked
+      ? t('Вид выбран. Поменять его можно только после смерти питомца.')
+      : t('Выбрать вид можно один раз. До смерти питомца он не поменяется.'));
+  const paint = () => {
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.kind === picked));
+  };
   return h('section', { class: 'petsection' },
     h('h3', {}, t('Вид питомца')),
-    h('div', { class: 'petkinds', role: 'group', 'aria-label': t('Вид питомца') }, PET_KINDS.map((kind) => h('button', {
-      type: 'button',
-      class: 'petkind',
-      'data-kind': kind.id,
-      'aria-pressed': String(kind.id === current),
-      onclick: () => kind.id !== current && saveGroup({ petKind: kind.id }),
-    }, petSprite('fine', null, kind.id), h('span', {}, t(kind.name))))));
+    h('div', { class: 'petkinds', role: 'group', 'aria-label': t('Вид питомца') }, buttons),
+    hint,
+    confirm);
 }
 
 /** Призы питомца: полученные, следующий и наряд, который выбирает преподаватель. */

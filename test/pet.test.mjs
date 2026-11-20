@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_DAILY_LOSS, PET_FRAMES, PET_KINDS, POOR_FLOOR, PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, petKindOf, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
+import { MAX_DAILY_LOSS, PET_FRAMES, PET_KINDS, POOR_FLOOR, PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, petKindLocked, petKindOf, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -209,4 +209,12 @@ test('наряд: выбор учителя из полученного, ина�
   const pixels = dressedPixels('play', { head: 'crown', left: 'tripod', right: 'camera' });
   assert.ok(pixels.every((p) => p.x >= 0 && p.x < 96 && p.y >= 0 && p.y < 60));
   for (const { id } of PET_KINDS) assert.ok(dressedPixels('play', { head: 'headphones', left: 'clapper', right: 'spotlight' }, 4, id).length > 1500, id);
+});
+
+test('вид выбран на питомца до его смерти: новый питомец открывает выбор снова', () => {
+  const pet = { petSince: '2026-09-01T09:00', petKindFor: '2026-09-01T09:00' };
+  assert.equal(petKindLocked(pet), true);
+  assert.equal(petKindLocked({ ...pet, petSince: '2026-11-02T10:00' }), false, 'новый питомец');
+  assert.equal(petKindLocked({ petKindFor: 'pet' }), true, 'без даты заведения ключ «pet»');
+  assert.equal(petKindLocked({ petSince: '2026-09-01T09:00' }), false, 'вид не выбирали');
 });

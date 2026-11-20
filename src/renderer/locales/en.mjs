@@ -1036,7 +1036,12 @@ export default {
     "Кулунчук": "Kulunchuk (foal)",
     "Куобах": "Kuobakh (hare)",
     "Бэдэр": "Bedér (lynx)",
-    "Хаар эбэ": "Khaar ebe (snowy owl)"
+    "Хаар эбэ": "Khaar ebe (snowy owl)",
+    "Выбрать этот вид": "Choose this kind",
+    "Вид уже выбран для этого питомца.": "The kind is already chosen for this pet.",
+    "Студент на панели выбирает вид один раз. Ваш выбор тоже закрывает его до смерти питомца.": "A student on the panel chooses the kind once. Your choice also locks it until the pet dies.",
+    "Вид выбран. Поменять его можно только после смерти питомца.": "The kind is chosen. It can be changed only after the pet dies.",
+    "Выбрать вид можно один раз. До смерти питомца он не поменяется.": "The kind can be chosen once. It stays the same until the pet dies."
   },
   "plurals": {
     "events": {

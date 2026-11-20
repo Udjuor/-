@@ -212,6 +212,11 @@ export const PET_KINDS = [
 export const DEFAULT_PET_KIND = 'mammoth';
 export const petKindOf = (kind) => (PET_KINDS.some((item) => item.id === kind) ? kind : DEFAULT_PET_KIND);
 
+/** Ключ выбора вида: дата заведения питомца. Правило то же, что в src/main/store.js. */
+export const petKindLockKey = (group) => group.petSince || 'pet';
+/** Вид выбран на этого питомца: студенты его больше не меняют до смерти. Новый питомец меняет ключ. */
+export const petKindLocked = (group) => Boolean(group.petKindFor) && group.petKindFor === petKindLockKey(group);
+
 /* Рисование */
 
 const ellipse = (cx, cy, rx, ry) => (x, y) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;

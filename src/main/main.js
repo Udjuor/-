@@ -5,7 +5,7 @@ const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
-const { EventStore } = require('./store');
+const { EventStore, PET_KINDS, petKindLockKey, petKindLocked } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
 const { firewallState, repairFirewall } = require('./netcheck');
@@ -398,6 +398,16 @@ function registerHandlers() {
     const group = (await store.directory()).find((ref) => ref.kind === 'group' && ref.id === groupId);
     if (!group) throw Object.assign(new Error('no group'), { code: 'not-found' });
     const saved = await store.saveRef({ ...group, petName: String(name ?? '') }, group.updatedAt);
+    sync?.nudge();
+    return saved;
+  }));
+  // Вид питомца: студент на панели выбирает один раз, до смерти питомца. Преподаватель меняет вид через справочник.
+  ipcMain.handle('pet:kind', (_e, groupId, kind) => respond(async () => {
+    const group = (await store.directory()).find((ref) => ref.kind === 'group' && ref.id === groupId);
+    if (!group) throw Object.assign(new Error('no group'), { code: 'not-found' });
+    if (!PET_KINDS.includes(kind)) throw Object.assign(new Error('bad kind'), { code: 'invalid' });
+    if (edition === 'client' && petKindLocked(group)) throw Object.assign(new Error('locked'), { code: 'locked' });
+    const saved = await store.saveRef({ ...group, petKind: kind, petKindFor: petKindLockKey(group) }, group.updatedAt);
     sync?.nudge();
     return saved;
   }));

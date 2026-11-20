@@ -113,6 +113,16 @@ const today = (() => {
   assert.equal(petGroup.petName, 'Бублик');
   assert.equal(petGroup.name, 'ИС-21');
   await shot('client-pet');
+  // Вид питомца студент выбирает один раз: после выбора кнопки закрыты, второй выбор отклоняется.
+  await page.click('#pet .petkind[data-kind="owl"]');
+  await page.click('#pet .petchoose');
+  await page.waitForSelector('#pet .petkind[data-kind="owl"][aria-pressed=true]');
+  await page.waitForSelector('#pet .petkind:disabled');
+  assert.equal(await page.locator('#pet .petchoose').isVisible(), false, 'подтверждение скрыто после выбора');
+  const chosen = (await page.evaluate(() => window.calendar.directory())).value.find((ref) => ref.kind === 'group');
+  assert.equal(chosen.petKind, 'owl');
+  assert.equal((await page.evaluate((id) => window.calendar.choosePetKind(id, 'hare'), chosen.id)).code, 'locked', 'второй выбор отклонён в основном процессе');
+  await shot('client-pet-kind');
   await page.click('#pet [aria-label=Закрыть]');
 
   // На мероприятии только «был» или «не был».

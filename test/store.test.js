@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { EventStore, normalizeEvent } = require('../src/main/store');
+const { EventStore, normalizeEvent, petKindLocked } = require('../src/main/store');
 const { loadConfig, saveConfig, parseIni } = require('../src/main/config');
 
 const tempDir = (t) => {
@@ -683,6 +683,21 @@ test('вид питомца хранится в группе, неизвестн
   assert.equal('petKind' in odd, false);
   const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, petKind: 'lynx' });
   assert.equal('petKind' in student, false);
+});
+
+test('выбор вида закрыт до смерти питомца: ключ — дата заведения', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const chosen = await store.saveRef({ kind: 'group', name: 'ИС-31', petSince: '2026-09-01T09:00', petKind: 'owl', petKindFor: '2026-09-01T09:00' });
+  assert.equal(chosen.petKindFor, '2026-09-01T09:00');
+  assert.equal(petKindLocked(chosen), true, 'вид на этого питомца выбран');
+  const newPet = { ...chosen, petSince: '2026-11-02T10:00' };
+  assert.equal(petKindLocked(newPet), false, 'новый питомец — выбор снова открыт');
+  const oldGroup = await store.saveRef({ kind: 'group', name: 'ИС-32', petKindFor: 'pet' });
+  assert.equal(petKindLocked(oldGroup), true, 'питомец без даты заведения');
+  const free = await store.saveRef({ kind: 'group', name: 'ИС-33', petKind: 'foal' });
+  assert.equal(petKindLocked(free), false, 'вид не выбирали');
+  const junk = await store.saveRef({ kind: 'group', name: 'ИС-34', petKindFor: 'a b' });
+  assert.equal('petKindFor' in junk, false);
 });
 
 test('запись переживает файл, на мгновение занятый антивирусом (EPERM при замене)', async (t) => {
