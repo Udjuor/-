@@ -1025,7 +1025,13 @@ export default {
     "Не показывать на панелях": "Hide on panels",
     "не показывается на панелях": "hidden on panels",
     "{0} ({1})": "{0} ({1})",
-    "Кто поставил": "Given by"
+    "Кто поставил": "Given by",
+    "Вид питомца": "Pet kind",
+    "Мамонтёнок": "Mammoth calf",
+    "Котёнок": "Kitten",
+    "Зайчонок": "Bunny",
+    "Лягушонок": "Froglet",
+    "Пингвинёнок": "Penguin chick"
   },
   "plurals": {
     "events": {

@@ -218,6 +218,9 @@ function normalizeRef(raw) {
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
     ref.petSince = MOMENT_RE.test(raw.petSince ?? '') ? raw.petSince : '';
+    // Вид питомца: мамонтёнок, котёнок, зайчонок, лягушонок, пингвинёнок.
+    if (['mammoth', 'cat', 'bunny', 'frog', 'penguin'].includes(raw.petKind)) ref.petKind = raw.petKind;
+    else delete ref.petKind;
     // Что надето на питомце и что стоит рядом: только названия призов.
     const look = raw.petLook && typeof raw.petLook === 'object' ? raw.petLook : null;
     if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
@@ -229,6 +232,7 @@ function normalizeRef(raw) {
       pairs: Number.isInteger(death?.pairs) ? death.pairs : 0,
     }));
   }
+  if (raw.kind !== 'group') delete ref.petKind;
   if (raw.kind === 'notice') {
     ref.name = ref.name.slice(0, 200);
     ref.color = NOTICE_COLORS.has(raw.color) ? raw.color : 'blue';

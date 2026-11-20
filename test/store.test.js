@@ -672,3 +672,13 @@ test('согласие на показ: отметка «не показыват
   const bonus = await store.saveRef({ kind: 'bonus', name: 'Олимпиада', student: 'Иванов Иван', date: '2026-11-03', points: 5, by: 'Кабинет 204' });
   assert.equal(bonus.by, 'Кабинет 204');
 });
+
+test('вид питомца хранится в группе, неизвестный отбрасывается', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petKind: 'penguin' });
+  assert.equal(group.petKind, 'penguin');
+  const odd = await store.saveRef({ ...group, petKind: 'dragon' }, group.updatedAt);
+  assert.equal('petKind' in odd, false);
+  const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, petKind: 'cat' });
+  assert.equal('petKind' in student, false);
+});

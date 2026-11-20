@@ -635,7 +635,15 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pet >> text=Назвать');
   await page.waitForSelector('#pet-open:has-text("Пиксель")');
   await until(async () => (await teacherStore.directory()).some((r) => r.petName === 'Пиксель'), 'имя питомца на другом устройстве');
-  assert.equal(await page.locator('#pet .mood-sick, #pet .mood-sad, #pet .mood-fine, #pet .mood-play').count(), 1, 'питомец жив');
+  // Пять видов на выбор: преподаватель делает питомца пингвинёнком.
+  assert.equal(await page.locator('#pet .petkind').count(), 5);
+  await page.click('#pet [data-kind="penguin"]');
+  await page.waitForSelector('#pet .petstage .kind-penguin');
+  await page.waitForSelector('#pet-open .kind-penguin');
+  assert.equal(await page.locator('#pet .petstage .petsprite .frame').count(), 8, 'восемь кадров анимации');
+  await until(async () => (await teacherStore.directory()).some((r) => r.petKind === 'penguin'), 'вид питомца на другом устройстве');
+  await shot('pet-kinds');
+  assert.equal(await page.locator('#pet .petstage :is(.mood-sick, .mood-sad, .mood-fine, .mood-play)').count(), 1, 'питомец жив');
   await page.click('#pet .petstage');
   await page.waitForSelector('#pet .petheart');
   await shot('pet-alive');
@@ -650,13 +658,13 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await teacher.syncWith('127.0.0.1:47800');
   await page.waitForSelector('#pet-open .mood-dead', { timeout: 20000 });
   await page.click('#pet-open');
-  await page.waitForSelector('#pet .mood-dead');
+  await page.waitForSelector('#pet .petstage .mood-dead');
   assert.match(await page.textContent('#pet .petmood'), /Пиксель: питомец умер/);
   assert.equal(await page.locator('#pet .healthchart').count(), 1, 'график здоровья');
   await page.waitForSelector('#ticker .notice-red:has-text("Пиксель: питомец умер")', { state: 'attached' });
   await shot('pet-dead');
   await page.click('#pet >> text=Завести нового питомца');
-  await page.waitForSelector('#pet .mood-fine');
+  await page.waitForSelector('#pet .petstage .mood-fine');
   assert.match(await page.textContent('#pet .petlevel'), /Здоровье 70 из 100/);
   await page.waitForSelector('#ticker .notice:has-text("Пиксель")', { state: 'detached' });
   assert.match(await page.textContent('#pet .petdeaths'), /Пиксель/);

@@ -189,210 +189,545 @@ export function petLook(look, prizes) {
   return { head: latest('head')[0] ?? '', right: sides[0] ?? '', left: sides[1] ?? '' };
 }
 
-/* Спрайт 32×32: тело рисуется по фигурам с объёмом (свет сверху слева), лицо — по точкам. */
+/*
+ * Питомцы 48×48, восемь кадров анимации. Пять видов, у каждого своя фигура и расцветка.
+ * Всё рисуется фигурами с объёмом (свет сверху слева); настроение меняет лицо, позу и оттенок.
+ */
 
-export const PET_SIZE = 32;
+export const PET_SIZE = 48;
+export const PET_FRAMES = 8;
 
 const INK = '#1b1f24';
-
-/** Цвета тела по настроению: основной, свет, тень, животик, контур. */
-const PALETTES = {
-  play: { base: '#6fdc8c', light: '#aef0bf', shade: '#3fae62', deep: '#2f8a4c', belly: '#dcfbe4', line: '#14532d' },
-  fine: { base: '#6fdc8c', light: '#aef0bf', shade: '#3fae62', deep: '#2f8a4c', belly: '#dcfbe4', line: '#14532d' },
-  sad: { base: '#8cc4ff', light: '#cde5ff', shade: '#5b93d8', deep: '#4475b8', belly: '#eaf4ff', line: '#1e3a6e' },
-  sick: { base: '#c4c46a', light: '#e3e3a2', shade: '#999842', deep: '#7c7b30', belly: '#f2f1cc', line: '#4a4917' },
-};
-
-const EAR_PINK = '#ff9db4';
 const BLUSH = '#ff8fab';
 const SHADOW = '#00000038';
 
+/** Виды питомцев: по умолчанию мамонтёнок. */
+export const PET_KINDS = [
+  { id: 'mammoth', name: 'Мамонтёнок' },
+  { id: 'cat', name: 'Котёнок' },
+  { id: 'bunny', name: 'Зайчонок' },
+  { id: 'frog', name: 'Лягушонок' },
+  { id: 'penguin', name: 'Пингвинёнок' },
+];
+export const DEFAULT_PET_KIND = 'mammoth';
+export const petKindOf = (kind) => (PET_KINDS.some((item) => item.id === kind) ? kind : DEFAULT_PET_KIND);
+
+/* Рисование */
+
 const ellipse = (cx, cy, rx, ry) => (x, y) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
 
-/** Фигуры тела. squash — кадр «вдоха»: тело чуть ниже и шире. */
-function shapes(squash) {
-  const cy = 18 + squash * 0.6;
-  const ry = 11.4 - squash * 0.6;
-  return {
-    cy,
-    ry,
-    body: ellipse(16, cy, 12.6 + squash * 0.4, ry),
-    ears: [ellipse(7.6, 6.6 + squash, 3.4, 3.8), ellipse(24.4, 6.6 + squash, 3.4, 3.8)],
-    inner: [ellipse(7.8, 6.6 + squash, 1.6, 2.2), ellipse(24.2, 6.6 + squash, 1.6, 2.2)],
-    arms: [ellipse(3.4, 20.5 + squash * 0.5, 2.2, 3.2), ellipse(28.6, 20.5 + squash * 0.5, 2.2, 3.2)],
-    feet: [ellipse(11, 29.2, 3.8, 1.9), ellipse(21, 29.2, 3.8, 1.9)],
-    belly: ellipse(16, 22.4 + squash * 0.4, 7.2, 5.6 - squash * 0.3),
-    shine: ellipse(11, 10.8 + squash * 0.6, 1.9, 1.1),
-    gloss: ellipse(11, 10.8 + squash * 0.6, 3.2, 2),
-    shadow: ellipse(16, 31, 11, 1.2),
+/** Повёрнутый овал: angle в радианах, по часовой стрелке. */
+const tilted = (cx, cy, rx, ry, angle) => {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return (x, y) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return ((dx * cos + dy * sin) / rx) ** 2 + ((-dx * sin + dy * cos) / ry) ** 2 <= 1;
   };
-}
+};
 
-/** Тело с объёмом: каждая точка — свет, основной цвет, тень или контур. */
-function bodyCells(mood, squash) {
-  const p = PALETTES[mood];
-  const s = shapes(squash);
-  const cells = Array.from({ length: PET_SIZE }, () => Array(PET_SIZE).fill(null));
-  const filled = (x, y) => s.body(x, y) || s.ears.some((f) => f(x, y)) || s.arms.some((f) => f(x, y)) || s.feet.some((f) => f(x, y));
+/** Многоугольник по точкам. */
+const polygon = (points) => (x, y) => {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+
+const blank = () => Array.from({ length: PET_SIZE }, () => Array(PET_SIZE).fill(null));
+
+/** Закрашивает фигуру: color — цвет или функция (x, y) → цвет. */
+function paint(cells, shape, color) {
   for (let y = 0; y < PET_SIZE; y += 1) {
     for (let x = 0; x < PET_SIZE; x += 1) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      if (!filled(px, py)) {
-        if (s.shadow(px, py)) cells[y][x] = SHADOW;
-        continue;
-      }
-      let color = p.base;
-      if (s.feet.some((f) => f(px, py)) && !s.body(px, py)) color = py > 29.6 ? p.deep : p.shade;
-      else if (s.arms.some((f) => f(px, py)) && !s.body(px, py)) color = py > 21.5 ? p.shade : p.base;
-      else if (s.ears.some((f) => f(px, py)) && !s.body(px, py)) color = s.inner.some((f) => f(px, py)) ? EAR_PINK : px < 16 ? p.light : p.base;
-      else {
-        // Свет падает сверху слева: чем дальше вниз и вправо, тем темнее.
-        const nx = (px - 16) / 12.6;
-        const ny = (py - s.cy) / s.ry;
-        const lit = nx * 0.55 + ny * 0.85;
-        color = lit < -0.62 ? p.light : lit > 0.78 ? p.deep : lit > 0.42 ? p.shade : p.base;
-        if (s.belly(px, py)) color = lit > 0.78 ? p.shade : p.belly;
-        if (s.gloss(px, py) && !s.belly(px, py)) color = p.light;
-        if (s.shine(px, py)) color = '#ffffff';
-      }
-      cells[y][x] = color;
+      if (shape(x + 0.5, y + 0.5)) cells[y][x] = typeof color === 'function' ? color(x + 0.5, y + 0.5) : color;
     }
   }
-  // Контур снаружи фигуры: тёмный оттенок тела вместо чёрного.
-  const outline = cells.map((row) => [...row]);
+}
+
+/** Цвет с объёмом: свет сверху слева, тень снизу справа. */
+const shaded = (pal, cx, cy, rx, ry) => (x, y) => {
+  const lit = ((x - cx) / rx) * 0.55 + ((y - cy) / ry) * 0.85;
+  return lit < -0.64 ? pal.light : lit > 0.8 ? pal.deep : lit > 0.44 ? pal.shade : pal.base;
+};
+
+/** Мягкий объём для светлых пятен: животик, маска. */
+const soft = (light, dark, cx, cy, rx, ry) => (x, y) => (((x - cx) / rx) * 0.5 + ((y - cy) / ry) * 0.8 > 0.62 ? dark : light);
+
+const dot = (cells, x, y, color) => {
+  const xi = Math.round(x);
+  const yi = Math.round(y);
+  if (cells[yi]?.[xi] !== undefined) cells[yi][xi] = color;
+};
+
+function line(cells, x0, y0, x1, y1, color) {
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2 || 1;
+  for (let i = 0; i <= steps; i += 1) dot(cells, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, color);
+}
+
+function curve(cells, x0, x1, f, color) {
+  let px = x0;
+  let py = f(x0);
+  for (let x = x0 + 0.5; x <= x1 + 0.01; x += 0.5) {
+    const y = f(x);
+    line(cells, px, py, x, y, color);
+    px = x;
+    py = y;
+  }
+}
+
+/** Цепочка кругов по точкам: хвост, хобот. Радиус плавно меняется от r0 до r1. */
+function chain(cells, points, r0, r1, color) {
+  const total = points.length - 1;
+  for (let i = 0; i < total; i += 1) {
+    const [x0, y0] = points[i];
+    const [x1, y1] = points[i + 1];
+    for (let k = 0; k <= 4; k += 1) {
+      const t = (i + k / 4) / total;
+      const r = r0 + (r1 - r0) * t;
+      const cx = x0 + ((x1 - x0) * k) / 4;
+      const cy = y0 + ((y1 - y0) * k) / 4;
+      paint(cells, ellipse(cx, cy, r, r), typeof color === 'function' ? (x, y) => color(x, y, t) : color);
+    }
+  }
+}
+
+function sparkle(cells, x, y, size, color = '#f2cc60', core = '#fff3b0') {
+  if (size <= 0) return;
+  for (let i = -size; i <= size; i += 1) {
+    dot(cells, x + i, y, color);
+    dot(cells, x, y + i, color);
+  }
+  dot(cells, x, y, core);
+}
+
+/** Смешивает два цвета #rrggbb. */
+function mix(a, b, k) {
+  const pa = parseInt(a.slice(1, 7), 16);
+  const pb = parseInt(b.slice(1, 7), 16);
+  const ch = (shift) => Math.round(((pa >> shift) & 255) * (1 - k) + ((pb >> shift) & 255) * k);
+  return `#${[16, 8, 0].map((shift) => ch(shift).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Грусть делает питомца голубее, болезнь — желтовато-зеленее. */
+const MOOD_TINT = { sad: ['#6f9fd8', 0.28], sick: ['#a3a35a', 0.34] };
+
+function paletteFor(species, mood) {
+  const tint = MOOD_TINT[mood];
+  if (!tint) return species.pal;
+  return Object.fromEntries(Object.entries(species.pal).map(([key, color]) => [key, mix(color, tint[0], tint[1])]));
+}
+
+/** Поза кадра: дыхание, прыжок, движения ушей и лап. */
+export function pose(mood, frame) {
+  const phase = (frame / PET_FRAMES) * Math.PI * 2;
+  const breath = (1 - Math.cos(phase)) / 2;
+  const q = { phase, breath, lift: 0, top: 0, wave: 0, twitch: 0, droop: 0, sway: Math.sin(phase) };
+  if (mood === 'play') {
+    q.lift = Math.round(Math.abs(Math.sin(phase)) * 4);
+    q.wave = (1 + Math.sin(phase * 2)) / 2; // 0…1: правая лапа машет
+  }
+  if (mood === 'fine' && frame === 4) q.twitch = 1;
+  if (mood === 'sad') q.droop = 1;
+  if (mood === 'sick') q.droop = 0.5;
+  q.top = -q.lift;
+  return q;
+}
+
+/** Обводка снаружи нарисованного тела. */
+function outline(cells, color) {
+  const out = cells.map((row) => [...row]);
   for (let y = 0; y < PET_SIZE; y += 1) {
     for (let x = 0; x < PET_SIZE; x += 1) {
       if (cells[y][x] && cells[y][x] !== SHADOW) continue;
-      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-        const c = cells[y + dy]?.[x + dx];
-        return c && c !== SHADOW;
-      });
-      if (near) outline[y][x] = p.line;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const c = cells[y + dy]?.[x + dx]; return c && c !== SHADOW; })) out[y][x] = color;
     }
   }
-  return outline;
+  return out;
 }
 
-const put = (cells, color, points, dy = 0) => {
-  for (const [x, y] of points) if (cells[y + dy]?.[x] !== undefined) cells[y + dy][x] = color;
-};
-
-/** Открытые глаза с бликами. */
-const openEyes = (cells, dy, down = 0) => {
-  for (const ex of [10, 19]) {
-    put(cells, INK, [[ex, 13], [ex + 1, 13], [ex + 2, 13], [ex, 14], [ex + 1, 14], [ex + 2, 14], [ex, 15], [ex + 1, 15], [ex + 2, 15], [ex, 16], [ex + 1, 16], [ex + 2, 16]].map(([x, y]) => [x, y + down]), dy);
-    put(cells, '#ffffff', [[ex, 13 + down], [ex + 1, 13 + down], [ex, 14 + down]], dy);
-    put(cells, '#8b949e', [[ex + 2, 16 + down]], dy);
+/** Блик на макушке: только поверх основного цвета тела. */
+function gloss(cells, pal, cx, cy) {
+  for (let y = 0; y < PET_SIZE; y += 1) {
+    for (let x = 0; x < PET_SIZE; x += 1) {
+      const c = cells[y][x];
+      if (c !== pal.base && c !== pal.light && c !== pal.shade) continue;
+      if (ellipse(cx, cy, 2.8, 1.6)(x + 0.5, y + 0.5)) cells[y][x] = '#ffffff';
+      else if (ellipse(cx, cy, 4.8, 3)(x + 0.5, y + 0.5)) cells[y][x] = pal.light;
+    }
   }
-};
-
-const closedEyes = (cells, dy) => {
-  put(cells, INK, [[10, 15], [11, 16], [12, 15], [19, 15], [20, 16], [21, 15]], dy);
-};
-
-const cheeks = (cells, dy) => {
-  put(cells, BLUSH, [[6, 18], [7, 18], [8, 18], [23, 18], [24, 18], [25, 18]], dy);
-  put(cells, '#ffc2d1', [[7, 17], [24, 17]], dy);
-};
-
-const FACES = {
-  play(cells, frame, dy) {
-    // Глаза-дуги, открытый рот с языком, искорки вокруг.
-    put(cells, INK, [[9, 15], [10, 14], [11, 13], [12, 14], [13, 15], [18, 15], [19, 14], [20, 13], [21, 14], [22, 15]], dy);
-    put(cells, INK, [[13, 19], [14, 19], [15, 19], [16, 19], [17, 19], [18, 19], [13, 20], [18, 20], [14, 21], [17, 21], [14, 20], [17, 20]], dy);
-    put(cells, '#7a1f2b', [[15, 20], [16, 20]], dy);
-    put(cells, '#ff6b81', [[15, 21], [16, 21]], dy);
-    put(cells, '#ffffff', [[14, 19], [17, 19]], dy);
-    cheeks(cells, dy);
-    const star = (x, y) => [[x, y - 1], [x - 1, y], [x, y], [x + 1, y], [x, y + 1]];
-    put(cells, '#f2cc60', frame ? [...star(2, 4), ...star(29, 11)] : [...star(29, 3), ...star(2, 12)]);
-    put(cells, '#fff3b0', frame ? [[2, 4], [29, 11]] : [[29, 3], [2, 12]]);
-  },
-  fine(cells, frame, dy) {
-    if (frame) closedEyes(cells, dy);
-    else openEyes(cells, dy);
-    put(cells, INK, [[13, 19], [14, 20], [15, 20], [16, 20], [17, 20], [18, 19]], dy);
-    cheeks(cells, dy);
-  },
-  sad(cells, frame, dy) {
-    openEyes(cells, dy, 1);
-    // Брови домиком, рот вниз, слеза стекает.
-    put(cells, INK, [[9, 12], [10, 12], [11, 11], [12, 11], [19, 11], [20, 11], [21, 12], [22, 12]], dy);
-    put(cells, INK, [[13, 22], [14, 21], [15, 21], [16, 21], [17, 21], [18, 22]], dy);
-    put(cells, '#54aeff', frame ? [[10, 20], [10, 21], [9, 21]] : [[10, 18], [10, 19]], dy);
-    put(cells, '#cde5ff', frame ? [[10, 20]] : [[10, 18]], dy);
-  },
-  sick(cells, frame, dy) {
-    // Глаза-крестики, волнистый рот, градусник, капля пота, грелка-пакет со льдом.
-    for (const ex of [10, 19]) put(cells, INK, [[ex, 13], [ex + 2, 13], [ex + 1, 14], [ex, 15], [ex + 2, 15]], dy);
-    put(cells, INK, [[12, 20], [13, 19], [14, 20], [15, 19], [16, 20], [17, 19]], dy);
-    put(cells, '#ffffff', [[18, 20], [19, 20], [20, 20], [21, 20], [22, 20]], dy);
-    put(cells, '#adb5bd', [[18, 21], [19, 21], [20, 21], [21, 21], [22, 21]], dy);
-    put(cells, '#e5534b', [[23, 20], [23, 21]], dy);
-    put(cells, '#54aeff', frame ? [[26, 9], [26, 10], [25, 10]] : [[26, 7], [26, 8], [25, 8]], dy);
-    put(cells, '#cde5ff', frame ? [[26, 9]] : [[26, 7]], dy);
-    put(cells, '#e6edf3', [[13, 5], [14, 5], [15, 5], [16, 5], [17, 5], [18, 5], [13, 6], [18, 6], [13, 7], [14, 7], [15, 7], [16, 7], [17, 7], [18, 7]], dy);
-    put(cells, '#79c0ff', [[14, 6], [15, 6], [16, 6], [17, 6]], dy);
-  },
-};
-
-/** Надгробие с травой и цветком. */
-const GRAVE = [
-  '................................',
-  '................................',
-  '...........kkkkkkkkkk...........',
-  '.........kkLLLLLLLLssks.........',
-  '........kLLLLLLLLLssssk.........',
-  '.......kLLLLLLLLsssssssk........',
-  '......kLLLLLLsssssssssssk.......',
-  '......kLLLLssssssssssssxk.......',
-  '......kLLLsssssddsssssxxk.......',
-  '......kLLssssssddssssssxk.......',
-  '......kLssssddddddddsssxk.......',
-  '......kLssssddddddddsssxk.......',
-  '......kLssssssddssssssxxk.......',
-  '......kLssssssddsssssssxk.......',
-  '......kLssssssddssssdssxk.......',
-  '......kLssssssddsssdsssxk.......',
-  '......kLssssssssssdssssxk.......',
-  '......kLsssssssssdsssssxk.......',
-  '......kLssssssssssssssxxk.......',
-  '......kLssssssssssssssxxk.......',
-  '......kLsssssssssssssxxxk.......',
-  '......kLsssssssssssssxxxk.......',
-  '......kssssssssssssssxxxk.......',
-  '.....kkkkkkkkkkkkkkkkkkkkk..r.r.',
-  '....kssssssssssssssssssxxxk..y..',
-  '....kxxxxxxxxxxxxxxxxxxxxxk..G..',
-  '.G.GgGG.G.GG.gG.GG.G.GgG.G.G.GG.',
-  'GgGgGGgGGgGGgGGgGGgGGgGgGGgGGgGG',
-  'gggggggggggggggggggggggggggggggg',
-  'gGggggGgggggGgggggGgggggGgggggGg',
-  'gggggggggggggggggggggggggggggggg',
-  '................................',
-];
-
-const GRAVE_COLORS = { k: '#343a40', L: '#dee2e6', s: '#adb5bd', x: '#868e96', d: '#6e7781', g: '#2f8a4c', G: '#57c776', r: '#e5534b', y: '#f2cc60' };
-
-function cellsFor(mood, frame) {
-  if (mood === 'dead') return GRAVE.map((row) => [...row].map((c) => GRAVE_COLORS[c] ?? null));
-  const squash = frame ? 1 : 0;
-  const cells = bodyCells(mood, squash);
-  FACES[mood](cells, frame, squash);
-  return cells;
 }
 
-/** Пиксели спрайта 32×32: [{ x, y, fill }]. Кадр 0 или 1. */
-export function petPixels(mood, frame = 0) {
+/* Виды. body рисует фигуру до обводки, extra — детали поверх лица. */
+
+const SPECIES = {
+  mammoth: {
+    pal: { base: '#b57f52', light: '#dcab7e', shade: '#8d5d38', deep: '#6b4227', belly: '#ecd2b2', bellyShade: '#d8b48e', line: '#3d2412', inner: '#d99a8a' },
+    eyes: [[17, 20.5], [31, 20.5]],
+    cheeks: [[11, 26], [37, 26]],
+    mouth: null, // рот под хоботом
+    headDrop: 8,
+    body(c, pal, q, mood) {
+      const t = q.top;
+      const flap = mood === 'play' || mood === 'fine' ? Math.sin(q.phase) * 0.9 : 0;
+      for (const [cx, side] of [[7.4, -1], [40.6, 1]]) {
+        const cy = 24 + t + q.droop * 2 + q.breath * 0.5;
+        paint(c, ellipse(cx, cy, 6.6 + flap, 8.6), shaded(pal, cx, cy, 6.6, 8.6));
+        paint(c, ellipse(cx + side * 0.6, cy + 0.6, 3.6 + flap * 0.6, 5.6), pal.inner);
+      }
+      const cy = 27.4 + q.breath * 0.8 + t;
+      paint(c, ellipse(24, cy, 18 + q.breath * 0.5, 17 - q.breath * 0.8), shaded(pal, 24, cy, 18, 17));
+      paint(c, ellipse(24, cy + 10, 10.5, 6), soft(pal.belly, pal.bellyShade, 24, cy + 10, 10.5, 6));
+      // Шерсть: короткие пряди по бокам.
+      for (const [x0, y0, x1, y1] of [[10, 28, 9, 31], [38, 28, 39, 31], [12, 35, 11, 38], [36, 35, 37, 38], [15, 16, 14, 18], [33, 16, 34, 18]]) line(c, x0, y0 + t, x1, y1 + t, pal.shade);
+      for (const fx of [15.5, 32.5]) {
+        paint(c, ellipse(fx, 43.6, 5.4, 3), shaded(pal, fx, 42, 5.4, 3));
+        for (const nx of [-2.2, 0, 2.2]) dot(c, fx + nx, 45.4, '#fff4dc');
+      }
+      // Чубчик.
+      for (const [x0, x1, y1] of [[22, 21, 6.5], [24, 24, 5.5], [26, 27, 6.5]]) line(c, x0, 11 + t, x1, y1 + t, pal.deep);
+    },
+    extra(c, pal, q, mood) {
+      const t = q.top;
+      // Хобот поверх мордочки, со своим контуром: поднят от радости, висит от грусти, покачивается.
+      const end = mood === 'play'
+        ? [[24, 25], [24.4, 29.5], [26.5, 32], [29.5, 31], [31, 27.5 - q.wave]]
+        : mood === 'sad' || mood === 'sick'
+          ? [[24, 25], [24, 30], [23.8, 34], [23.4 + q.sway * 0.5, 38.5]]
+          : [[24, 25], [24, 30], [24.6, 33.5], [26.4, 35.6], [28.4 + q.sway * 0.6, 34.6]];
+      let trunk = blank();
+      chain(trunk, end.map(([x, y]) => [x, y + t]), 2.8, 1.8, (x, y, k) => (k > 0.2 && Math.round(y) % 3 === 0 ? pal.shade : x < 23.6 ? pal.light : pal.base));
+      trunk = outline(trunk, pal.line);
+      // Основание хобота сливается с мордочкой: верхнюю обводку не рисуем.
+      trunk.forEach((row, y) => row.forEach((color, x) => { if (color && !(color === pal.line && y < 26 + t)) c[y][x] = color; }));
+      // Бивни.
+      for (const side of [-1, 1]) {
+        curve(c, side < 0 ? 18.6 : 26.8, side < 0 ? 21.2 : 29.4, (x) => 30.4 + t + ((x - (24 + side * 4)) * side + 1.3) ** 2 * 0.45, '#fff4dc');
+        dot(c, 24 + side * 5.6, 32 + t, '#d8c49c');
+      }
+    },
+  },
+  cat: {
+    pal: { base: '#f4a259', light: '#ffcf96', shade: '#d9772e', deep: '#b45d1e', belly: '#fff1e0', bellyShade: '#f3d9bd', line: '#5a2d0c', inner: '#ff9db4' },
+    eyes: [[17.5, 21.5], [30.5, 21.5]],
+    cheeks: [[10.5, 27], [37.5, 27]],
+    mouth: { y: 27.6, style: 'cat' },
+    headDrop: 8,
+    body(c, pal, q) {
+      const t = q.top;
+      // Хвост сзади, качается.
+      const tip = 44 + q.sway * 2;
+      chain(c, [[36, 41], [41, 39], [44, 34], [tip, 28 + t], [tip - 1.5, 24 + t]], 2.4, 2, (x, y, k) => (Math.floor(k * 6) % 2 ? pal.deep : shaded(pal, 40, 34, 6, 8)(x, y)));
+      const droop = q.droop * 3;
+      const ears = [
+        [[8.5, 18 + t + droop], [11.5 - droop, 3.5 + t + droop * 1.5], [20, 11.5 + t]],
+        [[28, 11.5 + t], [36.5 + droop, 3.5 + t + droop * 1.5 - q.twitch * 1.5], [39.5, 18 + t + droop]],
+      ];
+      for (const tri of ears) {
+        paint(c, polygon(tri), (x, y) => (x < 24 ? pal.light : pal.base));
+        const [a, b, d] = tri;
+        const mid = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3];
+        paint(c, polygon(tri.map(([x, y]) => [mid[0] + (x - mid[0]) * 0.5, mid[1] + (y - mid[1]) * 0.5 + 1])), pal.inner);
+      }
+      const cy = 27.6 + q.breath * 0.8 + t;
+      paint(c, ellipse(24, cy, 18.4 + q.breath * 0.5, 16.6 - q.breath * 0.8), shaded(pal, 24, cy, 18.4, 16.6));
+      paint(c, ellipse(24, cy + 7.5, 10, 7.6), soft(pal.belly, pal.bellyShade, 24, cy + 7.5, 10, 7.6));
+      // Мордочка светлее.
+      paint(c, ellipse(24, cy + 0.2, 6.5, 3.6), pal.belly);
+      for (const [ax, side] of [[6, 0], [42, 1]]) {
+        const lift = side ? q.wave * 8 : 0;
+        paint(c, ellipse(ax, 31.5 + t - lift, 3.3, 4.6), (x, y) => (y > 33.5 + t - lift ? pal.belly : pal.base));
+      }
+      for (const fx of [16.5, 31.5]) paint(c, ellipse(fx, 43.8, 5.4, 2.8), soft(pal.belly, pal.bellyShade, fx, 43.8, 5.4, 2.8));
+      // Полоски на лбу.
+      for (const [x, y0, y1] of [[22, 12, 15], [24, 11, 15.5], [26, 12, 15]]) line(c, x, y0 + t, x, y1 + t, pal.deep);
+      for (const side of [-1, 1]) line(c, 24 + side * 16, 22 + t, 24 + side * 13.5, 23 + t, pal.deep);
+    },
+    extra(c, pal, q) {
+      const t = q.top;
+      for (const [x, y] of [[23, 26], [24, 26], [25, 26], [24, 27]]) dot(c, x, y + t, '#ff7b93');
+      for (const side of [-1, 1]) {
+        line(c, 24 + side * 10, 26.5 + t, 24 + side * 17, 25.5 + t, pal.line);
+        line(c, 24 + side * 10, 28 + t, 24 + side * 17, 28.8 + t, pal.line);
+      }
+    },
+  },
+  bunny: {
+    pal: { base: '#e7e1fb', light: '#ffffff', shade: '#c4b8ef', deep: '#a294dc', belly: '#ffffff', bellyShade: '#ece8fb', line: '#4b3f8a', inner: '#ffb3c6' },
+    eyes: [[18, 22.5], [30, 22.5]],
+    cheeks: [[11, 28], [37, 28]],
+    mouth: { y: 28.4, style: 'bunny' },
+    headDrop: 9,
+    body(c, pal, q) {
+      const t = q.top;
+      paint(c, ellipse(41.5, 38, 3.8, 3.6), soft('#ffffff', pal.bellyShade, 41.5, 38, 3.8, 3.6));
+      // Длинные уши: от грусти опускаются в стороны, правое дёргается.
+      const tilt = q.droop * 0.75;
+      const wig = q.lift > 2 ? 0.08 : 0;
+      for (const [cx, side] of [[17.5, -1], [30.5, 1]]) {
+        const angle = side * (0.12 + tilt + wig) + (side > 0 ? q.twitch * 0.3 : 0);
+        const cy = 9.5 + t + q.breath * 0.5 + q.droop * 4;
+        const ox = cx + side * q.droop * 4;
+        paint(c, tilted(ox, cy, 3.9, 9.6, angle), shaded(pal, ox, cy, 3.9, 9.6));
+        paint(c, tilted(ox, cy + 1, 1.9, 7, angle), pal.inner);
+      }
+      const cy = 28.6 + q.breath * 0.8 + t;
+      paint(c, ellipse(24, cy, 17.6 + q.breath * 0.5, 16 - q.breath * 0.8), shaded(pal, 24, cy, 17.6, 16));
+      paint(c, ellipse(24, cy + 7.4, 10, 7), soft(pal.belly, pal.bellyShade, 24, cy + 7.4, 10, 7));
+      for (const [ax, side] of [[7, 0], [41, 1]]) {
+        const lift = side ? q.wave * 8 : 0;
+        paint(c, ellipse(ax, 32 + t - lift, 3.2, 4.4), shaded(pal, ax, 32 + t - lift, 3.2, 4.4));
+      }
+      for (const fx of [16, 32]) paint(c, ellipse(fx, 43.8, 6.4, 2.7), soft(pal.belly, pal.bellyShade, fx, 43.8, 6.4, 2.7));
+    },
+    extra(c, pal, q) {
+      const t = q.top;
+      for (const [x, y] of [[23, 26.5], [24, 26.5], [25, 26.5], [24, 27.4]]) dot(c, x, y + t, '#ff7b93');
+    },
+  },
+  frog: {
+    pal: { base: '#5cc97a', light: '#9de8b0', shade: '#3a9c57', deep: '#2a7a42', belly: '#eaf7c3', bellyShade: '#d4e8a0', line: '#14532d', inner: '#ffffff' },
+    eyes: [[15, 17.5], [33, 17.5]],
+    eyeStyle: 'sclera',
+    cheeks: [[9.5, 30.5], [38.5, 30.5]],
+    mouth: { y: 29, style: 'wide' },
+    headDrop: 9,
+    body(c, pal, q) {
+      const t = q.top;
+      const cy = 31 + q.breath * 0.8 + t;
+      for (const ex of [15, 33]) paint(c, ellipse(ex, 17.5 + t + q.breath * 0.5, 6.4, 6.2), shaded(pal, ex, 17.5 + t, 6.4, 6.2));
+      paint(c, ellipse(24, cy, 20.6 + q.breath * 0.5, 13.6 - q.breath * 0.6), shaded(pal, 24, cy, 20.6, 13.6));
+      paint(c, ellipse(24, cy + 6, 12.5, 6.6), soft(pal.belly, pal.bellyShade, 24, cy + 6, 12.5, 6.6));
+      for (const [x, y, r] of [[7.5, 29, 1.6], [41, 28, 1.4], [10, 36, 1.2], [38, 35.5, 1.5], [20, 21, 1.1], [29, 22, 1.2]]) paint(c, ellipse(x, y + t, r, r), pal.shade);
+      for (const [ax, side] of [[6, 0], [42, 1]]) {
+        const lift = side ? q.wave * 7 : 0;
+        paint(c, ellipse(ax, 38 + t - lift, 3, 3.6), shaded(pal, ax, 38 + t - lift, 3, 3.6));
+      }
+      for (const [fx, side] of [[14, -1], [34, 1]]) {
+        paint(c, ellipse(fx, 44, 6.2, 2.4), pal.shade);
+        for (const k of [-1, 0, 1]) paint(c, ellipse(fx + side * 1 + k * 3.4, 45.2, 1.3, 1.1), pal.deep);
+      }
+    },
+    extra() {},
+  },
+  penguin: {
+    pal: { base: '#3d4f74', light: '#5d74a0', shade: '#2b3856', deep: '#1f2940', belly: '#ffffff', bellyShade: '#dfe6f0', line: '#111827', inner: '#f59f00' },
+    eyes: [[18.5, 21], [29.5, 21]],
+    cheeks: [[13, 26.6], [35, 26.6]],
+    mouth: { y: 25.4, style: 'beak' },
+    headDrop: 5,
+    body(c, pal, q, mood) {
+      const t = q.top;
+      const cy = 26.8 + q.breath * 0.8 + t;
+      // Ласты: правая машет от радости.
+      for (const [ax, side] of [[7.6, -1], [40.4, 1]]) {
+        const angle = side * (0.42 + (side > 0 ? q.wave * 0.9 : 0)) - (mood === 'sad' ? side * 0.25 : 0);
+        paint(c, tilted(ax, 30 + t - (side > 0 ? q.wave * 3 : 0), 3, 7.6, angle), shaded(pal, ax, 30 + t, 3, 7.6));
+      }
+      paint(c, ellipse(24, cy, 16.6 + q.breath * 0.5, 19 - q.breath * 0.8), shaded(pal, 24, cy, 16.6, 19));
+      const mask = (x, y) => ellipse(18.6, 21.4 + t, 6.6, 6.8)(x, y) || ellipse(29.4, 21.4 + t, 6.6, 6.8)(x, y) || ellipse(24, 34 + t + q.breath * 0.4, 12, 11)(x, y);
+      paint(c, (x, y) => mask(x, y) && ellipse(24, cy, 16.6, 19)(x, y), soft(pal.belly, pal.bellyShade, 24, 30 + t, 14, 16));
+      // Красный шарф: тепло, как в Якутии.
+      paint(c, (x, y) => y > 29.2 + t && y < 32 + t && ellipse(24, cy, 14, 19.2)(x, y), (x, y) => (y < 30.3 + t ? '#ff7b72' : '#e5534b'));
+      paint(c, polygon([[28.5, 30.5 + t], [32, 30.5 + t], [33 + q.sway, 37.5 + t], [29.5 + q.sway, 37.5 + t]]), (x) => (x < 31 + q.sway ? '#ff7b72' : '#cf222e'));
+      for (const y of [33.5, 35.5]) line(c, 29.5 + q.sway * 0.5, y + t, 32.5 + q.sway * 0.5, y + t, '#ffd8d3');
+      for (const fx of [17, 31]) paint(c, ellipse(fx, 44.6, 5.2, 2.2), (x, y) => (y > 45 ? '#d4860b' : '#f59f00'));
+      for (const [x0, x1, y1] of [[23, 21.5, 4], [25, 26, 4.5]]) line(c, x0, 8.5 + t, x1, y1 + t, pal.deep);
+    },
+    extra(c, pal, q, mood) {
+      const t = q.top;
+      const open = mood === 'play' && q.lift > 1;
+      for (const [x0, x1, y, color] of [[22, 26, 25 + t, '#ffc145'], [22.5, 25.5, 26 + t, '#f59f00'], [23.5, 24.5, 27 + t + (open ? 1 : 0), '#d4860b']]) line(c, x0, y, x1, y, color);
+      if (open) line(c, 23, 26.6 + t, 25, 26.6 + t, '#cf222e');
+    },
+  },
+};
+
+/* Лица */
+
+function eyesOf(c, sp, q, { dx = 0, dy = 0, blink = false } = {}) {
+  for (const [ex, ey] of sp.eyes) {
+    const x = ex + dx;
+    const y = ey + q.top + dy + q.breath * 0.4;
+    if (sp.eyeStyle === 'sclera') {
+      paint(c, ellipse(x - dx, y - dy, 4, 4), blink ? sp.palNow.shade : '#ffffff');
+      if (blink) {
+        line(c, x - dx - 3, y - dy + 0.5, x - dx + 3, y - dy + 0.5, INK);
+        continue;
+      }
+      paint(c, ellipse(x, y + 0.6, 2.3, 2.6), INK);
+      paint(c, ellipse(x - 0.8, y - 0.4, 0.9, 0.9), '#ffffff');
+      continue;
+    }
+    if (blink) {
+      curve(c, x - 2.2, x + 2.2, (t) => y + 0.6 - ((t - x) / 2.2) ** 2 * 0.9, INK);
+      continue;
+    }
+    paint(c, ellipse(x, y, 2.3, 3.1), INK);
+    paint(c, ellipse(x - 0.8, y - 1.3, 1, 1), '#ffffff');
+    dot(c, x + 1, y + 1.6, '#8b949e');
+  }
+}
+
+function cheeksOf(c, sp, q) {
+  for (const [cx, cy] of sp.cheeks) {
+    paint(c, ellipse(cx, cy + q.top, 2.6, 1.2), BLUSH);
+    dot(c, cx - 0.8, cy - 0.8 + q.top, '#ffc2d1');
+  }
+}
+
+/** Рот по виду и настроению: smile, open, frown, wavy. */
+function mouthOf(c, sp, q, kind, frame) {
+  if (!sp.mouth) return;
+  const y = sp.mouth.y + q.top;
+  const style = sp.mouth.style;
+  if (style === 'beak') return; // клюв рисует сам пингвин
+  const w = style === 'wide' ? 9 : style === 'cat' || style === 'bunny' ? 3 : 4;
+  if (kind === 'open') {
+    const rx = style === 'wide' ? 6 : 3.4;
+    paint(c, (x, yy) => ellipse(24, y, rx, 2.6 + (q.lift > 2 ? 1 : 0))(x, yy) && yy > y - 0.4, INK);
+    paint(c, ellipse(24, y + 1.6 + (q.lift > 2 ? 1 : 0), rx * 0.55, 1.1), '#ff6b81');
+    return;
+  }
+  if (kind === 'frown') {
+    curve(c, 24 - w, 24 + w, (x) => y + 2.6 - (1 - ((x - 24) / w) ** 2) * 1.6, INK);
+    return;
+  }
+  if (kind === 'wavy') {
+    curve(c, 24 - w - 1, 24 + w + 1, (x) => y + 1 + Math.sin((x - 24) * 1.4 + frame) * 0.8, INK);
+    return;
+  }
+  if (style === 'cat') {
+    for (const side of [-1, 1]) curve(c, side < 0 ? 21 : 24, side < 0 ? 24 : 27, (x) => y + (1 - ((x - (24 + side * 1.5)) / 1.5) ** 2) * 1.1, INK);
+    return;
+  }
+  if (style === 'bunny') {
+    curve(c, 21.5, 26.5, (x) => y + (1 - ((x - 24) / 2.5) ** 2) * 0.9, INK);
+    paint(c, (x, yy) => x > 22.6 && x < 25.4 && yy > y + 0.6 && yy < y + 3, (x) => (Math.floor(x) === 24 ? '#dfe6f0' : '#ffffff'));
+    return;
+  }
+  curve(c, 24 - w, 24 + w, (x) => y + (1 - ((x - 24) / w) ** 2) * (style === 'wide' ? 2.2 : 1.8), INK);
+}
+
+const MOOD_FACE = {
+  play(c, sp, q, frame) {
+    for (const [ex, ey] of sp.eyes) curve(c, ex - 2.6, ex + 2.6, (x) => ey + 0.7 + q.top - (1 - ((x - ex) / 2.6) ** 2) * 2.2, INK);
+    mouthOf(c, sp, q, 'open', frame);
+    cheeksOf(c, sp, q);
+    [[4, 6], [44, 4], [44, 17], [3, 20]].forEach(([x, y], i) => sparkle(c, x, y, [0, 1, 2, 1][(frame + i * 2) % 4]));
+  },
+  fine(c, sp, q, frame) {
+    eyesOf(c, sp, q, { dx: frame === 2 || frame === 3 ? -1 : frame === 5 ? 1 : 0, blink: frame === 6 });
+    mouthOf(c, sp, q, 'smile', frame);
+    cheeksOf(c, sp, q);
+  },
+  sad(c, sp, q, frame) {
+    eyesOf(c, sp, q, { dy: 1.2, blink: frame === 7 });
+    const [[lx, ly], [rx, ry]] = sp.eyes;
+    line(c, lx - 3.5, ly - 3.2 + q.top, lx + 2.5, ly - 5 + q.top, INK);
+    line(c, rx - 2.5, ry - 5 + q.top, rx + 3.5, ry - 3.2 + q.top, INK);
+    mouthOf(c, sp, q, 'frown', frame);
+    // Слеза собирается и стекает по щеке.
+    const fall = frame / PET_FRAMES;
+    const tx = lx - 1.8;
+    const ty = ly + 4.5 + q.top + fall * 10;
+    if (frame > 0) line(c, tx, ly + 4 + q.top, tx, ty - 1, '#a5d6ff');
+    paint(c, ellipse(tx, ty, 1 + fall * 0.4, 1.3 + fall * 0.4), '#54aeff');
+    dot(c, tx - 0.4, ty - 0.6, '#cde5ff');
+    for (const [x, y0] of [[6, 2], [20, 0], [34, 3], [42, 1]]) {
+      const y = (y0 + frame * 1.5) % 9;
+      line(c, x, y, x, y + 1, '#79c0ff');
+    }
+  },
+  sick(c, sp, q, frame) {
+    for (const [ex, ey] of sp.eyes) {
+      const y = ey + q.top;
+      line(c, ex - 2, y - 2, ex + 2, y + 2, INK);
+      line(c, ex + 2, y - 2, ex - 2, y + 2, INK);
+    }
+    mouthOf(c, sp, q, 'wavy', frame);
+    // Градусник: красный столбик подрастает.
+    const my = (sp.mouth?.y ?? 30) + q.top + 1.5;
+    line(c, 27, my, 34, my + 1.4, '#ffffff');
+    line(c, 27, my + 1, 34, my + 2.4, '#adb5bd');
+    const mercury = 1 + (frame % 4);
+    line(c, 34 - mercury, my + 0.9 - mercury * 0.2, 34, my + 1.6, '#e5534b');
+    paint(c, ellipse(35, my + 1.6, 1.4, 1.4), '#e5534b');
+    const sweat = 12 + (frame % 4) * 2;
+    paint(c, ellipse(40.5, sweat, 1, 1.4), '#54aeff');
+    dot(c, 40.2, sweat - 0.6, '#cde5ff');
+    for (let k = 0; k < 3; k += 1) {
+      const a = (frame / PET_FRAMES) * Math.PI * 2 + (k * Math.PI * 2) / 3;
+      sparkle(c, 24 + Math.cos(a) * 11, 3.5 + Math.sin(a) * 2.2, 1, '#e3b341', '#fff3b0');
+    }
+  },
+};
+
+/** Надгробие: камень с объёмом, трава колышется, над цветком порхает бабочка. */
+function grave(frame) {
+  let c = blank();
+  const stone = (x, y) => (x >= 11 && x <= 37 && y >= 14 && y <= 38) || (ellipse(24, 14, 13, 10)(x, y) && y < 14.5);
+  paint(c, stone, (x, y) => {
+    const lit = ((x - 24) / 13) * 0.6 + ((y - 22) / 18) * 0.4;
+    return lit < -0.45 ? '#e9ecef' : lit > 0.42 ? '#868e96' : '#adb5bd';
+  });
+  for (let y = 12; y <= 27; y += 1) { c[y][23] = '#6e7781'; c[y][24] = '#6e7781'; c[y][25] = '#ced4da'; }
+  for (let x = 18; x <= 29; x += 1) { c[16][x] = '#6e7781'; c[17][x] = '#6e7781'; }
+  line(c, 31, 24, 29, 28, '#6e7781');
+  line(c, 29, 28, 31, 31, '#6e7781');
+  line(c, 31, 31, 30, 34, '#6e7781');
+  c = outline(c, '#343a40');
+  for (let x = 7; x <= 40; x += 1) { c[38][x] = '#343a40'; c[39][x] = '#adb5bd'; c[40][x] = '#868e96'; }
+  for (let y = 41; y < 47; y += 1) for (let x = 0; x < PET_SIZE; x += 1) c[y][x] = (x + y) % 7 === 0 ? '#57c776' : '#2f8a4c';
+  const sway = Math.round(Math.sin((frame / PET_FRAMES) * Math.PI * 2));
+  for (let x = 1; x < PET_SIZE; x += 3) line(c, x, 41, x + sway, 41 - (2 + ((x * 7) % 3)), x % 2 ? '#57c776' : '#3fb950');
+  const fx = 42 + sway;
+  line(c, 42, 41, fx, 35, '#3fb950');
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(c, fx + dx, 34 + dy, '#e5534b');
+  dot(c, fx, 34, '#f2cc60');
+  const a = (frame / PET_FRAMES) * Math.PI * 2;
+  const bx = 41 + Math.cos(a) * 4;
+  const by = 26 + Math.sin(a * 2) * 2.5;
+  const wing = frame % 2 ? 1 : 2;
+  paint(c, ellipse(bx - 1.2, by - 0.4, wing * 0.7, 1.3), '#c297ff');
+  paint(c, ellipse(bx + 1.2, by - 0.4, wing * 0.7, 1.3), '#c297ff');
+  dot(c, bx, by, INK);
+  return c;
+}
+
+function cellsFor(mood, frame, kind) {
+  const f = ((frame % PET_FRAMES) + PET_FRAMES) % PET_FRAMES;
+  if (mood === 'dead') return grave(f);
+  const sp = SPECIES[petKindOf(kind)];
+  const pal = paletteFor(sp, mood);
+  const q = pose(mood, f);
+  let c = blank();
+  paint(c, ellipse(24, 46.6, 16.5 - q.lift * 1.2, 1.6), SHADOW);
+  sp.body(c, pal, q, mood);
+  c = outline(c, pal.line);
+  gloss(c, pal, 16.5, 15.6 + q.top + q.breath);
+  MOOD_FACE[mood](c, { ...sp, palNow: pal }, q, f);
+  sp.extra(c, pal, q, mood);
+  return c;
+}
+
+/** Пиксели питомца 48×48: [{ x, y, fill }]. Кадр 0–7, вид — из PET_KINDS. */
+export function petPixels(mood, frame = 0, kind = DEFAULT_PET_KIND) {
   const pixels = [];
-  cellsFor(mood, frame).forEach((row, y) => row.forEach((fill, x) => {
-    if (fill) pixels.push({ x, y, fill });
+  cellsFor(mood, frame, kind).forEach((row, y) => row.forEach((color, x) => {
+    if (color) pixels.push({ x, y, fill: color });
   }));
   return pixels;
 }
 
-/* Призы рисуются поверх сцены 64×40: питомец в середине, предметы по бокам. Их рисунок вдвое крупнее, с объёмом. */
+/** Насколько опустить головной убор для этого вида. */
+export const headDropOf = (kind) => SPECIES[petKindOf(kind)].headDrop;
+
+/* Призы рисуются поверх сцены 96×60: питомец в середине, предметы по бокам. Их рисунок втрое крупнее сетки, с объёмом. */
 
 const PRIZE_COLORS = {
   k: '#1b1f24',
@@ -408,8 +743,7 @@ const PRIZE_COLORS = {
   n: '#bc4c00',
 };
 
-// Головные уборы: сетка 16 в ширину, в сцене вдвое крупнее; HEAD_DROP опускает их на голову питомца.
-const HEAD_DROP = 4;
+// Головные уборы: сетка 16 в ширину, в сцене втрое крупнее; headDropOf опускает их на голову питомца.
 const HEAD_ART = {
   headphones: { y: 2, rows: [
     '....ssssssss....',
@@ -506,8 +840,11 @@ function tint(hex, amount) {
   return `#${[16, 8, 0].map((shift) => ch(shift).toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Во сколько раз рисунок приза крупнее своей сетки: в масштабе питомца 48×48. */
+const PRIZE_SCALE = 3;
+
 /**
- * Рисунок приза в двойном размере: каждая точка — 2×2, у краёв свет сверху и слева,
+ * Рисунок приза: каждая точка сетки — квадрат 3×3, у краёв свет сверху и слева,
  * тень снизу и справа. Так предметы не выглядят грубее питомца.
  */
 const art = (rows, left, top) => rows.flatMap((row, y) => [...row].flatMap((char, x) => {
@@ -515,76 +852,137 @@ const art = (rows, left, top) => rows.flatMap((row, y) => [...row].flatMap((char
   const base = PRIZE_COLORS[char];
   const empty = (dx, dy) => (rows[y + dy]?.[x + dx] ?? '.') === '.';
   const out = [];
-  for (const j of [0, 1]) {
-    for (const i of [0, 1]) {
-      let fill = base;
-      if ((j === 0 && empty(0, -1)) || (i === 0 && empty(-1, 0))) fill = tint(base, 0.35);
-      if ((j === 1 && empty(0, 1)) || (i === 1 && empty(1, 0))) fill = tint(base, -0.3);
-      out.push({ x: left + x * 2 + i, y: top + y * 2 + j, fill });
+  const last = PRIZE_SCALE - 1;
+  for (let j = 0; j < PRIZE_SCALE; j += 1) {
+    for (let i = 0; i < PRIZE_SCALE; i += 1) {
+      let color = base;
+      if ((j === 0 && empty(0, -1)) || (i === 0 && empty(-1, 0))) color = tint(base, 0.35);
+      if ((j === last && empty(0, 1)) || (i === last && empty(1, 0))) color = tint(base, -0.3);
+      out.push({ x: left + x * PRIZE_SCALE + i, y: top + y * PRIZE_SCALE + j, fill: color });
     }
   }
   return out;
 }));
 
-/** Пиксели сцены 64×40 с питомцем и призами. Кадр 0 или 1. */
-export function dressedPixels(mood, look, frame = 0) {
+/** Искорка из точек сцены. */
+const glint = (x, y, size, color = '#ffffff') => {
+  const out = [{ x, y, fill: color }];
+  for (let i = 1; i <= size; i += 1) out.push({ x: x + i, y, fill: color }, { x: x - i, y, fill: color }, { x, y: y + i, fill: color }, { x, y: y - i, fill: color });
+  return out;
+};
+
+/** Оживление призов по кадрам: вспышка камеры, луч прожектора, хлопушка, ноты, блеск короны. */
+function prizeMotion(id, left, top, frame, rows) {
+  const s = PRIZE_SCALE;
+  if (id === 'camera' && frame === 7) return glint(left + 5 * s + 1, top + 3 * s + 1, 3);
+  if (id === 'camera' && frame === 0) return glint(left + 5 * s + 1, top + 3 * s + 1, 1);
+  if (id === 'spotlight' && frame % 4 < 2) {
+    const out = [];
+    for (let k = 0; k < 9; k += 1) for (let w = -k; w <= k; w += 1) out.push({ x: left + 3 - k, y: top + 2 + w, fill: '#f2cc6033' });
+    return out.filter((p) => p.x >= 0);
+  }
+  if (id === 'microphone' && frame % 4 !== 3) {
+    const r = 3 + (frame % 4) * 2;
+    const cx = left + 4 * s;
+    const cy = top + 2 * s;
+    const out = [];
+    for (let a = -0.7; a <= 0.7; a += 0.25) out.push({ x: Math.round(cx + r + 6 + Math.cos(a) * r * 0.4), y: Math.round(cy + Math.sin(a) * r), fill: '#adb5bd' });
+    return out;
+  }
+  if (id === 'headphones') {
+    const y = top + 14 - (frame % 4) * 3;
+    const note = (x, yy) => [{ x, y: yy, fill: '#c297ff' }, { x: x + 1, y: yy, fill: '#c297ff' }, { x: x + 1, y: yy - 1, fill: '#c297ff' }, { x: x + 1, y: yy - 2, fill: '#c297ff' }, { x: x + 2, y: yy - 3, fill: '#c297ff' }];
+    return frame % 4 === 3 ? [] : [...note(left - 4, y), ...note(left + 16 * s + 2, y - 4)];
+  }
+  if (id === 'crown' && (frame === 2 || frame === 3)) return glint(left + 8 * s + 1, top - 2, frame === 2 ? 1 : 2, '#fff3b0');
+  return [];
+}
+
+/** Хлопушка хлопает: в кадрах 4–5 верхняя планка закрыта. */
+const clapperRows = (rows, frame) => (frame === 4 || frame === 5 ? ['........', rows[1].replace(/^\./, 'k'), ...rows.slice(2)] : rows);
+
+/** Пиксели сцены 96×60 с питомцем и призами. Кадр 0–7. */
+export function dressedPixels(mood, look, frame = 0, kind = DEFAULT_PET_KIND) {
   const pixels = [];
+  const f = ((frame % PET_FRAMES) + PET_FRAMES) % PET_FRAMES;
   const side = (id, left) => {
-    const rows = SIDE_ART[id];
-    if (rows) pixels.push(...art(rows, left, 39 - rows.length * 2));
+    let rows = SIDE_ART[id];
+    if (!rows) return;
+    if (id === 'clapper') rows = clapperRows(rows, f);
+    const top = 59 - rows.length * PRIZE_SCALE;
+    pixels.push(...art(rows, left, top), ...prizeMotion(id, left, top, f, rows));
   };
   side(look.left, 0);
-  side(look.right, 48);
-  // Питомец 32×32 стоит на земле посередине.
-  pixels.push(...petPixels(mood, frame).map((p) => ({ ...p, x: p.x + 16, y: p.y + 8 })));
+  side(look.right, 72);
+  // Питомец 48×48 стоит на земле посередине.
+  pixels.push(...petPixels(mood, f, kind).map((p) => ({ ...p, x: p.x + 24, y: p.y + 12 })));
   const head = HEAD_ART[look.head];
-  // Головной убор опускается вместе с питомцем на «вдохе».
-  if (head && mood !== 'dead') pixels.push(...art(head.rows, 16, head.y * 2 + HEAD_DROP + (frame ? 1 : 0)));
-  return pixels;
+  if (head && mood !== 'dead') {
+    // Головной убор двигается вместе с головой: дыхание и прыжки.
+    const q = pose(mood, f);
+    const top = head.y * PRIZE_SCALE + headDropOf(kind) + Math.round(q.breath) - q.lift;
+    pixels.push(...art(head.rows, 24, top), ...prizeMotion(look.head, 24, top, f, head.rows));
+  }
+  return pixels.filter((p) => p.x >= 0 && p.x < 96 && p.y >= 0 && p.y < 60);
+}
+
+const NS = 'http://www.w3.org/2000/svg';
+
+/** Слой кадра: точки одного цвета сливаются в один путь из горизонтальных полосок. */
+function layer(pixels, className) {
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('class', className);
+  const byColor = new Map();
+  for (const { x, y, fill } of pixels) {
+    if (!byColor.has(fill)) byColor.set(fill, new Map());
+    const rows = byColor.get(fill);
+    if (!rows.has(y)) rows.set(y, []);
+    rows.get(y).push(x);
+  }
+  for (const [fill, rows] of byColor) {
+    let d = '';
+    for (const [y, xs] of rows) {
+      xs.sort((a, b) => a - b);
+      for (let i = 0; i < xs.length;) {
+        let j = i;
+        while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j += 1;
+        d += `M${xs[i]} ${y}h${xs[j] - xs[i] + 1}v1h${-(xs[j] - xs[i] + 1)}z`;
+        i = j + 1;
+      }
+    }
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', fill);
+    g.append(path);
+  }
+  return g;
 }
 
 /** Значок приза для списка: только сам предмет. */
 export function prizeIcon(id) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
+  const svg = document.createElementNS(NS, 'svg');
   const head = HEAD_ART[id];
   const rows = head ? head.rows : SIDE_ART[id] ?? [];
-  const width = head ? 32 : 16;
-  svg.setAttribute('viewBox', `0 0 ${width} ${Math.max(rows.length * 2, 1)}`);
+  const width = (head ? 16 : 8) * PRIZE_SCALE;
+  svg.setAttribute('viewBox', `0 0 ${width} ${Math.max(rows.length * PRIZE_SCALE, 1)}`);
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add('prizeicon');
-  for (const { x, y, fill } of art(rows, 0, 0)) {
-    const pixel = document.createElementNS(ns, 'rect');
-    for (const [name, value] of Object.entries({ x, y, width: 1, height: 1, fill })) pixel.setAttribute(name, value);
-    svg.append(pixel);
-  }
+  svg.append(layer(art(rows, 0, 0), 'still'));
   return svg;
 }
 
-/** Рисует существо: два кадра сменяют друг друга средствами CSS. */
-export function petSprite(mood, look = null) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
+/** Рисует существо: восемь кадров сменяют друг друга средствами CSS. */
+export function petSprite(mood, look = null, kind = DEFAULT_PET_KIND) {
+  const svg = document.createElementNS(NS, 'svg');
   const dressed = Boolean(look && (look.head || look.left || look.right));
-  svg.setAttribute('viewBox', dressed ? '0 0 64 40' : '0 0 32 32');
+  svg.setAttribute('viewBox', dressed ? '0 0 96 60' : `0 0 ${PET_SIZE} ${PET_SIZE}`);
   if (dressed) svg.classList.add('dressed');
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('aria-hidden', 'true');
-  svg.classList.add('petsprite', `mood-${mood}`);
-  for (const frame of [0, 1]) {
-    const layer = document.createElementNS(ns, 'g');
-    layer.classList.add(`frame${frame}`);
-    for (const { x, y, fill } of dressed ? dressedPixels(mood, look, frame) : petPixels(mood, frame)) {
-      const pixel = document.createElementNS(ns, 'rect');
-      pixel.setAttribute('x', x);
-      pixel.setAttribute('y', y);
-      pixel.setAttribute('width', 1);
-      pixel.setAttribute('height', 1);
-      pixel.setAttribute('fill', fill);
-      layer.append(pixel);
-    }
-    svg.append(layer);
+  svg.classList.add('petsprite', `mood-${mood}`, `kind-${petKindOf(kind)}`);
+  for (let frame = 0; frame < PET_FRAMES; frame += 1) {
+    svg.append(layer(dressed ? dressedPixels(mood, look, frame, kind) : petPixels(mood, frame, kind), `frame f${frame}`));
   }
   return svg;
 }

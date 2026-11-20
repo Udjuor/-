@@ -6,7 +6,7 @@ import {
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
-import { petChange, petLook, petPrizes, petSprite, petStatus, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
+import { petChange, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -3064,7 +3064,7 @@ function refreshPet() {
   if (key !== petButtonKey) {
     petButtonKey = key;
     button.setAttribute('aria-label', t('Тамагочи группы {0}', [group.name]));
-    button.replaceChildren(petSprite(pet.mood), h('span', {}, group.petName || group.name));
+    button.replaceChildren(petSprite(pet.mood, null, group.petKind), h('span', {}, group.petName || group.name));
     if ($('pet').open) drawPet();
   }
 }
@@ -3219,7 +3219,7 @@ function drawPet() {
       stage.append(heart);
       setTimeout(() => heart.remove(), 900);
     },
-  }, petSprite(pet.mood, look));
+  }, petSprite(pet.mood, look, group.petKind));
 
   const meter = h('div', { class: 'petmeter' }, h('i'));
   meter.firstChild.style.width = `${pet.health}%`;
@@ -3258,12 +3258,28 @@ function drawPet() {
         : h('div', { class: 'field petname' },
           h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать'))))),
       failure,
+      pet.mood !== 'dead' && kindSection(group, saveGroup),
       pet.mood !== 'dead' && prizeSection(pet, prizes, look, (next) => saveGroup({ petLook: next })),
       healthChart(pet),
       petGraves(group),
       petOverview(groups),
       h('p', { class: 'help' }, t('Питомец живёт посещаемостью группы: пропуски без причины и опоздания вредят ему, хорошая посещаемость лечит. Уважительные причины не вредят.'))),
   );
+}
+
+/** Вид питомца: выбирает преподаватель, на панели видно только, кто это. */
+function kindSection(group, saveGroup) {
+  const current = petKindOf(group.petKind);
+  if (!canManage()) return null;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Вид питомца')),
+    h('div', { class: 'petkinds', role: 'group', 'aria-label': t('Вид питомца') }, PET_KINDS.map((kind) => h('button', {
+      type: 'button',
+      class: 'petkind',
+      'data-kind': kind.id,
+      'aria-pressed': String(kind.id === current),
+      onclick: () => kind.id !== current && saveGroup({ petKind: kind.id }),
+    }, petSprite('fine', null, kind.id), h('span', {}, t(kind.name))))));
 }
 
 /** Призы питомца: полученные, следующий и наряд, который выбирает преподаватель. */

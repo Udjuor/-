@@ -606,22 +606,27 @@ dialog::backdrop { background: var(--backdrop); }
 .petbutton { display: flex; gap: .4rem; align-items: center; min-height: 2.2rem; margin-left: auto; padding: 0 .5rem; color: var(--fg); font-size: .95rem; }
 .petbutton .petsprite { width: 1.9rem; }
 .legend { align-items: center; padding-block: .1rem; }
-.petsprite { display: block; aspect-ratio: 1; overflow: visible; }
-.petsprite.dressed { aspect-ratio: 32 / 20; }
+.petsprite { --pet-cycle: 2.4s; display: block; aspect-ratio: 1; overflow: visible; }
+.petsprite.dressed { aspect-ratio: 96 / 60; }
 .petstage:has(.dressed) { width: 20rem; }
-.petsprite .frame1 { visibility: hidden; animation: pet-frame 1.2s steps(1) infinite; }
-.petsprite .frame0 { animation: pet-frame 1.2s steps(1) infinite reverse; }
-.mood-play { animation: pet-hop .6s ease-in-out infinite alternate; }
+/* Восемь кадров по очереди: каждый слой виден свою восьмую часть цикла. */
+.petsprite .frame { visibility: hidden; animation: pet-frame var(--pet-cycle) steps(1) infinite; }
+.petsprite .f1 { animation-delay: calc(var(--pet-cycle) * -7 / 8); }
+.petsprite .f2 { animation-delay: calc(var(--pet-cycle) * -6 / 8); }
+.petsprite .f3 { animation-delay: calc(var(--pet-cycle) * -5 / 8); }
+.petsprite .f4 { animation-delay: calc(var(--pet-cycle) * -4 / 8); }
+.petsprite .f5 { animation-delay: calc(var(--pet-cycle) * -3 / 8); }
+.petsprite .f6 { animation-delay: calc(var(--pet-cycle) * -2 / 8); }
+.petsprite .f7 { animation-delay: calc(var(--pet-cycle) * -1 / 8); }
+.petsprite.mood-play { --pet-cycle: 1.4s; }
+.petsprite.mood-sad { --pet-cycle: 3.2s; }
+.petsprite.mood-dead { --pet-cycle: 3.6s; }
 .mood-sick { animation: pet-shiver 2.4s steps(4) infinite; }
-.mood-dead .frame0 { animation: none; }
-.mood-dead .frame1 { animation: none; }
 
 @keyframes pet-frame {
   0% { visibility: visible; }
-  50% { visibility: hidden; }
+  12.5%, 100% { visibility: hidden; }
 }
-
-@keyframes pet-hop { to { transform: translateY(-9%); } }
 
 @keyframes pet-shiver {
   0%, 100% { transform: translateX(0); }
@@ -647,9 +652,14 @@ dialog::backdrop { background: var(--backdrop); }
 .petmeter .level-sick { background: var(--danger-emphasis); }
 .petname { margin: .8rem 0; }
 .petnew { display: block; margin: .8rem auto; }
+.petkinds { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; }
+.petkind { display: flex; flex-direction: column; align-items: center; gap: .2rem; min-width: 0; padding: .4rem .2rem; font-size: .85rem; }
+.petkind .petsprite { width: 100%; max-width: 3.6rem; }
+.petkind[aria-pressed="true"] { border-color: var(--accent-emphasis, #1f6feb); background: var(--accent-subtle, rgba(56, 139, 253, .15)); }
 
 @media (prefers-reduced-motion: reduce) {
-  .petsprite, .petsprite .frame0, .petsprite .frame1 { animation: none; }
+  .petsprite, .petsprite .frame { animation: none; }
+  .petsprite .f0 { visibility: visible; }
 }
 
 /* Служебная записка */

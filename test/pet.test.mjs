@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_DAILY_LOSS, POOR_FLOOR, PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
+import { MAX_DAILY_LOSS, PET_FRAMES, PET_KINDS, POOR_FLOOR, PRIZES, PRIZE_DAYS, PRIZE_HEALTH, dressedPixels, petKindOf, healthChange, moodOf, petChange, petLook, petPixels, petPrizes, petStatus } from '../src/renderer/pet.mjs';
 
 const G = { id: 'g' };
 const students = ['Аня', 'Боря', 'Вера', 'Гена'].map((name) => ({ name, groupId: 'g' }));
@@ -148,15 +148,23 @@ test('питомец группы живёт посещаемостью подг
   assert.equal(pet.last.present, 1);
 });
 
-test('спрайты целые: 32 на 32, все пиксели окрашены, кадры различаются', () => {
-  for (const mood of ['play', 'fine', 'sad', 'sick', 'dead']) {
-    for (const frame of [0, 1]) {
-      const pixels = petPixels(mood, frame);
-      assert.ok(pixels.length > 400, mood);
-      assert.ok(pixels.every((p) => p.fill && p.x >= 0 && p.x < 32 && p.y >= 0 && p.y < 32), mood);
+test('пять видов, 48 на 48, восемь разных кадров, все пиксели окрашены', () => {
+  assert.equal(PET_KINDS.length, 5);
+  assert.equal(PET_FRAMES, 8);
+  for (const { id } of PET_KINDS) {
+    for (const mood of ['play', 'fine', 'sad', 'sick', 'dead']) {
+      const frames = Array.from({ length: PET_FRAMES }, (_, frame) => petPixels(mood, frame, id));
+      for (const pixels of frames) {
+        assert.ok(pixels.length > 900, `${id} ${mood}`);
+        assert.ok(pixels.every((p) => /^#[0-9a-f]{6}([0-9a-f]{2})?$/.test(p.fill) && p.x >= 0 && p.x < 48 && p.y >= 0 && p.y < 48), `${id} ${mood}`);
+      }
+      const distinct = new Set(frames.map((pixels) => JSON.stringify(pixels))).size;
+      assert.ok(distinct >= 4, `${id} ${mood}: анимация из разных кадров, а не ${distinct}`);
     }
-    if (mood !== 'dead') assert.notDeepEqual(petPixels(mood, 0), petPixels(mood, 1), `${mood}: два кадра`);
   }
+  // Виды действительно разные: у каждого свой рисунок в одном настроении.
+  assert.equal(new Set(PET_KINDS.map(({ id }) => JSON.stringify(petPixels('fine', 0, id)))).size, 5);
+  assert.equal(petKindOf('dragon'), 'mammoth', 'неизвестный вид — мамонтёнок');
 });
 
 const petWith = (days, mood = 'play') => ({
@@ -199,5 +207,6 @@ test('наряд: выбор учителя из полученного, ина�
   assert.deepEqual(petLook({ head: 'crown', left: 'spotlight', right: 'tripod' }, prizes), { head: '', left: '', right: 'tripod' }, 'неполученное не надевается');
   assert.deepEqual(petLook({ head: '', left: '', right: '' }, prizes), { head: '', left: '', right: '' }, 'можно снять всё');
   const pixels = dressedPixels('play', { head: 'crown', left: 'tripod', right: 'camera' });
-  assert.ok(pixels.every((p) => p.x >= 0 && p.x < 64 && p.y >= 0 && p.y < 40));
+  assert.ok(pixels.every((p) => p.x >= 0 && p.x < 96 && p.y >= 0 && p.y < 60));
+  for (const { id } of PET_KINDS) assert.ok(dressedPixels('play', { head: 'headphones', left: 'clapper', right: 'spotlight' }, 4, id).length > 1500, id);
 });
