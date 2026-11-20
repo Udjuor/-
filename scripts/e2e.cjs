@@ -635,13 +635,14 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pet >> text=Назвать');
   await page.waitForSelector('#pet-open:has-text("Пиксель")');
   await until(async () => (await teacherStore.directory()).some((r) => r.petName === 'Пиксель'), 'имя питомца на другом устройстве');
-  // Пять видов на выбор: преподаватель делает питомца пингвинёнком.
+  // Пять видов на выбор: преподаватель делает питомца снежной совой — Хаар эбэ.
   assert.equal(await page.locator('#pet .petkind').count(), 5);
-  await page.click('#pet [data-kind="penguin"]');
-  await page.waitForSelector('#pet .petstage .kind-penguin');
-  await page.waitForSelector('#pet-open .kind-penguin');
+  assert.match(await page.textContent('#pet .petkinds'), /Мамонт[\s\S]*Кулунчук[\s\S]*Куобах[\s\S]*Бэдэр[\s\S]*Хаар эбэ/);
+  await page.click('#pet [data-kind="owl"]');
+  await page.waitForSelector('#pet .petstage .kind-owl');
+  await page.waitForSelector('#pet-open .kind-owl');
   assert.equal(await page.locator('#pet .petstage .petsprite .frame').count(), 8, 'восемь кадров анимации');
-  await until(async () => (await teacherStore.directory()).some((r) => r.petKind === 'penguin'), 'вид питомца на другом устройстве');
+  await until(async () => (await teacherStore.directory()).some((r) => r.petKind === 'owl'), 'вид питомца на другом устройстве');
   await shot('pet-kinds');
   assert.equal(await page.locator('#pet .petstage :is(.mood-sick, .mood-sad, .mood-fine, .mood-play)').count(), 1, 'питомец жив');
   await page.click('#pet .petstage');

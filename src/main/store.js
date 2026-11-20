@@ -218,8 +218,9 @@ function normalizeRef(raw) {
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);
     ref.petSince = MOMENT_RE.test(raw.petSince ?? '') ? raw.petSince : '';
-    // Вид питомца: мамонтёнок, котёнок, зайчонок, лягушонок, пингвинёнок.
-    if (['mammoth', 'cat', 'bunny', 'frog', 'penguin'].includes(raw.petKind)) ref.petKind = raw.petKind;
+    // Вид питомца: мамонт, кулунчук, куобах, бэдэр, хаар эбэ. Зайчонок из 1.56 стал куобахом.
+    const petKind = raw.petKind === 'bunny' ? 'hare' : raw.petKind;
+    if (['mammoth', 'foal', 'hare', 'lynx', 'owl'].includes(petKind)) ref.petKind = petKind;
     else delete ref.petKind;
     // Что надето на питомце и что стоит рядом: только названия призов.
     const look = raw.petLook && typeof raw.petLook === 'object' ? raw.petLook : null;

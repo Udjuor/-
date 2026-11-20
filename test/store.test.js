@@ -675,10 +675,12 @@ test('согласие на показ: отметка «не показыват
 
 test('вид питомца хранится в группе, неизвестный отбрасывается', async (t) => {
   const store = new EventStore(tempDir(t));
-  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petKind: 'penguin' });
-  assert.equal(group.petKind, 'penguin');
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petKind: 'owl' });
+  assert.equal(group.petKind, 'owl');
+  const legacy = await store.saveRef({ kind: 'group', name: 'ИС-22', petKind: 'bunny' });
+  assert.equal(legacy.petKind, 'hare', 'зайчонок из 1.56 — куобах');
   const odd = await store.saveRef({ ...group, petKind: 'dragon' }, group.updatedAt);
   assert.equal('petKind' in odd, false);
-  const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, petKind: 'cat' });
+  const student = await store.saveRef({ kind: 'student', name: 'Иванов Иван', groupId: group.id, petKind: 'lynx' });
   assert.equal('petKind' in student, false);
 });

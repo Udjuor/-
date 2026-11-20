@@ -1031,7 +1031,12 @@ export default {
     "Котёнок": "Kitten",
     "Зайчонок": "Bunny",
     "Лягушонок": "Froglet",
-    "Пингвинёнок": "Penguin chick"
+    "Пингвинёнок": "Penguin chick",
+    "Мамонт": "Mammoth",
+    "Кулунчук": "Kulunchuk (foal)",
+    "Куобах": "Kuobakh (hare)",
+    "Бэдэр": "Bedér (lynx)",
+    "Хаар эбэ": "Khaar ebe (snowy owl)"
   },
   "plurals": {
     "events": {

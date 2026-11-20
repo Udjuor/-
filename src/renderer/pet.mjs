@@ -201,13 +201,13 @@ const INK = '#1b1f24';
 const BLUSH = '#ff8fab';
 const SHADOW = '#00000038';
 
-/** Виды питомцев: по умолчанию мамонтёнок. */
+/** Виды питомцев — звери Якутии: мамонт, кулунчук (жеребёнок), куобах (заяц), бэдэр (рысь), хаар эбэ (снежная сова). */
 export const PET_KINDS = [
-  { id: 'mammoth', name: 'Мамонтёнок' },
-  { id: 'cat', name: 'Котёнок' },
-  { id: 'bunny', name: 'Зайчонок' },
-  { id: 'frog', name: 'Лягушонок' },
-  { id: 'penguin', name: 'Пингвинёнок' },
+  { id: 'mammoth', name: 'Мамонт' },
+  { id: 'foal', name: 'Кулунчук' },
+  { id: 'hare', name: 'Куобах' },
+  { id: 'lynx', name: 'Бэдэр' },
+  { id: 'owl', name: 'Хаар эбэ' },
 ];
 export const DEFAULT_PET_KIND = 'mammoth';
 export const petKindOf = (kind) => (PET_KINDS.some((item) => item.id === kind) ? kind : DEFAULT_PET_KIND);
@@ -411,53 +411,55 @@ const SPECIES = {
       }
     },
   },
-  cat: {
-    pal: { base: '#f4a259', light: '#ffcf96', shade: '#d9772e', deep: '#b45d1e', belly: '#fff1e0', bellyShade: '#f3d9bd', line: '#5a2d0c', inner: '#ff9db4' },
-    eyes: [[17.5, 21.5], [30.5, 21.5]],
-    cheeks: [[10.5, 27], [37.5, 27]],
-    mouth: { y: 27.6, style: 'cat' },
+  foal: {
+    // Якутская лошадка: светлая соловая, тёмная грива и чёлка, белая проточина, мягкая морда.
+    pal: { base: '#e6c48c', light: '#f6e2b8', shade: '#c9a265', deep: '#a8824a', belly: '#f8ead0', bellyShade: '#ead3ad', line: '#4a3418', inner: '#d9a98a', mane: '#6b4a2b', maneLight: '#8f6a43' },
+    eyes: [[17.5, 20.5], [30.5, 20.5]],
+    cheeks: [[11, 25.5], [37, 25.5]],
+    mouth: { y: 33.2, style: 'muzzle' },
     headDrop: 8,
-    body(c, pal, q) {
+    body(c, pal, q, mood) {
       const t = q.top;
-      // Хвост сзади, качается.
-      const tip = 44 + q.sway * 2;
-      chain(c, [[36, 41], [41, 39], [44, 34], [tip, 28 + t], [tip - 1.5, 24 + t]], 2.4, 2, (x, y, k) => (Math.floor(k * 6) % 2 ? pal.deep : shaded(pal, 40, 34, 6, 8)(x, y)));
-      const droop = q.droop * 3;
-      const ears = [
-        [[8.5, 18 + t + droop], [11.5 - droop, 3.5 + t + droop * 1.5], [20, 11.5 + t]],
-        [[28, 11.5 + t], [36.5 + droop, 3.5 + t + droop * 1.5 - q.twitch * 1.5], [39.5, 18 + t + droop]],
-      ];
-      for (const tri of ears) {
-        paint(c, polygon(tri), (x, y) => (x < 24 ? pal.light : pal.base));
-        const [a, b, d] = tri;
-        const mid = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3];
-        paint(c, polygon(tri.map(([x, y]) => [mid[0] + (x - mid[0]) * 0.5, mid[1] + (y - mid[1]) * 0.5 + 1])), pal.inner);
+      // Хвост сзади: машет, от радости чаще.
+      const swish = Math.sin(q.phase * (mood === 'play' ? 2 : 1)) * 2.5;
+      chain(c, [[37, 38 + t], [42, 35 + t], [44 + swish, 39], [43 + swish, 44]], 2.6, 1.6, (x, y, k) => (Math.floor(k * 8) % 3 === 0 ? pal.maneLight : pal.mane));
+      // Узкие торчащие уши.
+      for (const [cx, side] of [[15, -1], [33, 1]]) {
+        const angle = side * (0.32 + q.droop * 0.7) + (side > 0 ? q.twitch * 0.35 : 0);
+        const cy = 8 + t + q.breath * 0.5 + q.droop * 3;
+        paint(c, tilted(cx, cy, 2.8, 5.6, angle), shaded(pal, cx, cy, 2.8, 5.6));
+        paint(c, tilted(cx, cy + 0.8, 1.2, 3.6, angle), pal.inner);
       }
       const cy = 27.6 + q.breath * 0.8 + t;
-      paint(c, ellipse(24, cy, 18.4 + q.breath * 0.5, 16.6 - q.breath * 0.8), shaded(pal, 24, cy, 18.4, 16.6));
-      paint(c, ellipse(24, cy + 7.5, 10, 7.6), soft(pal.belly, pal.bellyShade, 24, cy + 7.5, 10, 7.6));
-      // Мордочка светлее.
-      paint(c, ellipse(24, cy + 0.2, 6.5, 3.6), pal.belly);
+      paint(c, ellipse(24, cy, 18.2 + q.breath * 0.5, 16.8 - q.breath * 0.8), shaded(pal, 24, cy, 18.2, 16.8));
+      paint(c, ellipse(24, cy + 9.6, 10, 5.8), soft(pal.belly, pal.bellyShade, 24, cy + 9.6, 10, 5.8));
+      // Белая проточина от чёлки к морде.
+      paint(c, polygon([[23, 16 + t], [25, 16 + t], [26.2, 26 + t], [21.8, 26 + t]]), '#fffaf0');
+      // Вытянутая светлая морда с тёмным носом и ноздрями.
+      const my = 30 + t + q.breath * 0.5;
+      paint(c, ellipse(24, my, 8.6, 6), soft('#f8ecd4', '#e3c99d', 24, my, 8.6, 6));
+      paint(c, (x, y) => ellipse(24, my, 8.6, 6)(x, y) && y > my + 2.4, '#d6b88a');
+      for (const nx of [20.8, 27.2]) {
+        paint(c, ellipse(nx, my - 0.4, 1.3, 1.1), pal.deep);
+        dot(c, nx - 0.4, my - 1, '#fff3dc');
+      }
+      // Передние ножки с тёмными копытцами.
       for (const [ax, side] of [[6, 0], [42, 1]]) {
         const lift = side ? q.wave * 8 : 0;
-        paint(c, ellipse(ax, 31.5 + t - lift, 3.3, 4.6), (x, y) => (y > 33.5 + t - lift ? pal.belly : pal.base));
+        paint(c, ellipse(ax, 31.5 + t - lift, 3.2, 4.8), (x, y) => (y > 34.2 + t - lift ? pal.mane : pal.base));
       }
-      for (const fx of [16.5, 31.5]) paint(c, ellipse(fx, 43.8, 5.4, 2.8), soft(pal.belly, pal.bellyShade, fx, 43.8, 5.4, 2.8));
-      // Полоски на лбу.
-      for (const [x, y0, y1] of [[22, 12, 15], [24, 11, 15.5], [26, 12, 15]]) line(c, x, y0 + t, x, y1 + t, pal.deep);
-      for (const side of [-1, 1]) line(c, 24 + side * 16, 22 + t, 24 + side * 13.5, 23 + t, pal.deep);
+      for (const fx of [16.5, 31.5]) paint(c, ellipse(fx, 44, 5.2, 2.6), (x, y) => (y > 44.2 ? pal.line : pal.mane));
+      // Густая грива на макушке и чёлка на лоб.
+      chain(c, [[17, 10.5 + t], [21, 8 + t], [27, 8 + t], [31, 10.5 + t]], 3, 2.6, (x, y) => (Math.round(x) % 3 === 0 ? pal.maneLight : pal.mane));
+      chain(c, [[21.5, 10 + t], [20, 13.5 + t], [19.6, 16.8 + t]], 2.6, 1.3, pal.mane);
+      chain(c, [[26.5, 10 + t], [28, 13.5 + t], [28.4, 16.2 + t]], 2.4, 1.2, pal.mane);
+      chain(c, [[24, 10 + t], [24.2, 13.6 + t]], 2, 1.2, pal.maneLight);
     },
-    extra(c, pal, q) {
-      const t = q.top;
-      for (const [x, y] of [[23, 26], [24, 26], [25, 26], [24, 27]]) dot(c, x, y + t, '#ff7b93');
-      for (const side of [-1, 1]) {
-        line(c, 24 + side * 10, 26.5 + t, 24 + side * 17, 25.5 + t, pal.line);
-        line(c, 24 + side * 10, 28 + t, 24 + side * 17, 28.8 + t, pal.line);
-      }
-    },
+    extra() {},
   },
-  bunny: {
-    pal: { base: '#e7e1fb', light: '#ffffff', shade: '#c4b8ef', deep: '#a294dc', belly: '#ffffff', bellyShade: '#ece8fb', line: '#4b3f8a', inner: '#ffb3c6' },
+  hare: {
+    // Куобах: зимний заяц-беляк, белоснежный, с чёрными кончиками ушей.
+    pal: { base: '#f2f5fa', light: '#ffffff', shade: '#d2dae7', deep: '#b0bcd0', belly: '#ffffff', bellyShade: '#e5eaf2', line: '#3f4a5e', inner: '#ffc2d1' },
     eyes: [[18, 22.5], [30, 22.5]],
     cheeks: [[11, 28], [37, 28]],
     mouth: { y: 28.4, style: 'bunny' },
@@ -465,15 +467,19 @@ const SPECIES = {
     body(c, pal, q) {
       const t = q.top;
       paint(c, ellipse(41.5, 38, 3.8, 3.6), soft('#ffffff', pal.bellyShade, 41.5, 38, 3.8, 3.6));
-      // Длинные уши: от грусти опускаются в стороны, правое дёргается.
       const tilt = q.droop * 0.75;
       const wig = q.lift > 2 ? 0.08 : 0;
       for (const [cx, side] of [[17.5, -1], [30.5, 1]]) {
         const angle = side * (0.12 + tilt + wig) + (side > 0 ? q.twitch * 0.3 : 0);
-        const cy = 9.5 + t + q.breath * 0.5 + q.droop * 4;
+        const cy = 11 + t + q.breath * 0.5 + q.droop * 4;
         const ox = cx + side * q.droop * 4;
-        paint(c, tilted(ox, cy, 3.9, 9.6, angle), shaded(pal, ox, cy, 3.9, 9.6));
-        paint(c, tilted(ox, cy + 1, 1.9, 7, angle), pal.inner);
+        const ear = tilted(ox, cy, 3.9, 9.6, angle);
+        paint(c, ear, shaded(pal, ox, cy, 3.9, 9.6));
+        paint(c, tilted(ox, cy + 1.4, 1.9, 6.6, angle), pal.inner);
+        // Чёрный кончик уха.
+        const tipX = ox + Math.sin(angle) * 8;
+        const tipY = cy - Math.cos(angle) * 8;
+        paint(c, (x, y) => ear(x, y) && ellipse(tipX, tipY, 4.6, 3.8)(x, y), (x) => (x < tipX ? '#454c56' : '#2d333b'));
       }
       const cy = 28.6 + q.breath * 0.8 + t;
       paint(c, ellipse(24, cy, 17.6 + q.breath * 0.5, 16 - q.breath * 0.8), shaded(pal, 24, cy, 17.6, 16));
@@ -482,67 +488,113 @@ const SPECIES = {
         const lift = side ? q.wave * 8 : 0;
         paint(c, ellipse(ax, 32 + t - lift, 3.2, 4.4), shaded(pal, ax, 32 + t - lift, 3.2, 4.4));
       }
-      for (const fx of [16, 32]) paint(c, ellipse(fx, 43.8, 6.4, 2.7), soft(pal.belly, pal.bellyShade, fx, 43.8, 6.4, 2.7));
+      for (const fx of [16, 32]) paint(c, ellipse(fx, 43.8, 6.6, 2.7), soft(pal.belly, pal.bellyShade, fx, 43.8, 6.6, 2.7));
     },
     extra(c, pal, q) {
       const t = q.top;
       for (const [x, y] of [[23, 26.5], [24, 26.5], [25, 26.5], [24, 27.4]]) dot(c, x, y + t, '#ff7b93');
+      for (const side of [-1, 1]) line(c, 24 + side * 9.5, 27.4 + t, 24 + side * 15, 26.8 + t, pal.deep);
     },
   },
-  frog: {
-    pal: { base: '#5cc97a', light: '#9de8b0', shade: '#3a9c57', deep: '#2a7a42', belly: '#eaf7c3', bellyShade: '#d4e8a0', line: '#14532d', inner: '#ffffff' },
-    eyes: [[15, 17.5], [33, 17.5]],
-    eyeStyle: 'sclera',
-    cheeks: [[9.5, 30.5], [38.5, 30.5]],
-    mouth: { y: 29, style: 'wide' },
-    headDrop: 9,
+  lynx: {
+    // Бэдэр: рысь — кисточки на ушах, бакенбарды, пятнистая шерсть, короткий хвост с чёрным кончиком.
+    pal: { base: '#c9a47b', light: '#e7cba6', shade: '#a27e57', deep: '#7f5d3c', belly: '#f8f1e6', bellyShade: '#e8dccb', line: '#3e2a17', inner: '#f1c9b9', spot: '#8a6844' },
+    eyes: [[17.5, 21.5], [30.5, 21.5]],
+    cheeks: [[12, 27.5], [36, 27.5]],
+    mouth: { y: 28, style: 'cat' },
+    headDrop: 8,
     body(c, pal, q) {
       const t = q.top;
-      const cy = 31 + q.breath * 0.8 + t;
-      for (const ex of [15, 33]) paint(c, ellipse(ex, 17.5 + t + q.breath * 0.5, 6.4, 6.2), shaded(pal, ex, 17.5 + t, 6.4, 6.2));
-      paint(c, ellipse(24, cy, 20.6 + q.breath * 0.5, 13.6 - q.breath * 0.6), shaded(pal, 24, cy, 20.6, 13.6));
-      paint(c, ellipse(24, cy + 6, 12.5, 6.6), soft(pal.belly, pal.bellyShade, 24, cy + 6, 12.5, 6.6));
-      for (const [x, y, r] of [[7.5, 29, 1.6], [41, 28, 1.4], [10, 36, 1.2], [38, 35.5, 1.5], [20, 21, 1.1], [29, 22, 1.2]]) paint(c, ellipse(x, y + t, r, r), pal.shade);
-      for (const [ax, side] of [[6, 0], [42, 1]]) {
-        const lift = side ? q.wave * 7 : 0;
-        paint(c, ellipse(ax, 38 + t - lift, 3, 3.6), shaded(pal, ax, 38 + t - lift, 3, 3.6));
+      chain(c, [[37, 41], [40.5, 38.5], [42.6 + q.sway * 0.8, 35.4 + t]], 2.6, 2.3, (x, y, k) => (k > 0.66 ? '#1f1a17' : shaded(pal, 40, 38, 4, 4)(x, y)));
+      const droop = q.droop * 3;
+      const ears = [
+        [[9, 17 + t + droop], [12.5 - droop, 2.5 + t + droop * 1.5], [20, 11 + t]],
+        [[28, 11 + t], [35.5 + droop, 2.5 + t + droop * 1.5 - q.twitch * 1.5], [39, 17 + t + droop]],
+      ];
+      for (const tri of ears) {
+        paint(c, polygon(tri), (x, y) => (y < tri[1][1] + 4 ? pal.deep : x < 24 ? pal.light : pal.base));
+        const [a, b, d] = tri;
+        const mid = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3];
+        paint(c, polygon(tri.map(([x, y]) => [mid[0] + (x - mid[0]) * 0.45, mid[1] + (y - mid[1]) * 0.45 + 1.2])), pal.inner);
       }
-      for (const [fx, side] of [[14, -1], [34, 1]]) {
-        paint(c, ellipse(fx, 44, 6.2, 2.4), pal.shade);
-        for (const k of [-1, 0, 1]) paint(c, ellipse(fx + side * 1 + k * 3.4, 45.2, 1.3, 1.1), pal.deep);
+      const cy = 27.8 + q.breath * 0.8 + t;
+      // Бакенбарды: пушистые клинья по бокам морды, в полоску.
+      for (const side of [-1, 1]) {
+        const wedge = polygon([[24 + side * 13, 22 + t], [24 + side * 21.5, 31 + t + q.breath * 0.5], [24 + side * 15, 30.5 + t], [24 + side * 18.6, 34.2 + t], [24 + side * 11, 31 + t]]);
+        paint(c, wedge, (x, y) => (Math.round(y + x * 0.3 * side) % 3 === 0 ? pal.deep : pal.light));
+      }
+      paint(c, ellipse(24, cy, 17.6 + q.breath * 0.5, 16.6 - q.breath * 0.8), shaded(pal, 24, cy, 17.6, 16.6));
+      paint(c, ellipse(24, cy + 7.8, 9.6, 7.4), soft(pal.belly, pal.bellyShade, 24, cy + 7.8, 9.6, 7.4));
+      paint(c, ellipse(24, 28 + t + q.breath * 0.5, 6.4, 3.6), pal.belly);
+      // Пятна.
+      for (const [x, y, r] of [[11, 31, 1.2], [37, 31, 1.2], [13.5, 36, 1], [34.5, 36, 1], [9.6, 25, 0.9], [38.4, 25, 0.9], [19, 13.5, 0.8], [29, 13.5, 0.8], [24, 12, 0.8]]) {
+        paint(c, ellipse(x, y + t, r + 0.3, r), pal.spot);
+      }
+      for (const [ax, side] of [[6, 0], [42, 1]]) {
+        const lift = side ? q.wave * 8 : 0;
+        paint(c, ellipse(ax, 32 + t - lift, 3.4, 4.6), (x, y) => (y > 34.2 + t - lift ? pal.belly : pal.base));
+      }
+      for (const fx of [16.5, 31.5]) paint(c, ellipse(fx, 43.8, 5.6, 2.8), soft(pal.belly, pal.bellyShade, fx, 43.8, 5.6, 2.8));
+    },
+    extra(c, pal, q) {
+      const t = q.top;
+      // Кисточки на ушах.
+      for (const [x, lean] of [[12.5 - q.droop * 3, -1], [35.5 + q.droop * 3, 1]]) {
+        const y = 2.5 + t + q.droop * 4.5 - (lean > 0 ? q.twitch * 1.5 : 0);
+        line(c, x, y, x + lean * 0.6, y - 4, '#1f1a17');
+        line(c, x + lean * 0.6, y, x + lean * 1.4, y - 3, '#3a2f28');
+      }
+      for (const [x, y] of [[23, 26], [24, 26], [25, 26], [24, 27]]) dot(c, x, y + t, '#e07a8f');
+      // Тёмные «стрелки» от глаз.
+      for (const side of [-1, 1]) line(c, 24 + side * 8.6, 24 + t, 24 + side * 10.4, 26.4 + t, pal.deep);
+      for (const side of [-1, 1]) {
+        line(c, 24 + side * 7.5, 27 + t, 24 + side * 15, 26.2 + t, '#ffffff');
+        line(c, 24 + side * 7.5, 28.5 + t, 24 + side * 15, 29.3 + t, '#ffffff');
       }
     },
-    extra() {},
   },
-  penguin: {
-    pal: { base: '#3d4f74', light: '#5d74a0', shade: '#2b3856', deep: '#1f2940', belly: '#ffffff', bellyShade: '#dfe6f0', line: '#111827', inner: '#f59f00' },
-    eyes: [[18.5, 21], [29.5, 21]],
-    cheeks: [[13, 26.6], [35, 26.6]],
-    mouth: { y: 25.4, style: 'beak' },
-    headDrop: 5,
+  owl: {
+    // Хаар эбэ: снежная сова — белая в тёмных крапинках, жёлтые глаза, крылья, пушистые лапы.
+    pal: { base: '#f3f5f9', light: '#ffffff', shade: '#d4dbe6', deep: '#b4bfcf', belly: '#ffffff', bellyShade: '#e4e9f1', line: '#3b4254', inner: '#f2cc60', speck: '#6e7781' },
+    eyes: [[17.2, 21], [30.8, 21]],
+    eyeStyle: 'owl',
+    cheeks: [[10.6, 27.6], [37.4, 27.6]],
+    mouth: { y: 25.6, style: 'beak' },
+    headDrop: 6,
     body(c, pal, q, mood) {
       const t = q.top;
-      const cy = 26.8 + q.breath * 0.8 + t;
-      // Ласты: правая машет от радости.
-      for (const [ax, side] of [[7.6, -1], [40.4, 1]]) {
-        const angle = side * (0.42 + (side > 0 ? q.wave * 0.9 : 0)) - (mood === 'sad' ? side * 0.25 : 0);
-        paint(c, tilted(ax, 30 + t - (side > 0 ? q.wave * 3 : 0), 3, 7.6, angle), shaded(pal, ax, 30 + t, 3, 7.6));
+      const cy = 27.6 + q.breath * 0.8 + t;
+      // Крылья: от радости машут.
+      for (const [ax, side] of [[7, -1], [41, 1]]) {
+        const flap = mood === 'play' ? q.wave * 1.1 : 0;
+        const angle = side * (0.28 + flap) - (mood === 'sad' ? side * 0.15 : 0);
+        const ay = 31 + t - flap * 4;
+        paint(c, tilted(ax, ay, 4.2, 9.4, angle), (x, y) => (Math.round(y * 0.8 + x * 0.3) % 4 === 0 ? pal.speck : shaded(pal, ax, ay, 4.2, 9.4)(x, y)));
       }
-      paint(c, ellipse(24, cy, 16.6 + q.breath * 0.5, 19 - q.breath * 0.8), shaded(pal, 24, cy, 16.6, 19));
-      const mask = (x, y) => ellipse(18.6, 21.4 + t, 6.6, 6.8)(x, y) || ellipse(29.4, 21.4 + t, 6.6, 6.8)(x, y) || ellipse(24, 34 + t + q.breath * 0.4, 12, 11)(x, y);
-      paint(c, (x, y) => mask(x, y) && ellipse(24, cy, 16.6, 19)(x, y), soft(pal.belly, pal.bellyShade, 24, 30 + t, 14, 16));
-      // Красный шарф: тепло, как в Якутии.
-      paint(c, (x, y) => y > 29.2 + t && y < 32 + t && ellipse(24, cy, 14, 19.2)(x, y), (x, y) => (y < 30.3 + t ? '#ff7b72' : '#e5534b'));
-      paint(c, polygon([[28.5, 30.5 + t], [32, 30.5 + t], [33 + q.sway, 37.5 + t], [29.5 + q.sway, 37.5 + t]]), (x) => (x < 31 + q.sway ? '#ff7b72' : '#cf222e'));
-      for (const y of [33.5, 35.5]) line(c, 29.5 + q.sway * 0.5, y + t, 32.5 + q.sway * 0.5, y + t, '#ffd8d3');
-      for (const fx of [17, 31]) paint(c, ellipse(fx, 44.6, 5.2, 2.2), (x, y) => (y > 45 ? '#d4860b' : '#f59f00'));
-      for (const [x0, x1, y1] of [[23, 21.5, 4], [25, 26, 4.5]]) line(c, x0, 8.5 + t, x1, y1 + t, pal.deep);
+      // Чуть заметные пёрышки-ушки.
+      for (const side of [-1, 1]) paint(c, polygon([[24 + side * 8, 12 + t], [24 + side * 13, 6.5 + t + q.droop * 2], [24 + side * 15, 12.5 + t]]), pal.light);
+      paint(c, ellipse(24, cy, 18 + q.breath * 0.5, 17.8 - q.breath * 0.8), shaded(pal, 24, cy, 18, 17.8));
+      // Лицевой диск вокруг глаз.
+      for (const [ex, ey] of [[17.2, 21], [30.8, 21]]) paint(c, ellipse(ex, ey + t, 6, 5.8), (x, y) => (ellipse(ex, ey + t, 5, 4.8)(x, y) ? '#ffffff' : pal.shade));
+      // Крапинки-«галочки» по груди и макушке.
+      for (const [x, y] of [[13, 33], [20, 36], [28, 36], [35, 33], [16, 39], [32, 39], [24, 40], [19, 12], [29, 12], [24, 10]]) {
+        line(c, x - 1.2, y + t - 0.6, x, y + t + 0.4, pal.speck);
+        line(c, x, y + t + 0.4, x + 1.2, y + t - 0.6, pal.speck);
+      }
+      // Пушистые лапы с тёмными когтями.
+      for (const fx of [17, 31]) {
+        paint(c, ellipse(fx, 43.6, 5.2, 3), soft('#ffffff', pal.bellyShade, fx, 43.6, 5.2, 3));
+        for (const nx of [-2.2, 0, 2.2]) line(c, fx + nx, 45.6, fx + nx, 46.4, '#3b4254');
+      }
     },
     extra(c, pal, q, mood) {
       const t = q.top;
       const open = mood === 'play' && q.lift > 1;
-      for (const [x0, x1, y, color] of [[22, 26, 25 + t, '#ffc145'], [22.5, 25.5, 26 + t, '#f59f00'], [23.5, 24.5, 27 + t + (open ? 1 : 0), '#d4860b']]) line(c, x0, y, x1, y, color);
-      if (open) line(c, 23, 26.6 + t, 25, 26.6 + t, '#cf222e');
+      // Крючковатый клюв.
+      line(c, 23, 25 + t, 25, 25 + t, '#5c6577');
+      line(c, 23.3, 26 + t, 24.7, 26 + t, '#3b4254');
+      dot(c, 24, 27 + t + (open ? 1 : 0), '#3b4254');
+      if (open) line(c, 23.4, 27 + t, 24.6, 27 + t, '#cf222e');
     },
   },
 };
@@ -553,14 +605,16 @@ function eyesOf(c, sp, q, { dx = 0, dy = 0, blink = false } = {}) {
   for (const [ex, ey] of sp.eyes) {
     const x = ex + dx;
     const y = ey + q.top + dy + q.breath * 0.4;
-    if (sp.eyeStyle === 'sclera') {
-      paint(c, ellipse(x - dx, y - dy, 4, 4), blink ? sp.palNow.shade : '#ffffff');
+    if (sp.eyeStyle === 'owl') {
+      // Большие жёлтые глаза; моргает белым веком.
       if (blink) {
-        line(c, x - dx - 3, y - dy + 0.5, x - dx + 3, y - dy + 0.5, INK);
+        paint(c, ellipse(x - dx, y - dy, 3.6, 3.6), '#ffffff');
+        curve(c, x - dx - 3.4, x - dx + 3.4, (u) => y - dy + 0.4 + ((u - (x - dx)) / 3.4) ** 2 * 0.8, INK);
         continue;
       }
-      paint(c, ellipse(x, y + 0.6, 2.3, 2.6), INK);
-      paint(c, ellipse(x - 0.8, y - 0.4, 0.9, 0.9), '#ffffff');
+      paint(c, ellipse(x - dx, y - dy, 3.8, 3.8), (u, v) => (ellipse(x - dx, y - dy, 3, 3)(u, v) ? (v < y - dy ? '#f7d774' : '#e8b931') : '#9a6b00'));
+      paint(c, ellipse(x, y, 1.9, 1.9), INK);
+      paint(c, ellipse(x - 0.9, y - 1, 0.8, 0.8), '#ffffff');
       continue;
     }
     if (blink) {
@@ -585,10 +639,10 @@ function mouthOf(c, sp, q, kind, frame) {
   if (!sp.mouth) return;
   const y = sp.mouth.y + q.top;
   const style = sp.mouth.style;
-  if (style === 'beak') return; // клюв рисует сам пингвин
-  const w = style === 'wide' ? 9 : style === 'cat' || style === 'bunny' ? 3 : 4;
+  if (style === 'beak') return; // клюв рисует сама сова
+  const w = style === 'cat' || style === 'bunny' ? 3 : style === 'muzzle' ? 2.6 : 4;
   if (kind === 'open') {
-    const rx = style === 'wide' ? 6 : 3.4;
+    const rx = style === 'muzzle' ? 2.6 : 3.4;
     paint(c, (x, yy) => ellipse(24, y, rx, 2.6 + (q.lift > 2 ? 1 : 0))(x, yy) && yy > y - 0.4, INK);
     paint(c, ellipse(24, y + 1.6 + (q.lift > 2 ? 1 : 0), rx * 0.55, 1.1), '#ff6b81');
     return;
@@ -610,7 +664,7 @@ function mouthOf(c, sp, q, kind, frame) {
     paint(c, (x, yy) => x > 22.6 && x < 25.4 && yy > y + 0.6 && yy < y + 3, (x) => (Math.floor(x) === 24 ? '#dfe6f0' : '#ffffff'));
     return;
   }
-  curve(c, 24 - w, 24 + w, (x) => y + (1 - ((x - 24) / w) ** 2) * (style === 'wide' ? 2.2 : 1.8), INK);
+  curve(c, 24 - w, 24 + w, (x) => y + (1 - ((x - 24) / w) ** 2) * (style === 'muzzle' ? 1.2 : 1.8), INK);
 }
 
 const MOOD_FACE = {
