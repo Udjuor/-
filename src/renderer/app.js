@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -4903,7 +4903,7 @@ function chronicleSheet() {
   const clock = now();
   const data = yearChronicle({
     events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
-    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
   });
   const day = (iso) => fmt(iso, { day: 'numeric', month: 'long' });
   const monthName = (month) => fmt(`${month}-01`, { month: 'long', year: 'numeric' });
@@ -4971,7 +4971,7 @@ function currentGrades() {
   const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
   if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
   const { from, to } = semesterOf(clock.iso);
-  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), from, to, nowISO: clock.iso, nowTime: clock.time });
+  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, nowISO: clock.iso, nowTime: clock.time });
   gradeCache = { key, rows };
   return rows;
 }
@@ -5008,7 +5008,8 @@ function drawGrades() {
     h('div', { class: 'targets weektools' },
       h('select', { id: 'gr-group', 'aria-label': t('Группа'), onchange: (e) => { gradeGroup = e.target.value; drawGrades(); } },
         h('option', { value: '' }, t('Все группы')),
-        groups.map((name) => h('option', { value: name, selected: name === gradeGroup }, name)))),
+        groups.map((name) => h('option', { value: name, selected: name === gradeGroup }, name))),
+      canManage() && h('button', { type: 'button', id: 'gr-past', onclick: openPastWorks }, t('Прошлые работы'))),
     h('div', { class: 'sheetbody' },
       h('p', { class: 'help' }, t('Семестр с {0} по {1}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.', [shortDay(from), shortDay(to)])),
       h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
@@ -5118,6 +5119,214 @@ function drawBonus() {
   );
 }
 
+/*
+ * Прошлые работы: задания, практики и мероприятия, которые прошли до начала работы в Kerdiis.
+ * Вносятся задним числом одной записью на работу, баллы грейда начисляются как обычно. Только преподаватель.
+ */
+
+const pastState = { id: null, work: 'task', title: '', date: '', group: '', picked: new Map(), roles: new Set(), penalty: false, message: '', confirm: null };
+
+function openPastWorks() {
+  resetPastForm();
+  pastState.group = pastState.group || refsOf('group').map((g) => g.id)[0] || '';
+  drawPastWorks();
+  const dialog = $('pastworks');
+  if (!dialog.open) dialog.showModal();
+}
+
+function resetPastForm(keep = true) {
+  pastState.id = null;
+  pastState.title = '';
+  if (!keep) pastState.date = '';
+  pastState.picked = new Map();
+  pastState.roles = new Set();
+  pastState.penalty = false;
+  pastState.confirm = null;
+}
+
+/** Студенты группы по алфавиту. */
+const studentsOfGroup = (groupId) => refsOf('student').filter((s) => s.groupId === groupId).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+function editPastWork(work) {
+  const byName = new Map(refsOf('student').map((s) => [nameKey(s.name), s]));
+  pastState.id = work.id;
+  pastState.work = work.work;
+  pastState.title = work.name;
+  pastState.date = work.date;
+  pastState.picked = new Map(work.students.map((name) => [nameKey(name), name]));
+  pastState.roles = new Set((work.roles ?? []).map(nameKey));
+  pastState.penalty = (work.missed ?? []).length > 0;
+  const first = byName.get(nameKey(work.students[0] ?? work.missed?.[0] ?? ''));
+  if (first) pastState.group = first.groupId;
+  pastState.message = '';
+  pastState.confirm = null;
+  drawPastWorks();
+}
+
+async function savePastWork() {
+  const title = pastState.title.trim();
+  const today = now().iso;
+  if (!title || !pastState.date) {
+    pastState.message = t('Укажите название и дату работы.');
+    return drawPastWorks();
+  }
+  if (pastState.date > today) {
+    pastState.message = t('Дата прошлой работы не может быть позже сегодняшней. Будущие задания и мероприятия вносите обычным способом.');
+    return drawPastWorks();
+  }
+  const students = [...pastState.picked.values()];
+  // Не сдавшие — все остальные из групп, где кто-то сдал, и из выбранной группы.
+  let missed = [];
+  if (pastState.work === 'task' && pastState.penalty) {
+    const groupIds = new Set([pastState.group]);
+    for (const s of refsOf('student')) if (pastState.picked.has(nameKey(s.name))) groupIds.add(s.groupId);
+    missed = refsOf('student').filter((s) => groupIds.has(s.groupId) && !pastState.picked.has(nameKey(s.name))).map((s) => s.name);
+  }
+  if (!students.length && !missed.length) {
+    pastState.message = t('Отметьте хотя бы одного студента.');
+    return drawPastWorks();
+  }
+  const existing = pastState.id ? refsOf('pastwork').find((w) => w.id === pastState.id) : null;
+  const ref = {
+    ...(existing ?? {}),
+    kind: 'pastwork',
+    name: title,
+    work: pastState.work,
+    date: pastState.date,
+    students,
+    roles: pastState.work === 'event' ? students.filter((name) => pastState.roles.has(nameKey(name))) : [],
+    missed,
+  };
+  const saved = await api.saveRefs([{ ref, base: existing?.updatedAt }]);
+  if (!saved.ok) {
+    pastState.message = storeMessage(saved);
+    return drawPastWorks();
+  }
+  pastState.message = '';
+  resetPastForm();
+  await loadDirectory();
+  drawPastWorks();
+  if ($('grade').open) drawGrades();
+}
+
+/** Сколько баллов даёт работа всем вместе: для списка внесённого. */
+function pastWorkSummary(work) {
+  const changes = pastWorkChanges(work);
+  const count = (kind) => changes.filter((c) => c.kind === kind).length;
+  if (work.work === 'task') {
+    return count('taskMissed')
+      ? t('сдали {0}, не сдали {1}', [count('task'), count('taskMissed')])
+      : t('сдали {0}', [count('task')]);
+  }
+  if (work.work === 'event') {
+    return count('role') ? t('были {0}, с ролью {1}', [count('event'), count('role')]) : t('были {0}', [count('event')]);
+  }
+  return t('участников {0}', [count('practice')]);
+}
+
+function drawPastWorks() {
+  const dialog = $('pastworks');
+  const today = now().iso;
+  const yearFrom = `${schoolYearOf(today)}-09-01`;
+  const groups = refsOf('group').sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  const list = studentsOfGroup(pastState.group);
+  const markLabel = { task: t('сдал'), practice: t('участвовал'), event: t('был') }[pastState.work];
+  const pick = (student, on) => {
+    if (on) pastState.picked.set(nameKey(student.name), student.name);
+    else {
+      pastState.picked.delete(nameKey(student.name));
+      pastState.roles.delete(nameKey(student.name));
+    }
+  };
+
+  const form = h('form', {
+    class: 'pastform',
+    onsubmit: (e) => {
+      e.preventDefault();
+      savePastWork();
+    },
+  },
+  h('div', { class: 'pastfields' },
+    h('label', {}, h('span', {}, t('Что')),
+      h('select', { id: 'pw-type', onchange: (e) => { pastState.work = e.target.value; drawPastWorks(); } },
+        PAST_WORK_TYPES.map((type) => h('option', { value: type, selected: type === pastState.work }, typeLabel(type))))),
+    h('label', { class: 'grow' }, h('span', {}, t('Название')),
+      h('input', { id: 'pw-title', required: true, maxlength: 200, value: pastState.title, placeholder: t('Например: Курсовой проект, Неделя кино, Практика на ТВ'), oninput: (e) => { pastState.title = e.target.value; } })),
+    h('label', {}, h('span', {}, pastState.work === 'task' ? t('Срок сдачи') : t('Дата')),
+      h('input', { id: 'pw-date', type: 'date', required: true, min: yearFrom, max: today, value: pastState.date, oninput: (e) => { pastState.date = e.target.value; } })),
+    h('label', {}, h('span', {}, t('Группа')),
+      h('select', { id: 'pw-group', onchange: (e) => { pastState.group = e.target.value; drawPastWorks(); } },
+        groups.map((group) => h('option', { value: group.id, selected: group.id === pastState.group }, group.name))))),
+  list.length
+    ? [
+      h('div', { class: 'pasttools' },
+        h('button', { type: 'button', id: 'pw-all', onclick: () => { list.forEach((s) => pick(s, true)); drawPastWorks(); } }, t('Отметить всю группу')),
+        h('button', { type: 'button', onclick: () => { list.forEach((s) => pick(s, false)); drawPastWorks(); } }, t('Снять отметки')),
+        h('span', { class: 'help' }, t('Отмечено: {0}', [pastState.picked.size]))),
+      h('ul', { class: 'pastlist' }, list.map((student) => {
+        const key = nameKey(student.name);
+        const on = pastState.picked.has(key);
+        return h('li', {},
+          h('label', { class: 'checkrow' },
+            h('input', { type: 'checkbox', 'data-student': student.name, checked: on, onchange: (e) => { pick(student, e.target.checked); drawPastWorks(); } }),
+            h('span', {}, student.name)),
+          h('span', { class: 'help' }, on ? markLabel : ''),
+          pastState.work === 'event' && h('label', { class: 'checkrow role' },
+            h('input', { type: 'checkbox', 'data-role': student.name, checked: pastState.roles.has(key), disabled: !on, onchange: (e) => {
+              if (e.target.checked) pastState.roles.add(key);
+              else pastState.roles.delete(key);
+            } }),
+            h('span', {}, t('с ролью'))));
+      })),
+    ]
+    : h('p', { class: 'free' }, t('В этой группе нет студентов. Добавьте их в «Справочниках».')),
+  pastState.work === 'task' && h('label', { class: 'checkrow' },
+    h('input', { type: 'checkbox', id: 'pw-penalty', checked: pastState.penalty, onchange: (e) => { pastState.penalty = e.target.checked; } }),
+    h('span', {}, t('Не отмеченным в группе — минус {0}, как за несданное в срок', [2]))),
+  pastState.message && h('p', { class: 'message error' }, pastState.message),
+  h('div', { class: 'pasttools' },
+    h('button', { type: 'submit', class: 'primary', id: 'pw-save' }, pastState.id ? t('Сохранить изменения') : t('Добавить работу')),
+    pastState.id && h('button', { type: 'button', onclick: () => { resetPastForm(); pastState.message = ''; drawPastWorks(); } }, t('Отмена'))));
+
+  const works = refsOf('pastwork').filter((w) => w.date >= yearFrom).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name, 'ru'));
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Прошлые работы')),
+        h('p', { class: 'help' }, t('Задания, практики и мероприятия, которые прошли до того, как колледж начал вести их в Kerdiis. Баллы грейда начисляются как обычно: сданное задание +3, практика +2, мероприятие +5 и ещё +2 за роль.'))),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      h('h3', {}, pastState.id ? t('Изменить работу') : t('Новая работа')),
+      form,
+      h('h3', {}, t('Внесено в этом учебном году')),
+      works.length
+        ? h('ul', { class: 'bonuslist pastworks' }, works.map((work) => h('li', { 'data-work': work.id },
+          h('span', { class: 'awarddate' }, shortDate(work.date)),
+          h('b', {}, typeLabel(work.work)),
+          h('span', {}, work.by ? t('{0} ({1})', [work.name, work.by]) : work.name),
+          h('span', { class: 'help' }, pastWorkSummary(work)),
+          h('button', { type: 'button', class: 'plain small', onclick: () => editPastWork(work) }, t('Изменить')),
+          h('button', {
+            type: 'button',
+            class: `plain small${pastState.confirm === work.id ? ' danger' : ''}`,
+            'aria-label': t('Удалить {0}', [work.name]),
+            onclick: async () => {
+              if (pastState.confirm !== work.id) {
+                pastState.confirm = work.id;
+                return drawPastWorks();
+              }
+              const removed = await api.removeRefs([{ id: work.id, base: work.updatedAt }]);
+              pastState.message = removed.ok ? '' : storeMessage(removed);
+              if (pastState.id === work.id) resetPastForm();
+              pastState.confirm = null;
+              await loadDirectory();
+              drawPastWorks();
+              if ($('grade').open) drawGrades();
+            },
+          }, pastState.confirm === work.id ? t('Удалить?') : '✕'))))
+        : h('p', { class: 'free' }, t('Пока ничего не внесено.'))),
+  );
+}
+
 /* Личное дело студента: для аттестации, педсовета и родителей. Только на компьютерах преподавателей. */
 
 const fileState = { id: null, period: 'semester' };
@@ -5148,7 +5357,7 @@ function studentFileSheet() {
   const { from, to } = filePeriod(fileState.period);
   const data = studentFile({
     student, events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
-    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), from, to, nowISO: clock.iso, nowTime: clock.time,
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, nowISO: clock.iso, nowTime: clock.time,
   });
   const long = (iso) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
   const a = data.attendance;
@@ -5183,7 +5392,7 @@ function studentFileSheet() {
     h('h3', {}, t('Задания')),
     data.tasks.length
       ? table([t('Срок'), t('Задание'), t('Состояние')], data.tasks.map((task) => h('tr', { class: ['missed', 'rework-late'].includes(task.state) ? 'late' : '' },
-        h('td', {}, stampText(task.deadline)), h('td', {}, task.title), h('td', {}, taskState[task.state]))))
+        h('td', {}, task.past ? shortDate(task.deadline.slice(0, 10)) : stampText(task.deadline)), h('td', {}, task.title, task.past && h('small', { class: 'pastmark' }, t('внесено задним числом'))), h('td', {}, taskState[task.state]))))
       : h('p', { class: 'free' }, t('Заданий со сдачей за период не было.')),
 
     data.grade && [h('h3', {}, t('Грейд')),
@@ -5196,7 +5405,7 @@ function studentFileSheet() {
     h('h3', {}, t('Участие и достижения')),
     data.items.length || data.awards.length
       ? [data.items.length > 0 && table([t('Дата'), t('Вид'), t('Название'), t('Роль')], data.items.map((item) => h('tr', {},
-        h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title), h('td', {}, item.role)))),
+        h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title, item.past && h('small', { class: 'pastmark' }, t('внесено задним числом'))), h('td', {}, item.past && item.role ? t('с ролью') : item.role)))),
       data.awards.length > 0 && table([t('Дата'), t('Достижение'), t('Результат')], data.awards.map((item) => h('tr', {},
         h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))]
       : h('p', { class: 'free' }, t('За период участий и достижений нет.')),

@@ -866,6 +866,35 @@ test('грейд: баллы вручную — плюс и минус, по д�
   assert.equal(file.grade.points, 25);
 });
 
+test('прошлые работы: задание, практика и мероприятие задним числом дают баллы как обычные', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря', 'Вера'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const pastWorks = [
+    { id: 'w1', name: 'Курсовой проект', work: 'task', date: '2026-09-20', students: ['Аня', 'вера'], roles: [], missed: ['Боря'] },
+    { id: 'w2', name: 'Практика на ТВ', work: 'practice', date: '2026-10-01', students: ['Аня', 'Боря'], roles: [], missed: [] },
+    { id: 'w3', name: 'Неделя кино', work: 'event', date: '2026-10-10', students: ['Аня', 'Боря', 'Вера'], roles: ['Аня'], missed: [] },
+    { id: 'w4', name: 'Прошлый семестр', work: 'event', date: '2026-05-10', students: ['Аня'], roles: [], missed: [] },
+  ];
+  const rows = Object.fromEntries(L.gradeReport({ events: [], attendance: [], students, groups, pastWorks, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' }).map((r) => [r.name, r]));
+  assert.equal(rows['Аня'].points, 3 + 2 + 5 + 2, 'задание, практика, мероприятие и роль');
+  assert.deepEqual([rows['Аня'].breakdown.task, rows['Аня'].breakdown.practice, rows['Аня'].breakdown.event, rows['Аня'].breakdown.role], [1, 1, 1, 1]);
+  assert.equal(rows['Боря'].points, 7, 'минус за несданное, но ниже нуля не опускается: 0 − 2 → 0, затем +2 и +5');
+  assert.equal(rows['Боря'].breakdown.taskMissed, 1);
+  assert.equal(rows['Вера'].points, 8, 'имя без учёта регистра');
+
+  const file = L.studentFile({ student: students[0], events: [], attendance: [], students, groups, achievements: [], pastWorks,
+    from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
+  assert.deepEqual(file.tasks.map((task) => [task.title, task.state, task.past]), [['Курсовой проект', 'done', true]]);
+  assert.deepEqual(file.items.map((item) => [item.title, item.type, item.role]), [['Неделя кино', 'event', 'role'], ['Практика на ТВ', 'practice', '']]);
+  assert.equal(file.grade.points, 12);
+  const missed = L.studentFile({ student: students[1], events: [], attendance: [], students, groups, achievements: [], pastWorks,
+    from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
+  assert.deepEqual(missed.tasks.map((task) => task.state), ['missed']);
+
+  const year = L.yearChronicle({ events: [], attendance: [], students, groups, achievements: [], pastWorks, year: 2026, nowISO: '2026-11-01', nowTime: '12:00' });
+  assert.equal(year.grades[0].name, 'Аня');
+});
+
 test('ждущее согласования не учитывается, но занимает место и технику', () => {
   const pending = { id: 'a', type: 'event', title: 'Концерт', date: '2026-11-10', start: '10:00', end: '12:00', place: 'Зал', participants: ['Аня'], equipment: ['Проектор'], pending: true };
   assert.equal(L.isHeld(pending), false);

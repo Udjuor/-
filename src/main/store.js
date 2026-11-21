@@ -147,7 +147,8 @@ const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'mo
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
 const HAND_IN = new Set(['done', 'rework']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork']);
+const PAST_WORK_TYPES = ['task', 'practice', 'event'];
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 // Виды питомцев. Список совпадает с PET_KINDS в src/renderer/pet.mjs.
@@ -245,6 +246,33 @@ function normalizeRef(raw) {
     ref.points = Number.isInteger(raw.points) && raw.points !== 0 && Math.abs(raw.points) <= 100 ? raw.points : 0;
     ref.by = String(raw.by ?? '').trim().slice(0, 80);
     if (!ref.student || !ref.date || !ref.points) return null;
+  }
+  if (raw.kind === 'pastwork') {
+    // Прошлая работа, внесённая задним числом: задание, практика или мероприятие до начала работы в программе.
+    // name — название, students — сдавшие или участвовавшие, roles — с ролью (мероприятие), missed — не сдавшие (задание).
+    const names = (list) => {
+      const seen = new Set();
+      const out = [];
+      for (const item of Array.isArray(list) ? list : []) {
+        const name = String(item ?? '').trim().slice(0, 200);
+        const key = name.toLowerCase().replaceAll('ё', 'е');
+        if (name && !seen.has(key)) {
+          seen.add(key);
+          out.push(name);
+        }
+        if (out.length >= 500) break;
+      }
+      return out;
+    };
+    ref.name = ref.name.slice(0, 200);
+    ref.work = PAST_WORK_TYPES.includes(raw.work) ? raw.work : '';
+    ref.date = DATE_RE.test(raw.date ?? '') ? raw.date : '';
+    ref.students = names(raw.students);
+    const inStudents = new Set(ref.students.map((name) => name.toLowerCase().replaceAll('ё', 'е')));
+    ref.roles = ref.work === 'event' ? names(raw.roles).filter((name) => inStudents.has(name.toLowerCase().replaceAll('ё', 'е'))) : [];
+    ref.missed = ref.work === 'task' ? names(raw.missed).filter((name) => !inStudents.has(name.toLowerCase().replaceAll('ё', 'е'))) : [];
+    ref.by = String(raw.by ?? '').trim().slice(0, 80);
+    if (!ref.name || !ref.work || !ref.date || !(ref.students.length || ref.missed.length)) return null;
   }
   if (raw.kind === 'group') {
     ref.petName = String(raw.petName ?? '').trim().slice(0, 24);

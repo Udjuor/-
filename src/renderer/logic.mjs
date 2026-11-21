@@ -1125,7 +1125,7 @@ export function bestGroupOfMonth({ events, attendance, students, groups, nowISO,
 export const schoolYearOf = (iso) => (iso.slice(5) >= '09-01' ? Number(iso.slice(0, 4)) : Number(iso.slice(0, 4)) - 1);
 
 /** Итоги учебного года: что прошло, кто участвовал, кто в каких ролях, лучшие группы и достижения. */
-export function yearChronicle({ events, attendance, students, groups, achievements, year, nowISO, nowTime, bonuses = [] }) {
+export function yearChronicle({ events, attendance, students, groups, achievements, year, nowISO, nowTime, bonuses = [], pastWorks = [] }) {
   const from = `${year}-09-01`;
   const to = `${year + 1}-08-31`;
   const until = nowISO < to ? nowISO : to;
@@ -1179,7 +1179,7 @@ export function yearChronicle({ events, attendance, students, groups, achievemen
     awards: achievements.filter((item) => item.date >= from && item.date <= until).sort((a, b) => a.date.localeCompare(b.date)),
     // Лучшие по грейду за год: сумма баллов обоих семестров.
     grades: [{ from, to: `${year + 1}-01-31` }, { from: `${year + 1}-02-01`, to }]
-      .flatMap((semester) => (semester.from <= until ? gradeReport({ events, attendance, students, groups, ...semester, nowISO, nowTime, bonuses }) : []))
+      .flatMap((semester) => (semester.from <= until ? gradeReport({ events, attendance, students, groups, ...semester, nowISO, nowTime, bonuses, pastWorks }) : []))
       .reduce((all, row) => {
         const found = all.find((item) => item.name === row.name);
         if (found) found.points += row.points;
@@ -1219,13 +1219,37 @@ export function semesterOf(iso) {
   return { from: `${year}-02-01`, to: `${year}-08-31` };
 }
 
+/** Виды прошлых работ, которые вносятся задним числом. */
+export const PAST_WORK_TYPES = ['task', 'practice', 'event'];
+
+/**
+ * Баллы за прошлую работу: задание — сдавшим, и минус не сдавшим, если их внесли;
+ * практика — участникам; мероприятие — бывшим, и ещё за роль.
+ */
+export function pastWorkChanges(work) {
+  const has = (list, name) => list.some((item) => nameKey(item) === nameKey(name));
+  const changes = [];
+  if (work.work === 'task') {
+    for (const name of work.students) changes.push({ name, kind: 'task' });
+    for (const name of work.missed ?? []) if (!has(work.students, name)) changes.push({ name, kind: 'taskMissed' });
+  } else if (work.work === 'practice') {
+    for (const name of work.students) changes.push({ name, kind: 'practice' });
+  } else if (work.work === 'event') {
+    for (const name of work.students) {
+      changes.push({ name, kind: 'event' });
+      if (has(work.roles ?? [], name)) changes.push({ name, kind: 'role' });
+    }
+  }
+  return changes;
+}
+
 export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) => points >= level.from);
 
 /**
  * Баллы каждого студента за период. Возвращает строки с баллами, званием, разбивкой
  * и днями, когда студент получил каждое новое звание (для поздравления в бегущей строке).
  */
-export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses = [] }) {
+export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses = [], pastWorks = [] }) {
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group?.name ?? '']));
   const people = new Map(students.map((student) => [nameKey(student.name), {
@@ -1277,6 +1301,12 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
     if (bonus.date >= from && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points);
   }
 
+  // Прошлые работы, внесённые задним числом: до того, как колледж начал вести их в программе.
+  for (const work of pastWorks) {
+    if (work.date < from || work.date > until) continue;
+    for (const change of pastWorkChanges(work)) add(change.name, work.date, change.kind, GRADE_POINTS[change.kind]);
+  }
+
   return [...people.values()].map((person) => {
     for (const [date, day] of person.days) {
       if (day.absent) person.changes.push({ date, kind: 'absent', points: GRADE_POINTS.absent });
@@ -1311,7 +1341,7 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
  * Всё о студенте за период одним листом: посещаемость, опоздания по дням недели, справки,
  * задания, грейд, участие и достижения. Без контактов и записей — только то, что считает программа.
  */
-export function studentFile({ student, events, attendance, students, groups, achievements, from, to, nowISO, nowTime, bonuses = [] }) {
+export function studentFile({ student, events, attendance, students, groups, achievements, from, to, nowISO, nowTime, bonuses = [], pastWorks = [] }) {
   const key = nameKey(student.name);
   const until = nowISO < to ? nowISO : to;
   const report = buildReport({ events, attendance, students, groups, filters: { from, to: until, types: [...MARKED_TYPES] }, nowISO, nowTime });
@@ -1329,9 +1359,20 @@ export function studentFile({ student, events, attendance, students, groups, ach
       const state = own === 'done' ? 'done' : event.deadline <= moment ? (own === 'rework' ? 'rework-late' : 'missed') : (own === 'rework' ? 'rework' : 'open');
       return { title: event.title, deadline: event.deadline, state };
     })
+    .concat(pastWorks
+      .filter((work) => work.work === 'task' && work.date >= from && work.date <= to)
+      .flatMap((work) => pastWorkChanges(work).filter((c) => nameKey(c.name) === key && c.kind !== 'role')
+        .map((c) => ({ title: work.name, deadline: `${work.date}T23:59`, state: c.kind === 'task' ? 'done' : 'missed', past: true }))))
     .sort((a, b) => a.deadline.localeCompare(b.deadline));
 
-  const grade = gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses }).find((item) => nameKey(item.name) === key) ?? null;
+  const grade = gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses, pastWorks }).find((item) => nameKey(item.name) === key) ?? null;
+  // Практики и мероприятия из прошлых работ — в портфолио личного дела, как и проведённые в программе.
+  const pastItems = pastWorks
+    .filter((work) => work.work !== 'task' && work.date >= from && work.date <= to && work.students.some((name) => nameKey(name) === key))
+    .map((work) => ({
+      id: work.id, date: work.date, type: work.work, title: work.name, place: '', responsible: work.by ?? '', past: true,
+      role: work.work === 'event' && work.roles.some((name) => nameKey(name) === key) ? 'role' : '',
+    }));
   const manual = bonuses.filter((bonus) => nameKey(bonus.student) === key && bonus.date >= from && bonus.date <= until).sort((a, b) => a.date.localeCompare(b.date));
   const work = portfolio({ name: student.name, events, attendance, achievements, nowISO, nowTime });
   return {
@@ -1343,7 +1384,7 @@ export function studentFile({ student, events, attendance, students, groups, ach
     certificates: pendingCertificates(attendance, events).find((person) => nameKey(person.name) === key)?.classes.length ?? 0,
     tasks,
     grade,
-    items: work.items.filter((item) => item.date >= from && item.date <= to),
+    items: [...work.items.filter((item) => item.date >= from && item.date <= to), ...pastItems].sort((a, b) => b.date.localeCompare(a.date)),
     awards: work.awards.filter((item) => item.date >= from && item.date <= to),
     manual,
   };

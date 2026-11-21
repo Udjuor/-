@@ -1066,6 +1066,31 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#studentfile .tabs button[aria-pressed=true]:has-text("Учебный год")');
   await shot('studentfile');
   await page.click('#studentfile [aria-label=Закрыть]');
+
+  // Прошлые работы: мероприятие до начала работы в Kerdiis, внесённое задним числом, даёт +5 и +2 за роль.
+  const eventsBefore = Number(await bonusRow.locator('td:nth-child(11)').textContent());
+  await page.click('#gr-past');
+  await page.waitForSelector('#pastworks[open] #pw-type');
+  await page.selectOption('#pw-type', 'event');
+  await page.fill('#pw-title', 'Неделя кино');
+  const pastDay = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  await page.fill('#pw-date', pastDay);
+  await page.selectOption('#pw-group', { label: 'ИС-21' });
+  await page.click('#pw-save');
+  await page.waitForSelector('#pastworks .message.error', { hasText: 'хотя бы одного' });
+  await page.check(`#pastworks input[data-student="${bonusName}"]`);
+  await page.check(`#pastworks input[data-role="${bonusName}"]`);
+  await page.click('#pw-save');
+  await page.waitForSelector('#pastworks .pastworks li:has-text("Неделя кино")');
+  assert.match(await page.textContent('#pastworks .pastworks li:has-text("Неделя кино")'), /были 1, с ролью 1/);
+  await shot('pastworks');
+  await page.click('#pastworks [aria-label=Закрыть]');
+  assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10 + 7, 'прошлое мероприятие с ролью: +7');
+  assert.equal(Number(await bonusRow.locator('td:nth-child(11)').textContent()), eventsBefore + 1);
+  await bonusRow.locator('.linkbutton').click();
+  await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Неделя кино")');
+  assert.match(await page.textContent('#studentfile .filepaper'), /внесено задним числом/);
+  await page.click('#studentfile [aria-label=Закрыть]');
   await page.click('#grade [aria-label=Закрыть]');
 
   // Сроки сдачи.

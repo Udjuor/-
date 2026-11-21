@@ -1073,3 +1073,19 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .bonuslist b.plus { color: var(--success-fg, #3fb950); }
 .bonuslist b.minus { color: var(--danger-fg); }
 .bonuslist li button { margin-left: auto; }
+
+/* Прошлые работы: ввод задним числом */
+.pastform { display: flex; flex-direction: column; gap: .7rem; margin-bottom: 1.2rem; }
+.pastfields { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+.pastfields label { display: flex; flex-direction: column; gap: .2rem; }
+.pastfields label.grow { flex: 1 1 18rem; }
+.pastfields input, .pastfields select { min-height: 3rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.pasttools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.pastlist { list-style: none; margin: 0; padding: 0; columns: 2 20rem; column-gap: 1.5rem; }
+.pastlist li { display: flex; align-items: center; gap: .6rem; break-inside: avoid; padding: .15rem 0; }
+.pastlist .checkrow { display: flex; align-items: center; gap: .5rem; min-height: 2.6rem; }
+.pastlist .checkrow.role { margin-left: auto; }
+.pastlist input[type=checkbox], #pw-penalty { width: 1.3rem; height: 1.3rem; }
+.pastworks li { flex-wrap: wrap; }
+.pastmark { margin-left: .5rem; opacity: .7; }
+.pastworks li button + button { margin-left: 0; }

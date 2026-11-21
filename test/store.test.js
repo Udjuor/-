@@ -723,3 +723,22 @@ test('запись переживает файл, на мгновение зан
   const leftovers = require('node:fs').readdirSync(store.dir).filter((name) => name.endsWith('.tmp'));
   assert.deepEqual(leftovers, []);
 });
+
+test('прошлая работа: проверка полей, роли только у бывших, не сдавшие только среди не сдавших', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const work = await store.saveRef({
+    kind: 'pastwork', name: '  Курсовой ', work: 'event', date: '2026-10-10',
+    students: ['Аня', 'аня', 'Боря', ''], roles: ['Аня', 'Вера'], missed: ['Вера'],
+  });
+  assert.equal(work.name, 'Курсовой');
+  assert.deepEqual(work.students, ['Аня', 'Боря'], 'повторы и пустые убраны');
+  assert.deepEqual(work.roles, ['Аня'], 'роль — только у бывших');
+  assert.deepEqual(work.missed, [], 'не сдавшие — только у заданий');
+  const task = await store.saveRef({ kind: 'pastwork', name: 'Эссе', work: 'task', date: '2026-09-20', students: ['Аня'], missed: ['аня', 'Боря'] });
+  assert.deepEqual(task.missed, ['Боря']);
+  for (const bad of [
+    { kind: 'pastwork', name: 'Без даты', work: 'task', students: ['Аня'] },
+    { kind: 'pastwork', name: 'Неизвестно', work: 'lesson', date: '2026-09-20', students: ['Аня'] },
+    { kind: 'pastwork', name: 'Пусто', work: 'practice', date: '2026-09-20', students: [] },
+  ]) await assert.rejects(store.saveRef(bad));
+});

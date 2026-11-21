@@ -388,8 +388,9 @@ function registerHandlers() {
   ipcMain.handle('directory:list', () => respond(() => store.directory()));
   ipcMain.handle('directory:save', (_e, refs) => managed(async () => {
     const saved = [];
-    // Ручные баллы подписываются компьютером преподавателя: видно, кто поставил.
-    for (const { ref, base } of refs) saved.push(await store.saveRef(ref?.kind === 'bonus' && !base ? { ...ref, by: config.deviceName } : ref, base));
+    // Ручные баллы и прошлые работы подписываются компьютером преподавателя: видно, кто поставил.
+    const signed = (ref) => ['bonus', 'pastwork'].includes(ref?.kind);
+    for (const { ref, base } of refs) saved.push(await store.saveRef(signed(ref) && !base ? { ...ref, by: config.deviceName } : ref, base));
     sync?.nudge();
     return saved;
   }));
