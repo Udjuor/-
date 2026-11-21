@@ -136,15 +136,31 @@ test('опоздание считается от начала пары', () => {
   assert.equal(L.lateMinutes(e, at('2026-11-03', '09:07')), 7);
 });
 
-test('без отметки: пока пара идёт — нет отметки, после окончания — пропуск', () => {
-  const e = lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов']);
+test('без отметки: пока пара идёт — нет отметки, после окончания — пропуск, если перекличка была', () => {
+  const e = lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов', 'Петров']);
   assert.equal(L.rollCall(e, null, '2026-11-03', '10:00')[0].status, 'pending');
-  assert.equal(L.rollCall(e, null, '2026-11-03', '10:30')[0].status, 'absent');
+  const marked = { marks: { Петров: { status: 'present', at: at('2026-11-03', '09:00') } } };
+  assert.equal(L.rollCall(e, marked, '2026-11-03', '10:30')[0].status, 'absent', 'остальных отметили — не отмеченный не пришёл');
+  assert.deepEqual(L.rollCall(e, null, '2026-11-03', '10:30').map((r) => r.status), ['unmarked', 'unmarked'], 'не отмечен никто — перекличку не проводили');
+  const locked = { marks: {}, lock: { at: 'x', teacher: 'Т', participants: ['Иванов', 'Петров'], excused: {} } };
+  assert.deepEqual(L.rollCall(e, locked, '2026-11-03', '10:30').map((r) => r.status), ['absent', 'absent'], 'отчёт зафиксирован без отметок — прогул');
+});
+
+test('отметка задним числом после конца пары — пришёл вовремя, опоздание только явное', () => {
+  const e = lesson('a', '2026-09-03', '09:00', '10:30', ['Иванов', 'Петров', 'Сидоров']);
+  const doc = { marks: {
+    Иванов: { status: 'present', at: at('2026-11-21', '15:40') },
+    Петров: { status: 'present', at: at('2026-09-03', '09:15'), late: true },
+    Сидоров: { status: 'present', at: at('2026-09-03', '09:50') },
+  } };
+  const rows = L.rollCall(e, doc, '2026-11-21', '16:00');
+  assert.deepEqual(rows.map((r) => [r.status, r.late]), [['present', 0], ['present', 15], ['absent', 0]]);
+  assert.equal(rows[0].lateMark, false);
 });
 
 test('снятая отметка считается отсутствующей', () => {
-  const e = lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов']);
-  const doc = { marks: { Иванов: { status: null, at: null } } };
+  const e = lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов', 'Петров']);
+  const doc = { marks: { Иванов: { status: null, at: null }, Петров: { status: 'present', at: at('2026-11-03', '09:00') } } };
   assert.equal(L.rollCall(e, doc, '2026-11-04', '10:00')[0].status, 'absent');
 });
 
@@ -180,7 +196,7 @@ test('отчёт считает проведённые пары, причины,
 test('отчёт по группе считает только её студентов', () => {
   const events = [lesson('a', '2026-11-03', '09:00', '10:30', ['Иванов', 'Сидоров']), lesson('b', '2026-11-03', '11:00', '12:00', ['Сидоров'])];
   const { pairs, students } = report(events, [], { group: 'ИС-21' });
-  assert.deepEqual(pairs.map((p) => [p.event.id, p.total]), [['a', 1]]);
+  assert.deepEqual(pairs.map((p) => [p.event.id, p.total, p.unmarked]), [['a', 0, 1]], 'без переклички — не в процентах, а отдельно');
   assert.deepEqual(students.map((s) => s.name), ['Иванов']);
 });
 
@@ -408,7 +424,7 @@ test('внесённые в задание, практику или меропр
   const rows = L.rollCall(lesson, null, '2026-11-03', '10:05', events);
   assert.deepEqual(rows.map((row) => row.status), ['order', 'order', 'order', 'pending', 'pending']);
   assert.equal(rows[0].excusedFor, 'Концерт');
-  assert.equal(L.rollCall(lesson, null, '2026-11-03', '12:00', events)[3].status, 'absent');
+  assert.equal(L.rollCall(lesson, null, '2026-11-03', '12:00', events)[3].status, 'unmarked', 'никого не отмечали — перекличку не проводили');
   const came = { marks: { Аня: { status: 'present', at: new Date(2026, 10, 3, 10, 0).toISOString(), late: false } } };
   assert.equal(L.rollCall(lesson, came, '2026-11-03', '10:05', events)[0].status, 'present', 'пришедший отмечается как пришедший');
   assert.equal(L.excusedBy({ ...events[1] }, events).size, 0, 'мероприятие само не освобождается');
@@ -742,14 +758,14 @@ test('расписание группы на неделю, табло перем
   }
   events.push({ id: 'ev', type: 'event', title: 'Концерт', date: '2026-10-10', start: '15:00', end: '17:00', participants: ['Аня', 'Дина'], roles: { 'Аня': 'Ведущий' }, equipment: [] });
   const best = L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-03', nowTime: '12:00' });
-  assert.deepEqual([best.name, best.percent, best.month], ['ИС-21', 96, '2026-10'], 'концерт без отметок — пропуск');
+  assert.deepEqual([best.name, best.percent, best.month], ['ИС-21', 100, '2026-10'], 'концерт без единой отметки — перекличку не проводили, не пропуск');
   assert.equal(L.bestGroupOfMonth({ events, attendance, students, groups, nowISO: '2026-11-10', nowTime: '12:00' }), null, 'объявляется первую неделю');
   assert.equal(L.schoolYearOf('2026-11-03'), 2026);
   assert.equal(L.schoolYearOf('2027-03-03'), 2026);
   const year = L.yearChronicle({ events, attendance, students, groups, achievements: [{ student: 'Аня', name: 'Олимпиада', result: '1 место', date: '2026-10-20' }, { student: 'Аня', name: 'Старое', date: '2025-05-01' }], year: 2026, nowISO: '2026-11-03', nowTime: '12:00' });
   assert.equal(year.counts.lesson, 12);
   assert.equal(year.counts.event, 1);
-  assert.equal(year.attendance, 72, '(24 + 12) из 50');
+  assert.equal(year.attendance, 75, '(24 + 12) из 48: концерт без отметок не считается');
   assert.deepEqual(year.events.map((e) => [e.title, e.people]), [['Концерт', 2]]);
   assert.deepEqual(year.active.map((p) => [p.name, p.count, p.roles['Ведущий'] ?? 0]), [['Аня', 1, 1], ['Дина', 1, 0]]);
   assert.deepEqual(year.roleLeaders, [{ role: 'Ведущий', name: 'Аня', count: 1 }]);
@@ -907,4 +923,16 @@ test('CSV: текст, похожий на формулу, открываетс�
   const csv = L.toCsv(['a', 'b', 'c', 'd', 'e'], [['=HYPERLINK("http://x")', '-4', -4, '+1', '-Иван']]);
   const line = csv.split('\r\n')[1];
   assert.equal(line, `"'=HYPERLINK(""http://x"")";-4;-4;'+1;'-Иван`);
+});
+
+test('грейд: пара без переклички не даёт ни дня, ни прогула; после заполнения по журналу — как обычно', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const pair = { id: 'l', type: 'lesson', title: 'Пара', date: '2026-09-03', start: '09:00', end: '10:30', participants: ['Аня', 'Боря'], equipment: [] };
+  const grade = (attendance) => Object.fromEntries(L.gradeReport({ events: [pair], attendance, students, groups, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-21', nowTime: '16:00' })
+    .map((r) => [r.name, [r.points, r.breakdown.day, r.breakdown.absent]]));
+  assert.deepEqual(grade([]), { 'Аня': [0, 0, 0], 'Боря': [0, 0, 0] });
+  // По журналу: «Все были» в ноябре, затем с Бори отметку сняли.
+  const filled = [{ eventId: 'l', marks: { Аня: { status: 'present', at: '2026-11-21T06:00:00.000Z' }, Боря: { status: null, at: null } } }];
+  assert.deepEqual(grade(filled), { 'Аня': [1, 1, 0], 'Боря': [0, 0, 1] });
 });

@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, lessonOver, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -2254,6 +2254,7 @@ function openRoll(id) {
   const search = h('input', { id: 'r-search', type: 'search', placeholder: t('Поиск по фамилии'), autocomplete: 'off', 'aria-label': t('Поиск по фамилии') });
   const summary = h('p', { class: 'rollsummary', role: 'status' });
   const autoBox = h('div', { class: 'autobox', hidden: true });
+  const retroBox = h('div', { class: 'autobox retro', hidden: true });
   const banner = h('p', { class: 'lockbanner', hidden: true });
   const startBox = h('div', { class: 'startline' });
   const list = h('ul', { class: 'rolllist' });
@@ -2339,6 +2340,11 @@ function openRoll(id) {
   function drawStart(doc, locked, teacherMode) {
     const delay = startDelay(event, doc);
     const began = doc?.start ? clockTime(actualStart(event, doc).toISOString()) : null;
+    // Пара уже прошла и не начиналась: заполняется по журналу, приход — к началу по расписанию.
+    if (!began && lessonOver(event, Date.now())) {
+      startBox.replaceChildren();
+      return;
+    }
     startBox.replaceChildren(...[
       began
         ? h('p', { class: `startinfo${delay ? ' delayed' : ''}` }, delay
@@ -2359,7 +2365,14 @@ function openRoll(id) {
       type: 'button',
       class: 'reason',
       'aria-pressed': String(Boolean(row.lateMark || row.late)),
-      onclick: () => (row.lateMark || row.late ? setMark(row.name, 'present', { late: false, at: row.at }) : setMark(row.name, 'present', { late: true })),
+      // На прошедшей паре (заполнение по журналу) приход ставится к началу или через 10 минут, время правится в поле рядом.
+      onclick: () => {
+        const past = lessonOver(event, Date.now());
+        const lateAt = new Date(new Date(startIso()).getTime() + LATE_FROM_MINUTE * 60_000).toISOString();
+        return row.lateMark || row.late
+          ? setMark(row.name, 'present', { late: false, at: past ? startIso() : row.at })
+          : setMark(row.name, 'present', { late: true, ...(past ? { at: lateAt } : {}) });
+      },
     }, t('Опоздал')),
     (row.lateMark || row.late > 0) && timeField({
       value: inputTime(row.at),
@@ -2514,6 +2527,17 @@ function openRoll(id) {
         },
       }, t('Подтвердить всех ({0})', [pendingAuto.length])),
     ]));
+    // Прошедшая пара без переклички: заполнение по бумажному журналу. «Все были», затем снять тех, кого не было.
+    const unmarkedRows = rows.filter((row) => !row.marked && !row.excusedFor && ['unmarked', 'absent'].includes(row.status) && !row.lateMark);
+    const retro = teacherMode && !locked && lessonOver(event, Date.now()) && unmarkedRows.length > 0;
+    retroBox.hidden = !retro;
+    retroBox.replaceChildren(...(retro ? [
+      h('span', {}, rows.some((row) => row.status === 'unmarked')
+        ? t('Перекличку на этом занятии не проводили: пока оно не отмечено, в баллы и посещаемость не входит. Заполните по журналу: «Все были», затем снимите отметку с отсутствовавших и отметьте опоздавших.')
+        : t('Не отмечены: {0}. Им засчитан прогул.', [unmarkedRows.length])),
+      h('button', { type: 'button', class: 'primary', id: 'mark-all-past', onclick: () => markAll(unmarkedRows.map((row) => row.name)) },
+        t('Все были ({0})', [unmarkedRows.length])),
+    ] : []));
     if (countsLateness(event) && !cancelled) drawStart(doc, locked, teacherMode);
     banner.hidden = !locked;
     banner.textContent = doc?.lock
@@ -2532,7 +2556,7 @@ function openRoll(id) {
           class: 'rollname',
           'aria-pressed': String(Boolean(row.marked)),
           disabled: !teacherMode && (locked || settled),
-          onclick: () => setMark(row.name, row.marked ? null : 'present'),
+          onclick: () => setMark(row.name, row.marked ? null : 'present', lessonOver(event, Date.now()) && countsLateness(event) ? { at: startIso() } : {}),
         }, h('strong', {}, row.name), h('span', { class: row.late ? 'late' : '' }, rowNote(row))),
         row.auto && !locked && h('button', {
           type: 'button',
@@ -2575,7 +2599,7 @@ function openRoll(id) {
         h('h2', {}, event.title),
         h('p', { class: 'help' }, `${typeLabel(event.type)}, ${fmt(event.date, { day: 'numeric', month: 'long' })}, ${timeRange(event)}`)),
       closeButton(dialog)),
-    h('div', { class: 'sheetbody' }, banner, stageBox, liveBar, startBox, summary, autoBox, failure, searchField, list, log),
+    h('div', { class: 'sheetbody' }, banner, stageBox, liveBar, startBox, summary, retroBox, autoBox, failure, searchField, list, log),
     footer,
   );
   dialog.showModal();
@@ -5384,6 +5408,7 @@ function studentFileSheet() {
       h('table', { class: 'compact' }, h('thead', {}, h('tr', {}, [t('Отметок'), t('Пришёл'), t('Опоздал'), t('Прогулы'), t('Болел'), t('Без справки'), t('Приказ'), t('Уваж.')].map((name) => h('th', {}, name)))), h('tbody', {},
         [h('tr', {}, [a.total, a.present, a.late, a.absent, a.sick, a.noCertificate, a.order, a.excused].map((n) => h('td', { class: 'num' }, String(n))))]))]
       : h('p', { class: 'free' }, t('За этот период отметок нет.')),
+    a.unmarked > 0 && h('p', { class: 'filewarn' }, t('Занятий без переклички: {0}. Они не считаются ни присутствием, ни прогулом, пока их не отметят.', [a.unmarked])),
     data.lateness && [
       h('p', {}, t('Опозданий: {0}, в среднем на {1} мин. Чаще всего: {2}.', [data.lateness.count, data.lateness.average, data.lateness.worstDays.map((d) => weekdays[d - 1]).join(', ')])),
       table(weekdays, [h('tr', {}, data.lateness.byWeekday.slice(0, 6).map((n) => h('td', { class: 'num' }, n ? String(n) : '')))])],

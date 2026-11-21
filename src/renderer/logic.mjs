@@ -328,6 +328,7 @@ export const statusName = (status) => ({
   excused: 'Уважительная причина',
   absent: 'Без причины',
   pending: 'Нет отметки',
+  unmarked: 'Перекличка не проводилась',
 }[status]);
 
 /** Минуты опоздания: 0, если студент отметился вовремя. */
@@ -348,11 +349,15 @@ export function rollCall(event, doc, nowISO, nowTime, events = []) {
   const closed = Boolean(doc?.lock) || (hasEnded(event, nowISO, nowTime) && event.offsite !== true);
   // После фиксации освобождения берутся из отчёта: изменения расписания его не трогают.
   const excused = doc?.lock ? new Map(Object.entries(doc.lock.excused ?? {})) : excusedBy(event, events);
-  return (doc?.lock?.participants ?? event.participants).map((name) => {
+  const names = doc?.lock?.participants ?? event.participants;
+  // Пара прошла, а не отмечен никто: перекличку не проводили (панель выключена, журнал на бумаге).
+  // Это не прогул всей группы — такая пара ждёт отметок и в баллы и проценты не входит. Отчёт, зафиксированный без отметок, — прогул.
+  const untouched = !doc?.lock && !names.some((name) => doc?.marks?.[name]?.status);
+  return names.map((name) => {
     const mark = doc?.marks?.[name];
     if (mark?.status) return markedRow(event, name, mark, doc);
     if (excused.has(name)) return { name, status: 'order', at: null, late: 0, excusedFor: excused.get(name) };
-    return { name, status: closed ? 'absent' : 'pending', at: null, late: 0 };
+    return { name, status: !closed ? 'pending' : untouched ? 'unmarked' : 'absent', at: null, late: 0 };
   });
 }
 
@@ -419,6 +424,9 @@ function markedRow(event, name, mark, doc) {
   if (mark.status === 'sick' && mark.confirmed === false) return { ...row, unconfirmed: true };
   if (mark.status !== 'present') return row;
   if (!countsLateness(event)) return { ...row, marked: true };
+  // Отметка поставлена после конца пары — это запись задним числом (по журналу), а не время прихода.
+  // Опозданием она становится, только если преподаватель сам отметил «Опоздал» и время прихода.
+  if (mark.late !== true && mark.at && new Date(mark.at) > scheduledEnd(event)) return { ...row, marked: true, lateMark: false };
   const minutes = minutesAfterStart(event, doc, mark.at);
   const lateMark = mark.late === true;
   row.marked = true;
@@ -510,6 +518,9 @@ const minutesAfterStart = (event, doc, at) => Math.max(0, Math.floor((new Date(a
 /** Начать занятие можно за 30 минут до расписания и до 40-й минуты: так же проверяет хранилище. */
 export const START_EARLY_MINUTES = 30;
 
+/** Пара закончилась по расписанию: отметки после этого — запись задним числом. */
+export const lessonOver = (event, nowMs) => nowMs > scheduledEnd(event).getTime();
+
 const scheduledEnd = (event) => {
   const [y, m, d] = event.date.split('-').map(Number);
   return new Date(y, m - 1, d, ...event.end.split(':').map(Number));
@@ -547,10 +558,13 @@ export function arrivalNow(event, doc, nowISO) {
 }
 
 /** Счётчики по списку отметок. Посещаемость считается от всех, кто должен был прийти. */
-function tally(rows) {
+function tally(all) {
+  // Пары без переклички в проценты не входят, их число показывается отдельно.
+  const rows = all.filter((row) => row.status !== 'unmarked');
   const count = (status) => rows.filter((row) => row.status === status).length;
   const present = count('present');
   return {
+    unmarked: all.length - rows.length,
     total: rows.length,
     present,
     late: rows.filter((row) => row.late > 0).length,

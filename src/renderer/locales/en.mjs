@@ -1070,7 +1070,12 @@ export default {
     "Внесено в этом учебном году": "Added this school year",
     "Удалить?": "Delete?",
     "Пока ничего не внесено.": "Nothing added yet.",
-    "внесено задним числом": "added retroactively"
+    "внесено задним числом": "added retroactively",
+    "Перекличку на этом занятии не проводили: пока оно не отмечено, в баллы и посещаемость не входит. Заполните по журналу: «Все были», затем снимите отметку с отсутствовавших и отметьте опоздавших.": "No roll call was taken for this lesson: until it is marked, it does not count towards points or attendance. Fill it in from the register: “Everyone was here”, then untick the absent and mark the late.",
+    "Не отмечены: {0}. Им засчитан прогул.": "Not marked: {0}. They are counted as absent.",
+    "Все были ({0})": "Everyone was here ({0})",
+    "Занятий без переклички: {0}. Они не считаются ни присутствием, ни прогулом, пока их не отметят.": "Lessons without a roll call: {0}. They count as neither attendance nor absence until marked.",
+    "Перекличка не проводилась": "No roll call taken"
   },
   "plurals": {
     "events": {

@@ -1134,6 +1134,28 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#details [aria-label=Закрыть]');
   await until(async () => (await teacherStore.list()).some((e) => e.title === 'Сдача макета афиши' && e.deadlineDone), 'отметка о сдаче на другом устройстве');
 
+  // Прошедшая пара без переклички: не прогул, а «перекличка не проводилась». Заполняется по журналу.
+  const journalPair = (await page.evaluate((date) => window.calendar.save({
+    title: 'Пара по журналу', type: 'lesson', date, start: '08:00', end: '09:00', participants: ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья'], devices: [],
+  }, null), day(0))).value;
+  await page.click('.block:has-text("Пара по журналу")', { timeout: 15000 });
+  await page.click('#details >> text=/Отметка/');
+  await page.waitForSelector('#roll[open] #mark-all-past:has-text("Все были (3)")');
+  assert.match(await page.textContent('#roll .retro'), /Перекличку на этом занятии не проводили/);
+  assert.match(await page.textContent('.rollrow:has-text("Васильева Дарья")'), /Перекличка не проводилась/);
+  await shot('roll-journal');
+  await page.click('#mark-all-past');
+  await page.waitForSelector('.rollrow:has-text("Васильева Дарья") .rollname[aria-pressed=true]');
+  assert.equal(await page.locator('#mark-all-past').count(), 0);
+  assert.doesNotMatch(await page.textContent('#roll .rolllist'), /опоздание|Без причины/, 'по журналу пришли к началу');
+  await page.click('.rollrow:has-text("Васильева Дарья") .rollname');
+  await page.waitForSelector('.rollrow:has-text("Васильева Дарья"):has-text("Без причины")');
+  await page.click('.rollrow:has-text("Борисов Илья") >> text=Опоздал');
+  await page.waitForSelector('.rollrow:has-text("Борисов Илья"):has-text("опоздание 10 мин")');
+  await shot('roll-journal-filled');
+  await page.click('#roll [aria-label=Закрыть]');
+  assert.ok((await page.evaluate((e) => window.calendar.remove(e.id, e.updatedAt), journalPair)).ok);
+
   // Опоздание вручную и фиксация отчёта.
   const fixedPair = (await page.evaluate((date) => window.calendar.save({
     title: 'Пара с фиксацией', type: 'lesson', date, start: '14:00', end: '15:00', participants: ['Алексеева Мария', 'Борисов Илья', 'Васильева Дарья'], devices: [],
