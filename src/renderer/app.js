@@ -5039,7 +5039,7 @@ function drawGrades() {
       h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
       rows.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'gradetable' },
-          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика'), t('Вручную'), canManage() ? '' : null].filter((name) => name !== null)
+          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика'), t('Поощрения'), t('Поведение'), canManage() ? '' : null].filter((name) => name !== null)
             .map((name) => h('th', { scope: 'col' }, name)))),
           h('tbody', {}, rows.map((row, index) => h('tr', {},
             h('td', {}, String(index + 1)),
@@ -5048,7 +5048,9 @@ function drawGrades() {
               : row.name),
             h('td', {}, row.group),
             h('td', {}, h('span', { class: `gradebadge level-${GRADE_LEVELS.findIndex((l) => l.name === row.level)}` }, gradeName(row.level))),
-            h('td', { class: 'num' }, h('b', {}, String(row.points))),
+            h('td', { class: 'num' }, canManage()
+              ? h('button', { type: 'button', class: 'linkbutton', 'data-calc': row.name, title: t('Расчёт баллов'), onclick: () => openCalc(row.name) }, h('b', {}, String(row.points)))
+              : h('b', {}, String(row.points))),
             h('td', {}, row.next ? t('{0}: ещё {1}', [gradeName(row.next.name), row.next.need]) : t('высшее звание')),
             h('td', { class: 'num' }, String(row.breakdown.day)),
             h('td', { class: 'num' }, String(row.breakdown.absent)),
@@ -5056,11 +5058,106 @@ function drawGrades() {
             h('td', { class: 'num' }, `${row.breakdown.task}${row.breakdown.taskMissed ? ` / −${row.breakdown.taskMissed}` : ''}`),
             h('td', { class: 'num' }, String(row.breakdown.event)),
             h('td', { class: 'num' }, String(row.breakdown.practice)),
-            h('td', { class: 'num' }, signed(row.breakdown.manual)),
+            h('td', { class: 'num' }, signed(row.breakdown.reward)),
+            h('td', { class: 'num' }, signed(row.breakdown.conduct)),
             canManage() && studentByName(row.name) && h('td', {},
-              h('button', { type: 'button', class: 'plain small', 'aria-label': t('Баллы вручную: {0}', [row.name]), onclick: () => openBonus(studentByName(row.name).id) }, '±')))))))
+              h('button', { type: 'button', class: 'plain small', 'aria-label': t('Поощрения и поведение: {0}', [row.name]), onclick: () => openBonus(studentByName(row.name).id) }, '±')))))))
         : h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))),
   );
+}
+
+/*
+ * Расчёт баллов студента: каждый день — за что начислено или снято, сумма после дня
+ * и сколько минуса не засчитано, потому что баллы не опускаются ниже нуля. Только преподаватель:
+ * в расчёте пары с прогулами по датам и причины ручных баллов.
+ */
+
+const CALC_KINDS = ['day', 'absent', 'late', 'task', 'taskMissed', 'event', 'role', 'practice', 'reward', 'conduct'];
+/** Ручные баллы делятся по знаку: плюс — поощрение, минус — за поведение. */
+const calcKind = (item) => (item.kind === 'manual' ? (item.points > 0 ? 'reward' : 'conduct') : item.kind);
+const calcLabel = (kind) => ({
+  day: t('Дни на парах'), absent: t('Прогулы (дни)'), late: t('Опоздания (дни)'), task: t('Задания сданы'),
+  taskMissed: t('Задания не сданы в срок'), event: t('Мероприятия'), role: t('Роли на мероприятиях'), practice: t('Практики'), reward: t('Поощрения'), conduct: t('Поведение'),
+}[kind]);
+
+/** Пары дня через запятую: «Монтаж 09:00, Операторское 10:40». */
+const lessonList = (lessons, extra = () => '') => lessons.map((l) => `${l.title} ${l.start}${extra(l)}`).join(', ');
+
+function calcText(item) {
+  const past = item.past ? h('small', { class: 'pastmark' }, t('внесено задним числом')) : null;
+  switch (item.kind) {
+    case 'day': return t('Был на парах: {0}', [lessonList(item.lessons)]);
+    case 'late': return t('Опоздание: {0}', [lessonList(item.lessons, (l) => t(' — {0} мин', [l.late]))]);
+    case 'absent': return [
+      t('Прогул за день: {0}', [lessonList(item.lessons, (l) => (l.certificate ? t(' (нет справки)') : l.late ? t(' (пришёл через {0} мин)', [l.late]) : ''))]),
+      item.attended?.length ? h('small', { class: 'pastmark' }, t('на других парах был, но за день с прогулом +1 не начисляется')) : null,
+    ];
+    case 'task': return [t('Задание «{0}» сдано', [item.title]), past];
+    case 'taskMissed': return [t('Задание «{0}» не сдано в срок', [item.title]), past];
+    case 'event': return [t('Мероприятие «{0}»', [item.title]), past];
+    case 'role': return [item.role ? t('Роль «{0}» на мероприятии «{1}»', [item.role, item.title]) : t('Роль на мероприятии «{0}»', [item.title]), past];
+    case 'practice': return [t('Практика «{0}»', [item.title]), past];
+    case 'manual': {
+      const text = item.by ? t('{0} ({1})', [item.title, item.by]) : item.title;
+      return item.points > 0 ? t('Поощрение: {0}', [text]) : t('Поведение: {0}', [text]);
+    }
+    default: return item.kind;
+  }
+}
+
+function openCalc(name) {
+  const dialog = $('gradecalc');
+  const { from, to } = semesterOf(now().iso);
+  const row = currentGrades().find((item) => nameKey(item.name) === nameKey(name));
+  if (!row) return;
+  const totals = CALC_KINDS
+    .map((kind) => {
+      const label = calcLabel(kind);
+      const items = row.history.flatMap((day) => day.items).filter((item) => calcKind(item) === kind);
+      return { kind, label, count: items.length, points: items.reduce((sum, item) => sum + item.points, 0) };
+    })
+    .filter((line) => line.count > 0);
+  // Последний день, когда сумма упёрлась в ноль: с него и считается нынешний итог.
+  const zeroDay = [...row.history].reverse().find((day) => day.lost > 0);
+  const ledger = [];
+  for (const day of row.history) {
+    day.items.forEach((item, index) => {
+      const last = index === day.items.length - 1;
+      ledger.push(h('tr', { class: last ? 'daylast' : '' },
+        h('td', {}, index === 0 ? shortDate(day.date) : ''),
+        h('td', {}, calcText(item)),
+        h('td', { class: `num ${item.points > 0 ? 'plus' : 'minus'}` }, signed(item.points)),
+        h('td', { class: 'num' }, last
+          ? [h('b', {}, String(day.after)), day.lost > 0 && h('small', { class: 'calclost' }, t('не засчитано {0}', [signed(-day.lost)]))]
+          : '')));
+    });
+  }
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' },
+      h('div', {}, h('h2', {}, t('Расчёт баллов: {0}', [row.name])),
+        h('p', { class: 'help' }, t('Семестр с {0} по {1}. Баллы считаются по дням и не опускаются ниже нуля: минус, который увёл бы сумму ниже нуля, не засчитывается.', [shortDate(from), shortDate(to)]))),
+      closeButton(dialog)),
+    h('div', { class: 'sheetbody' },
+      h('p', { class: 'calctotal' }, t('Итого: {0} — {1}', [row.points, gradeName(row.level)])),
+      row.points === 0 && row.history.length > 0 && h('p', { class: 'calcwhy' }, zeroDay
+        ? t('Почему 0: последний раз сумма упёрлась в ноль {0}, и с тех пор минусов было не меньше, чем плюсов. Подробности — по дням ниже.', [shortDate(zeroDay.date)])
+        : t('Почему 0: плюсов и минусов поровну.')),
+      row.history.length === 0 && h('p', { class: 'calcwhy' }, t('Почему 0: в этом семестре у студента нет ни одной засчитанной пары, задания, мероприятия или практики. Проверьте, внесён ли он в группу и отмечены ли пары.')),
+      totals.length > 0 && h('table', { class: 'filetable calcsum' },
+        h('thead', {}, h('tr', {}, h('th', {}, t('За что')), h('th', { class: 'num' }, t('Сколько')), h('th', { class: 'num' }, t('Баллы')))),
+        h('tbody', {},
+          totals.map((line) => h('tr', {}, h('td', {}, line.label), h('td', { class: 'num' }, String(line.count)), h('td', { class: 'num' }, signed(line.points) || '0'))),
+          h('tr', { class: 'daylast' }, h('td', {}, t('Сумма начислений')), h('td', {}), h('td', { class: 'num' }, signed(row.earned) || '0')),
+          row.lost > 0 && h('tr', {}, h('td', {}, t('Не засчитано: баллы не опускаются ниже нуля')), h('td', {}), h('td', { class: 'num plus' }, signed(row.lost))),
+          h('tr', { class: 'daylast' }, h('td', {}, h('b', {}, t('Итого'))), h('td', {}), h('td', { class: 'num' }, h('b', {}, String(row.points)))))),
+      row.history.length > 0 && [
+        h('h3', {}, t('По дням')),
+        h('table', { class: 'filetable calcledger' },
+          h('thead', {}, h('tr', {}, h('th', {}, t('Дата')), h('th', {}, t('За что')), h('th', { class: 'num' }, t('Баллы')), h('th', { class: 'num' }, t('Итого')))),
+          h('tbody', {}, ledger)),
+      ]),
+  );
+  if (!dialog.open) dialog.showModal();
 }
 
 /** Ручные баллы со знаком: «+5», «−3», пусто для нуля. */
@@ -5115,8 +5212,8 @@ function drawBonus() {
   const total = mine.reduce((sum, item) => sum + item.points, 0);
   dialog.replaceChildren(
     h('div', { class: 'sheethead' },
-      h('div', {}, h('h2', {}, t('Баллы вручную: {0}', [student.name])),
-        h('p', { class: 'help' }, t('Плюс за то, что программа не видит сама, или минус за нарушение. Причину видят только преподаватели.'))),
+      h('div', {}, h('h2', {}, t('Поощрения и поведение: {0}', [student.name])),
+        h('p', { class: 'help' }, t('Плюс — поощрение за то, чего программа не видит сама: олимпиада, помощь, активность. Минус — за поведение: нарушение правил колледжа. В грейде это отдельные столбцы «Поощрения» и «Поведение»; причину видят только преподаватели, она есть в личном деле.'))),
       closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       form,
@@ -5423,7 +5520,7 @@ function studentFileSheet() {
     data.grade && [h('h3', {}, t('Грейд')),
       h('p', {}, t('Грейд {0}, баллов: {1}.', [gradeName(data.grade.level), data.grade.points]),
         data.grade.next ? t(' До {0} — ещё {1}.', [gradeName(data.grade.next.name), data.grade.next.need]) : ''),
-      data.manual.length > 0 && table([t('Дата'), t('Баллы вручную'), t('За что'), t('Кто поставил')], data.manual.map((item) => h('tr', {},
+      data.manual.length > 0 && table([t('Дата'), t('Поощрения и поведение'), t('За что'), t('Кто поставил')], data.manual.map((item) => h('tr', {},
         h('td', {}, shortDate(item.date)), h('td', { class: 'num' }, signed(item.points)), h('td', {}, item.name), h('td', {}, item.by || '—')))),
       data.grade.levelUps.length > 0 && h('p', {}, t('Получен: {0}', [data.grade.levelUps.map((up) => `${up.level} — ${fmt(up.date, { day: 'numeric', month: 'long' })}`).join('; ')]))],
 

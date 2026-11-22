@@ -1056,9 +1056,22 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const bonusRow = page.locator('#grade .gradetable tbody tr', { has: page.locator(`.linkbutton:text-is("${bonusName}")`) });
   assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10, 'баллы выросли на 10');
   assert.equal((await bonusRow.locator('td:nth-child(13)').textContent()).trim(), '+10');
+  // Расчёт баллов: по дням, за что и итог; ручной плюс — поощрение.
+  await bonusRow.locator('[data-calc]').click();
+  await page.waitForSelector('#gradecalc[open] h2:has-text("Расчёт баллов")');
+  assert.match(await page.textContent('#gradecalc'), /Поощрение: Олимпиада по программированию/);
+  assert.match(await page.textContent('#gradecalc .calctotal'), new RegExp(`Итого: ${pointsBefore + 10}`));
+  await shot('gradecalc');
+  await page.click('#gradecalc [aria-label=Закрыть]');
+  // У студента с прогулами 0: расчёт объясняет почему и показывает не засчитанное из-за нуля.
+  await page.click('#grade [data-calc="Борисов Илья"]');
+  await page.waitForSelector('#gradecalc[open] .calcwhy:has-text("Почему 0")');
+  assert.match(await page.textContent('#gradecalc .calcsum'), /Прогулы \(дни\)[\s\S]*Не засчитано: баллы не опускаются ниже нуля/);
+  await shot('gradecalc-zero');
+  await page.click('#gradecalc [aria-label=Закрыть]');
   await shot('grade');
   // Из грейда преподаватель открывает личное дело студента.
-  await bonusRow.locator('.linkbutton').click();
+  await bonusRow.locator('td:nth-child(2) .linkbutton').click();
   await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Олимпиада по программированию")');
   await page.waitForSelector('#studentfile[open] .filepaper h2');
   await page.waitForSelector('#studentfile .filepaper h3:has-text("Посещаемость")');
@@ -1087,7 +1100,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#pastworks [aria-label=Закрыть]');
   assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10 + 7, 'прошлое мероприятие с ролью: +7');
   assert.equal(Number(await bonusRow.locator('td:nth-child(11)').textContent()), eventsBefore + 1);
-  await bonusRow.locator('.linkbutton').click();
+  await bonusRow.locator('td:nth-child(2) .linkbutton').click();
   await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Неделя кино")');
   assert.match(await page.textContent('#studentfile .filepaper'), /внесено задним числом/);
   await page.click('#studentfile [aria-label=Закрыть]');

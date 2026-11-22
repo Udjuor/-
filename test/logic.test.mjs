@@ -936,3 +936,38 @@ test('грейд: пара без переклички не даёт ни дня
   const filled = [{ eventId: 'l', marks: { Аня: { status: 'present', at: '2026-11-21T06:00:00.000Z' }, Боря: { status: null, at: null } } }];
   assert.deepEqual(grade(filled), { 'Аня': [1, 1, 0], 'Боря': [0, 0, 1] });
 });
+
+test('расчёт баллов по дням: прогул за день, ноль снизу, поощрения и поведение', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = [{ id: 's0', kind: 'student', name: 'Аня', groupId: 'g1' }, { id: 's1', kind: 'student', name: 'Боря', groupId: 'g1' }];
+  const pair = (id, date, start, end) => ({ id, type: 'lesson', title: `Пара ${id}`, date, start, end, participants: ['Аня', 'Боря'], equipment: [] });
+  const events = [pair('a', '2026-09-03', '09:00', '10:30'), pair('b', '2026-09-03', '10:40', '12:10'), pair('c', '2026-09-04', '09:00', '10:30')];
+  const on = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const attendance = [
+    // 3 сентября Аня на первой паре, вторую прогуляла; Боря на обеих.
+    { eventId: 'a', marks: { Аня: { status: 'present', at: on('2026-09-03', '09:00') }, Боря: { status: 'present', at: on('2026-09-03', '09:00') } } },
+    { eventId: 'b', marks: { Боря: { status: 'present', at: on('2026-09-03', '10:40') } } },
+    { eventId: 'c', marks: { Аня: { status: 'present', at: on('2026-09-04', '09:00') }, Боря: { status: 'present', at: on('2026-09-04', '09:00') } } },
+  ];
+  const bonuses = [
+    { kind: 'bonus', student: 'Боря', date: '2026-09-04', points: -10, name: 'Неуважительное обращение', by: 'Каб. 12' },
+    { kind: 'bonus', student: 'Аня', date: '2026-09-04', points: 5, name: 'Олимпиада' },
+  ];
+  const rows = Object.fromEntries(L.gradeReport({ events, attendance, students, groups, bonuses, from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-22', nowTime: '13:00' }).map((r) => [r.name, r]));
+  const anya = rows['Аня'];
+  assert.deepEqual(anya.history.map((d) => [d.date, d.sum, d.after, d.lost]), [['2026-09-03', -4, 0, 4], ['2026-09-04', 6, 6, 0]]);
+  const absentDay = anya.history[0].items[0];
+  assert.equal(absentDay.kind, 'absent');
+  assert.deepEqual(absentDay.lessons.map((l) => l.title), ['Пара b'], 'прогул — вторая пара');
+  assert.deepEqual(absentDay.attended.map((l) => l.title), ['Пара a'], 'на первой был, но +1 за день нет');
+  assert.equal(anya.earned, 2);
+  assert.equal(anya.lost, 4);
+  assert.equal(anya.points, anya.earned + anya.lost, 'итог = сумма начислений + не засчитанное из-за нуля');
+  assert.equal(anya.breakdown.reward, 5);
+  const borya = rows['Боря'];
+  assert.equal(borya.points, 0, '+1, затем +1 и −10 → не ниже нуля');
+  assert.deepEqual(borya.history.map((d) => [d.after, d.lost]), [[1, 0], [0, 8]]);
+  assert.equal(borya.breakdown.conduct, -10);
+  const manual = borya.history[1].items.find((i) => i.kind === 'manual');
+  assert.deepEqual([manual.title, manual.by], ['Неуважительное обращение', 'Каб. 12']);
+});

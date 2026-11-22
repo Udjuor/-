@@ -1089,3 +1089,20 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .pastworks li { flex-wrap: wrap; }
 .pastmark { margin-left: .5rem; opacity: .7; }
 .pastworks li button + button { margin-left: 0; }
+
+/* Расчёт баллов */
+#gradecalc .filetable { width: 100%; border-collapse: collapse; margin: .4rem 0 1rem; }
+#gradecalc .filetable th { text-align: left; font-weight: 600; opacity: .75; padding: .4rem .5rem; border-bottom: .05rem solid var(--border); }
+#gradecalc .filetable td { padding: .35rem .5rem; vertical-align: top; }
+#gradecalc .filetable th.num, #gradecalc .filetable td.num { text-align: right; white-space: nowrap; }
+#gradecalc .filetable tr.daylast td { border-bottom: .05rem solid var(--border); }
+#gradecalc td.plus { color: #3fb950; }
+#gradecalc td.minus { color: #f85149; }
+#gradecalc .calclost { display: block; font-size: .85em; opacity: .8; color: #d29922; }
+#gradecalc .calctotal { font-size: 1.4rem; font-weight: 700; margin: 0; }
+#gradecalc .calcwhy { padding: .6rem .8rem; border-radius: .4rem; background: rgba(210, 153, 34, .14); border: .05rem solid rgba(210, 153, 34, .5); }
+#gradecalc .pastmark { display: block; }
+#gradecalc .calcsum { max-width: 34rem; }
+#gradecalc .calcledger td:first-child { white-space: nowrap; }
+#gradecalc .calcledger td:last-child { white-space: normal; width: 7.5rem; }
+#gradecalc .calcledger td:nth-child(2) { width: 100%; }
