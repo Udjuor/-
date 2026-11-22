@@ -1211,17 +1211,29 @@ export function yearChronicle({ events, attendance, students, groups, achievemen
 /** Баллы. День считается целиком: прогул в этот день −4, опоздание −2 (и +1 за то, что пришёл), иначе +1. */
 export const GRADE_POINTS = { day: 1, absent: -4, late: -2, task: 3, taskMissed: -2, event: 5, role: 2, practice: 2 };
 /** Болезнь без справки становится пропуском, если справку не принесли за неделю. */
-export const CERTIFICATE_DAYS = 7;
-/** Звания и сколько баллов за семестр для них нужно. */
+// Справку о болезни ждут месяц; не принесли — пропуск без причины.
+export const CERTIFICATE_DAYS = 30;
+/**
+ * Рейтинг — один непрерывный счёт с первого курса до выпуска, без сброса по семестрам.
+ * Учёт в Kerdiis начат 1 сентября 2026 года: с этой даты считаются все курсы.
+ */
+export const RATING_FROM = '2026-09-01';
+/** Период рейтинга: от начала учёта до сегодня. */
+export const ratingPeriod = (iso) => ({ from: RATING_FROM, to: iso });
+
+/**
+ * Звания и сколько баллов за всё обучение для них нужно. Хороший студент набирает
+ * около 120–150 баллов за семестр: после первого семестра — Junior+, к выпуску — Lead или Principal.
+ */
 export const GRADE_LEVELS = [
   { name: 'Intern', from: 0 },
-  { name: 'Junior', from: 15 },
-  { name: 'Junior+', from: 35 },
-  { name: 'Middle', from: 60 },
-  { name: 'Middle+', from: 85 },
-  { name: 'Senior', from: 110 },
-  { name: 'Lead', from: 145 },
-  { name: 'Principal', from: 180 },
+  { name: 'Junior', from: 60 },
+  { name: 'Junior+', from: 150 },
+  { name: 'Middle', from: 280 },
+  { name: 'Middle+', from: 430 },
+  { name: 'Senior', from: 600 },
+  { name: 'Lead', from: 800 },
+  { name: 'Principal', from: 1000 },
 ];
 
 /** Семестр, в который входит день: с 1 сентября по 31 января и с 1 февраля по 31 августа. */
@@ -1402,7 +1414,8 @@ export function studentFile({ student, events, attendance, students, groups, ach
         .map((c) => ({ title: work.name, deadline: `${work.date}T23:59`, state: c.kind === 'task' ? 'done' : 'missed', past: true }))))
     .sort((a, b) => a.deadline.localeCompare(b.deadline));
 
-  const grade = gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses, pastWorks }).find((item) => nameKey(item.name) === key) ?? null;
+  // Рейтинг — за всё обучение, а не за период личного дела.
+  const grade = gradeReport({ events, attendance, students, groups, from: RATING_FROM < from ? RATING_FROM : from, to: until, nowISO, nowTime, bonuses, pastWorks }).find((item) => nameKey(item.name) === key) ?? null;
   // Практики и мероприятия из прошлых работ — в портфолио личного дела, как и проведённые в программе.
   const pastItems = pastWorks
     .filter((work) => work.work !== 'task' && work.date >= from && work.date <= to && work.students.some((name) => nameKey(name) === key))

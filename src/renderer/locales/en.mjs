@@ -1125,7 +1125,13 @@ export default {
     "Плюс — поощрение за то, чего программа не видит сама: олимпиада, помощь, активность. Минус — за поведение: нарушение правил колледжа. В грейде это отдельные столбцы «Поощрения» и «Поведение»; причину видят только преподаватели, она есть в личном деле.": "A plus is a reward for what the app cannot see itself: an olympiad, helping out, activity. A minus is for conduct: breaking college rules. The grade table shows them as separate Rewards and Conduct columns; only teachers see the reason, and it is in the student file.",
     "Поощрения и поведение": "Rewards and conduct",
     "Почему 0: последний раз сумма упёрлась в ноль {0}, и с тех пор минусов было не меньше, чем плюсов. Подробности — по дням ниже.": "Why 0: the total last hit zero on {0}, and since then minuses have at least matched pluses. Details by day below.",
-    "не засчитано {0}": "{0} not counted"
+    "не засчитано {0}": "{0} not counted",
+    "Рейтинг за всё обучение, без сброса по семестрам: учёт с {0}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.": "Rating for the whole course of study, with no reset each semester: counted from {0}. Day at lessons +1, absence −4, late −2, task handed in +3, missed −2, event +5 and another +2 for a role, internship +2. Points never drop below zero.",
+    "За всё обучение, с {0}. Баллы считаются по дням и не опускаются ниже нуля: минус, который увёл бы сумму ниже нуля, не засчитывается.": "For the whole course of study, from {0}. Points are counted by day and never drop below zero: a minus that would take the total below zero is not counted.",
+    "Вручную за всё обучение: {0}": "Manual over the whole course: {0}",
+    "Ручных баллов пока нет.": "No manual points yet.",
+    "Рейтинг за всё обучение: {0}, баллов: {1}.": "Rating for the whole course of study: {0}, {1} points.",
+    "За всё обучение": "Whole course of study"
   },
   "plurals": {
     "events": {

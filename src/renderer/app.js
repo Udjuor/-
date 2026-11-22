@@ -2,7 +2,7 @@ import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WE
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
-  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, lessonOver, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
+  monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, ratingPeriod, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, lessonOver, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
@@ -4994,7 +4994,7 @@ function currentGrades() {
   const clock = now();
   const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
   if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
-  const { from, to } = semesterOf(clock.iso);
+  const { from, to } = ratingPeriod(clock.iso);
   const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, nowISO: clock.iso, nowTime: clock.time });
   gradeCache = { key, rows };
   return rows;
@@ -5023,7 +5023,7 @@ function openGrades() {
 
 function drawGrades() {
   const dialog = $('grade');
-  const { from, to } = semesterOf(now().iso);
+  const { from, to } = ratingPeriod(now().iso);
   const hidden = hiddenOnPanel();
   const rows = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)));
   const groups = [...new Set(currentGrades().map((row) => row.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
@@ -5035,7 +5035,7 @@ function drawGrades() {
         groups.map((name) => h('option', { value: name, selected: name === gradeGroup }, name))),
       canManage() && h('button', { type: 'button', id: 'gr-past', onclick: openPastWorks }, t('Прошлые работы'))),
     h('div', { class: 'sheetbody' },
-      h('p', { class: 'help' }, t('Семестр с {0} по {1}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.', [shortDay(from), shortDay(to)])),
+      h('p', { class: 'help' }, t('Рейтинг за всё обучение, без сброса по семестрам: учёт с {0}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.', [shortDay(from)])),
       h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
       rows.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'gradetable' },
@@ -5107,7 +5107,7 @@ function calcText(item) {
 
 function openCalc(name) {
   const dialog = $('gradecalc');
-  const { from, to } = semesterOf(now().iso);
+  const { from, to } = ratingPeriod(now().iso);
   const row = currentGrades().find((item) => nameKey(item.name) === nameKey(name));
   if (!row) return;
   const totals = CALC_KINDS
@@ -5135,7 +5135,7 @@ function openCalc(name) {
   dialog.replaceChildren(
     h('div', { class: 'sheethead' },
       h('div', {}, h('h2', {}, t('Расчёт баллов: {0}', [row.name])),
-        h('p', { class: 'help' }, t('Семестр с {0} по {1}. Баллы считаются по дням и не опускаются ниже нуля: минус, который увёл бы сумму ниже нуля, не засчитывается.', [shortDate(from), shortDate(to)]))),
+        h('p', { class: 'help' }, t('За всё обучение, с {0}. Баллы считаются по дням и не опускаются ниже нуля: минус, который увёл бы сумму ниже нуля, не засчитывается.', [shortDate(from)]))),
       closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('p', { class: 'calctotal' }, t('Итого: {0} — {1}', [row.points, gradeName(row.level)])),
@@ -5183,7 +5183,7 @@ function drawBonus() {
     dialog.close();
     return;
   }
-  const { from, to } = semesterOf(now().iso);
+  const { from, to } = ratingPeriod(now().iso);
   const mine = refsOf('bonus')
     .filter((item) => nameKey(item.student) === nameKey(student.name) && item.date >= from && item.date <= to)
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -5219,7 +5219,7 @@ function drawBonus() {
       form,
       bonusState.message && h('p', { class: 'message error' }, bonusState.message),
       mine.length
-        ? [h('p', { class: 'help' }, t('В этом семестре вручную: {0}', [signed(total) || '0'])),
+        ? [h('p', { class: 'help' }, t('Вручную за всё обучение: {0}', [signed(total) || '0'])),
           h('ul', { class: 'bonuslist' }, mine.map((item) => h('li', {},
             h('span', { class: 'awarddate' }, shortDate(item.date)),
             h('b', { class: item.points > 0 ? 'plus' : 'minus' }, signed(item.points)),
@@ -5236,7 +5236,7 @@ function drawBonus() {
                 if ($('grade').open) drawGrades();
               },
             }, '✕'))))]
-        : h('p', { class: 'free' }, t('В этом семестре ручных баллов нет.'))),
+        : h('p', { class: 'free' }, t('Ручных баллов пока нет.'))),
   );
 }
 
@@ -5450,11 +5450,13 @@ function drawPastWorks() {
 
 /* Личное дело студента: для аттестации, педсовета и родителей. Только на компьютерах преподавателей. */
 
-const fileState = { id: null, period: 'semester' };
+// Личное дело — портфолио студента: по умолчанию за всё обучение, с первого курса.
+const fileState = { id: null, period: 'all' };
 
-/** Периоды личного дела: этот семестр, прошлый, учебный год. */
+/** Периоды личного дела: всё обучение, этот семестр, прошлый, учебный год. */
 function filePeriod(kind) {
   const today = now().iso;
+  if (kind === 'all') return ratingPeriod(today);
   const current = semesterOf(today);
   if (kind === 'previous') return semesterOf(addDays(current.from, -1));
   if (kind === 'year') {
@@ -5518,7 +5520,7 @@ function studentFileSheet() {
       : h('p', { class: 'free' }, t('Заданий со сдачей за период не было.')),
 
     data.grade && [h('h3', {}, t('Грейд')),
-      h('p', {}, t('Грейд {0}, баллов: {1}.', [gradeName(data.grade.level), data.grade.points]),
+      h('p', {}, t('Рейтинг за всё обучение: {0}, баллов: {1}.', [gradeName(data.grade.level), data.grade.points]),
         data.grade.next ? t(' До {0} — ещё {1}.', [gradeName(data.grade.next.name), data.grade.next.need]) : ''),
       data.manual.length > 0 && table([t('Дата'), t('Поощрения и поведение'), t('За что'), t('Кто поставил')], data.manual.map((item) => h('tr', {},
         h('td', {}, shortDate(item.date)), h('td', { class: 'num' }, signed(item.points)), h('td', {}, item.name), h('td', {}, item.by || '—')))),
@@ -5540,7 +5542,7 @@ function studentFileSheet() {
 function drawStudentFile() {
   const dialog = $('studentfile');
   const student = state.directory.find((ref) => ref.id === fileState.id);
-  const periods = [['semester', t('Этот семестр')], ['previous', t('Прошлый семестр')], ['year', t('Учебный год')]];
+  const periods = [['all', t('За всё обучение')], ['semester', t('Этот семестр')], ['previous', t('Прошлый семестр')], ['year', t('Учебный год')]];
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Личное дело студента')), closeButton(dialog)),
     h('div', { class: 'tabs weektools', role: 'group', 'aria-label': t('Период') },
