@@ -1275,6 +1275,12 @@ export function pastWorkChanges(work) {
   return changes;
 }
 
+/** Роль студента в прошлой работе или хакатоне, если она названа. */
+function roleNameOf(work, name) {
+  for (const [who, role] of Object.entries(work.roleNames ?? {})) if (nameKey(who) === nameKey(name)) return role;
+  return '';
+}
+
 export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) => points >= level.from);
 
 /**
@@ -1339,7 +1345,7 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
   // Баллы, добавленные или снятые преподавателем вручную.
   for (const bonus of bonuses) {
     const counted = bonus.date >= from || (bonus.date >= retroFrom && bonus.points > 0);
-    if (counted && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '' });
+    if (counted && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '', ...(bonus.place ? { place: bonus.place, team: bonus.team ?? '' } : {}) });
   }
 
   // Прошлые работы, внесённые задним числом: до того, как колледж начал вести их в программе.
@@ -1349,7 +1355,8 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
     const early = work.date < from;
     for (const change of pastWorkChanges(work)) {
       if (early && GRADE_POINTS[change.kind] < 0) continue;
-      add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], { title: work.name, past: true });
+      const role = change.kind === 'role' ? roleNameOf(work, change.name) : '';
+      add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], work.hackathon ? { title: work.name, hackathon: true, role } : { title: work.name, past: true, role });
     }
   }
 
@@ -1432,8 +1439,8 @@ export function studentFile({ student, events, attendance, students, groups, ach
   const pastItems = pastWorks
     .filter((work) => work.work !== 'task' && work.date >= from && work.date <= to && work.students.some((name) => nameKey(name) === key))
     .map((work) => ({
-      id: work.id, date: work.date, type: work.work, title: work.name, place: '', responsible: work.by ?? '', past: true,
-      role: work.work === 'event' && work.roles.some((name) => nameKey(name) === key) ? 'role' : '',
+      id: work.id, date: work.date, type: work.work, title: work.name, place: '', responsible: work.by ?? '', past: !work.hackathon, hackathon: Boolean(work.hackathon),
+      role: work.work === 'event' && work.roles.some((name) => nameKey(name) === key) ? roleNameOf(work, student.name) || 'role' : '',
     }));
   const manual = bonuses.filter((bonus) => nameKey(bonus.student) === key && bonus.date >= from && bonus.date <= until).sort((a, b) => a.date.localeCompare(b.date));
   const work = portfolio({ name: student.name, events, attendance, achievements, nowISO, nowTime });

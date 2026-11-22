@@ -389,7 +389,7 @@ function registerHandlers() {
   ipcMain.handle('directory:save', (_e, refs) => managed(async () => {
     const saved = [];
     // Ручные баллы и прошлые работы подписываются компьютером преподавателя: видно, кто поставил.
-    const signed = (ref) => ['bonus', 'pastwork'].includes(ref?.kind);
+    const signed = (ref) => ['bonus', 'pastwork', 'hackathon'].includes(ref?.kind);
     for (const { ref, base } of refs) saved.push(await store.saveRef(signed(ref) && !base ? { ...ref, by: config.deviceName } : ref, base));
     sync?.nudge();
     return saved;

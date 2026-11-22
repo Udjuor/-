@@ -742,3 +742,35 @@ test('прошлая работа: проверка полей, роли тол�
     { kind: 'pastwork', name: 'Пусто', work: 'practice', date: '2026-09-20', students: [] },
   ]) await assert.rejects(store.saveRef(bad));
 });
+
+test('кинохакатон: один студент — одна команда, сдача и оценки только своих этапов и критериев', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const hack = await store.saveRef({
+    kind: 'hackathon', name: ' Осень ', from: '2026-11-02', to: '2026-11-03', start: '10:00', end: '09:00', approved: true,
+    teams: [
+      { id: 'a', name: 'Альфа', members: ['Аня', 'Боря'], roles: { Аня: 'Режиссёр', Вера: 'Оператор' }, equipment: { Камера: 2, Свет: 0, Штатив: 1.5 } },
+      { id: 'b', name: '', members: ['аня', 'Вера'], roles: {}, equipment: {} },
+      { id: 'a', name: 'Дубль', members: ['Гоша'] },
+    ],
+    stages: [{ id: 's2', name: 'Монтаж', due: '2026-11-03T15:00' }, { id: 's1', name: 'Сценарий', due: '2026-11-02T13:00' }, { id: 's3', name: 'Без срока', due: '' }],
+    handIn: { a: { s1: 'done', s9: 'done' }, b: { s2: 'lost' }, z: { s1: 'done' } },
+    criteria: [{ id: 'k1', name: 'Идея', max: 10 }, { id: 'k2', name: 'Звук', max: 500 }],
+    jury: ['Иванова', 'иванова', 'Петров'],
+    scores: { a: { k1: { Иванова: 8.25, Петров: 11, Чужой: 5 }, k2: { Петров: 9 } } },
+  });
+  assert.equal(hack.name, 'Осень');
+  assert.equal(hack.end, '18:00', 'конец дня раньше начала — по умолчанию');
+  assert.deepEqual(hack.teams.map((team) => [team.id, team.name, team.members]), [['a', 'Альфа', ['Аня', 'Боря']], ['b', 'b', ['Вера']]]);
+  assert.deepEqual(hack.teams[0].roles, { Аня: 'Режиссёр' }, 'роль только у своих');
+  assert.deepEqual(hack.teams[0].equipment, { Камера: 2 });
+  assert.deepEqual(hack.stages.map((stage) => stage.id), ['s1', 's2'], 'по сроку, без этапа без срока');
+  assert.deepEqual(hack.handIn, { a: { s1: 'done' } });
+  assert.deepEqual(hack.criteria[1].max, 10);
+  assert.deepEqual(hack.jury, ['Иванова', 'Петров']);
+  assert.deepEqual(hack.scores, { a: { k1: { Иванова: 8.3 }, k2: { Петров: 9 } } });
+  for (const bad of [
+    { kind: 'hackathon', name: 'Без дат' },
+    { kind: 'hackathon', name: 'Наоборот', from: '2026-11-05', to: '2026-11-02' },
+    { kind: 'hackathon', name: '', from: '2026-11-02', to: '2026-11-02' },
+  ]) await assert.rejects(store.saveRef(bad));
+});
