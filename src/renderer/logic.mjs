@@ -1218,8 +1218,14 @@ export const CERTIFICATE_DAYS = 30;
  * Учёт в Kerdiis начат 1 сентября 2026 года: с этой даты считаются все курсы.
  */
 export const RATING_FROM = '2026-09-01';
-/** Период рейтинга: от начала учёта до сегодня. */
-export const ratingPeriod = (iso) => ({ from: RATING_FROM, to: iso });
+/**
+ * Достижения до начала учёта (хакатоны, практики прошлых курсов) преподаватель вносит задним числом:
+ * «Прошлые работы» и поощрения. Они засчитываются с любой даты обучения, но только плюсы —
+ * минусы за время до начала учёта не ставятся (обратной силы нет).
+ */
+export const RETRO_FROM = '2000-01-01';
+/** Период рейтинга: автоматический учёт с начала учёта, внесённое задним числом — с любой даты. */
+export const ratingPeriod = (iso) => ({ from: RATING_FROM, to: iso, retroFrom: RETRO_FROM });
 
 /**
  * Звания и сколько баллов за всё обучение для них нужно. Хороший студент набирает
@@ -1275,7 +1281,7 @@ export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) =
  * Баллы каждого студента за период. Возвращает строки с баллами, званием, разбивкой
  * и днями, когда студент получил каждое новое звание (для поздравления в бегущей строке).
  */
-export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses = [], pastWorks = [] }) {
+export function gradeReport({ events, attendance, students, groups, from, to, nowISO, nowTime, bonuses = [], pastWorks = [], retroFrom = from }) {
   const docs = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const groupOf = new Map([...groupsByStudent(students, groups)].map(([key, group]) => [key, group?.name ?? '']));
   const people = new Map(students.map((student) => [nameKey(student.name), {
@@ -1332,13 +1338,19 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
 
   // Баллы, добавленные или снятые преподавателем вручную.
   for (const bonus of bonuses) {
-    if (bonus.date >= from && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '' });
+    const counted = bonus.date >= from || (bonus.date >= retroFrom && bonus.points > 0);
+    if (counted && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '' });
   }
 
   // Прошлые работы, внесённые задним числом: до того, как колледж начал вести их в программе.
   for (const work of pastWorks) {
-    if (work.date < from || work.date > until) continue;
-    for (const change of pastWorkChanges(work)) add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], { title: work.name, past: true });
+    if (work.date < retroFrom || work.date > until) continue;
+    // До начала учёта — только плюсы.
+    const early = work.date < from;
+    for (const change of pastWorkChanges(work)) {
+      if (early && GRADE_POINTS[change.kind] < 0) continue;
+      add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], { title: work.name, past: true });
+    }
   }
 
   return [...people.values()].map((person) => {
@@ -1415,7 +1427,7 @@ export function studentFile({ student, events, attendance, students, groups, ach
     .sort((a, b) => a.deadline.localeCompare(b.deadline));
 
   // Рейтинг — за всё обучение, а не за период личного дела.
-  const grade = gradeReport({ events, attendance, students, groups, from: RATING_FROM < from ? RATING_FROM : from, to: until, nowISO, nowTime, bonuses, pastWorks }).find((item) => nameKey(item.name) === key) ?? null;
+  const grade = gradeReport({ events, attendance, students, groups, from: RATING_FROM, retroFrom: RETRO_FROM, to: until, nowISO, nowTime, bonuses, pastWorks }).find((item) => nameKey(item.name) === key) ?? null;
   // Практики и мероприятия из прошлых работ — в портфолио личного дела, как и проведённые в программе.
   const pastItems = pastWorks
     .filter((work) => work.work !== 'task' && work.date >= from && work.date <= to && work.students.some((name) => nameKey(name) === key))

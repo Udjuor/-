@@ -1131,7 +1131,10 @@ export default {
     "Вручную за всё обучение: {0}": "Manual over the whole course: {0}",
     "Ручных баллов пока нет.": "No manual points yet.",
     "Рейтинг за всё обучение: {0}, баллов: {1}.": "Rating for the whole course of study: {0}, {1} points.",
-    "За всё обучение": "Whole course of study"
+    "За всё обучение": "Whole course of study",
+    "Поощрение за прошлые курсы можно поставить задним числом. Минус с датой до {0} не засчитывается.": "A reward for earlier years can be added retroactively. A minus dated before {0} is not counted.",
+    "Можно вносить и прошлые курсы — это накопленный опыт в портфолио. До {0} засчитываются только плюсы: штраф за несданное за то время не ставится.": "Earlier years can be added too — it is accumulated experience in the portfolio. Before {0} only pluses count: no penalty for missed tasks from that time.",
+    "Всё внесённое": "Everything added"
   },
   "plurals": {
     "events": {

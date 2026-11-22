@@ -4994,8 +4994,8 @@ function currentGrades() {
   const clock = now();
   const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
   if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
-  const { from, to } = ratingPeriod(clock.iso);
-  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, nowISO: clock.iso, nowTime: clock.time });
+  const { from, to, retroFrom } = ratingPeriod(clock.iso);
+  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, retroFrom, nowISO: clock.iso, nowTime: clock.time });
   gradeCache = { key, rows };
   return rows;
 }
@@ -5183,13 +5183,15 @@ function drawBonus() {
     dialog.close();
     return;
   }
-  const { from, to } = ratingPeriod(now().iso);
+  const { from, to, retroFrom } = ratingPeriod(now().iso);
   const mine = refsOf('bonus')
-    .filter((item) => nameKey(item.student) === nameKey(student.name) && item.date >= from && item.date <= to)
+    .filter((item) => nameKey(item.student) === nameKey(student.name) && item.date >= retroFrom && item.date <= to)
     .sort((a, b) => b.date.localeCompare(a.date));
   const points = h('input', { id: 'gb-points', type: 'number', min: -100, max: 100, step: 1, required: true, placeholder: t('+5 или −3'), 'aria-label': t('Баллы') });
   const reason = h('input', { id: 'gb-reason', required: true, maxlength: 200, placeholder: t('За что: олимпиада, помощь на мероприятии…'), 'aria-label': t('За что') });
-  const date = h('input', { id: 'gb-date', type: 'date', value: now().iso, min: from, max: now().iso, required: true, 'aria-label': t('Дата') });
+  // Поощрения за прошлые курсы можно внести задним числом; минус до начала учёта не засчитается.
+  const date = h('input', { id: 'gb-date', type: 'date', value: now().iso, min: retroFrom, max: now().iso, required: true, 'aria-label': t('Дата') });
+  const retroNote = h('p', { class: 'help' }, t('Поощрение за прошлые курсы можно поставить задним числом. Минус с датой до {0} не засчитывается.', [shortDate(from)]));
   const form = h('form', {
     class: 'adder bonusadd',
     onsubmit: async (e) => {
@@ -5217,6 +5219,7 @@ function drawBonus() {
       closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       form,
+      retroNote,
       bonusState.message && h('p', { class: 'message error' }, bonusState.message),
       mine.length
         ? [h('p', { class: 'help' }, t('Вручную за всё обучение: {0}', [signed(total) || '0'])),
@@ -5348,7 +5351,7 @@ function pastWorkSummary(work) {
 function drawPastWorks() {
   const dialog = $('pastworks');
   const today = now().iso;
-  const yearFrom = `${schoolYearOf(today)}-09-01`;
+  const { from: ratingFrom, retroFrom } = ratingPeriod(today);
   const groups = refsOf('group').sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   const list = studentsOfGroup(pastState.group);
   const markLabel = { task: t('сдал'), practice: t('участвовал'), event: t('был') }[pastState.work];
@@ -5374,7 +5377,7 @@ function drawPastWorks() {
     h('label', { class: 'grow' }, h('span', {}, t('Название')),
       h('input', { id: 'pw-title', required: true, maxlength: 200, value: pastState.title, placeholder: t('Например: Курсовой проект, Неделя кино, Практика на ТВ'), oninput: (e) => { pastState.title = e.target.value; } })),
     h('label', {}, h('span', {}, pastState.work === 'task' ? t('Срок сдачи') : t('Дата')),
-      h('input', { id: 'pw-date', type: 'date', required: true, min: yearFrom, max: today, value: pastState.date, oninput: (e) => { pastState.date = e.target.value; } })),
+      h('input', { id: 'pw-date', type: 'date', required: true, min: retroFrom, max: today, value: pastState.date, oninput: (e) => { pastState.date = e.target.value; } })),
     h('label', {}, h('span', {}, t('Группа')),
       h('select', { id: 'pw-group', onchange: (e) => { pastState.group = e.target.value; drawPastWorks(); } },
         groups.map((group) => h('option', { value: group.id, selected: group.id === pastState.group }, group.name))))),
@@ -5409,16 +5412,17 @@ function drawPastWorks() {
     h('button', { type: 'submit', class: 'primary', id: 'pw-save' }, pastState.id ? t('Сохранить изменения') : t('Добавить работу')),
     pastState.id && h('button', { type: 'button', onclick: () => { resetPastForm(); pastState.message = ''; drawPastWorks(); } }, t('Отмена'))));
 
-  const works = refsOf('pastwork').filter((w) => w.date >= yearFrom).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name, 'ru'));
+  const works = refsOf('pastwork').sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name, 'ru'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' },
       h('div', {}, h('h2', {}, t('Прошлые работы')),
-        h('p', { class: 'help' }, t('Задания, практики и мероприятия, которые прошли до того, как колледж начал вести их в Kerdiis. Баллы грейда начисляются как обычно: сданное задание +3, практика +2, мероприятие +5 и ещё +2 за роль.'))),
+        h('p', { class: 'help' }, t('Задания, практики и мероприятия, которые прошли до того, как колледж начал вести их в Kerdiis. Баллы грейда начисляются как обычно: сданное задание +3, практика +2, мероприятие +5 и ещё +2 за роль.')),
+        h('p', { class: 'help' }, t('Можно вносить и прошлые курсы — это накопленный опыт в портфолио. До {0} засчитываются только плюсы: штраф за несданное за то время не ставится.', [shortDate(ratingFrom)]))),
       closeButton(dialog)),
     h('div', { class: 'sheetbody' },
       h('h3', {}, pastState.id ? t('Изменить работу') : t('Новая работа')),
       form,
-      h('h3', {}, t('Внесено в этом учебном году')),
+      h('h3', {}, t('Всё внесённое')),
       works.length
         ? h('ul', { class: 'bonuslist pastworks' }, works.map((work) => h('li', { 'data-work': work.id },
           h('span', { class: 'awarddate' }, shortDate(work.date)),
@@ -5456,7 +5460,8 @@ const fileState = { id: null, period: 'all' };
 /** Периоды личного дела: всё обучение, этот семестр, прошлый, учебный год. */
 function filePeriod(kind) {
   const today = now().iso;
-  if (kind === 'all') return ratingPeriod(today);
+  // Портфолио за всё обучение: с первого курса, включая внесённое задним числом.
+  if (kind === 'all') return { from: ratingPeriod(today).retroFrom, to: today };
   const current = semesterOf(today);
   if (kind === 'previous') return semesterOf(addDays(current.from, -1));
   if (kind === 'year') {

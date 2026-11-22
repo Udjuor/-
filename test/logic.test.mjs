@@ -885,7 +885,7 @@ test('грейд: баллы вручную — плюс и минус, по д�
   const file = L.studentFile({ student: students[0], events: [], attendance: [], students, groups, achievements: [], bonuses,
     from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
   assert.deepEqual(file.manual.map((item) => [item.name, item.points]), [['Олимпиада', 20], ['Помощь', 5]]);
-  assert.equal(file.grade.points, 25);
+  assert.equal(file.grade.points, 75, 'плюс весной 2026 (до начала учёта) — накопленный опыт, засчитан');
 });
 
 test('прошлые работы: задание, практика и мероприятие задним числом дают баллы как обычные', () => {
@@ -908,7 +908,7 @@ test('прошлые работы: задание, практика и меро�
     from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
   assert.deepEqual(file.tasks.map((task) => [task.title, task.state, task.past]), [['Курсовой проект', 'done', true]]);
   assert.deepEqual(file.items.map((item) => [item.title, item.type, item.role]), [['Неделя кино', 'event', 'role'], ['Практика на ТВ', 'practice', '']]);
-  assert.equal(file.grade.points, 12);
+  assert.equal(file.grade.points, 17, 'и прошлое мероприятие весной 2026 (+5) — в рейтинге за всё обучение');
   const missed = L.studentFile({ student: students[1], events: [], attendance: [], students, groups, achievements: [], pastWorks,
     from: '2026-09-01', to: '2027-01-31', nowISO: '2026-11-01', nowTime: '12:00' });
   assert.deepEqual(missed.tasks.map((task) => task.state), ['missed']);
@@ -976,4 +976,27 @@ test('расчёт баллов по дням: прогул за день, но�
   assert.equal(borya.breakdown.conduct, -10);
   const manual = borya.history[1].items.find((i) => i.kind === 'manual');
   assert.deepEqual([manual.title, manual.by], ['Неуважительное обращение', 'Каб. 12']);
+});
+
+test('прошлые курсы: внесённое задним числом до начала учёта засчитывается, но только плюсы', () => {
+  const groups = [{ id: 'g1', kind: 'group', name: 'ИС-21' }];
+  const students = ['Аня', 'Боря'].map((name, i) => ({ id: `s${i}`, kind: 'student', name, groupId: 'g1' }));
+  const pastWorks = [
+    { id: 'h', name: 'Хакатон', work: 'event', date: '2026-04-15', students: ['Аня', 'Боря'], roles: ['Аня'], missed: [] },
+    { id: 'k', name: 'Курсовая', work: 'task', date: '2026-05-20', students: ['Аня'], roles: [], missed: ['Боря'] },
+  ];
+  const bonuses = [
+    { student: 'Аня', name: 'Хакатон, 1 место', date: '2026-04-15', points: 15 },
+    { student: 'Боря', name: 'Нарушение весной', date: '2026-04-20', points: -10 },
+  ];
+  // Пара весной без отметок не считается: автоматический учёт — с 1 сентября 2026.
+  const events = [{ id: 'old', type: 'lesson', title: 'Пара', date: '2026-04-10', start: '09:00', end: '10:00', participants: ['Аня', 'Боря'], equipment: [] }];
+  const attendance = [{ eventId: 'old', marks: { Аня: { status: 'present', at: '2026-04-10T00:00:00.000Z' } } }];
+  const rows = Object.fromEntries(L.gradeReport({ events, attendance, students, groups, bonuses, pastWorks, ...L.ratingPeriod('2026-11-22'), nowISO: '2026-11-22', nowTime: '12:00' }).map((r) => [r.name, r]));
+  assert.equal(rows['Аня'].points, 5 + 2 + 3 + 15, 'мероприятие с ролью, сданная курсовая и приз; весенняя пара не в счёт');
+  assert.equal(rows['Боря'].points, 5, 'участие засчитано, а штраф за курсовую и минус за поведение до начала учёта — нет');
+  const file = L.studentFile({ student: students[0], events, attendance, students, groups, achievements: [], bonuses, pastWorks,
+    from: L.RETRO_FROM, to: '2026-11-22', nowISO: '2026-11-22', nowTime: '12:00' });
+  assert.ok(file.items.some((item) => item.title === 'Хакатон'), 'хакатон в портфолио');
+  assert.equal(file.grade.points, 25);
 });
