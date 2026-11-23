@@ -5,7 +5,7 @@ const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
-const { EventStore, PET_KINDS, petKindLockKey, petKindLocked } = require('./store');
+const { EventStore, PET_COATS_IDS, PET_KINDS, petKindLockKey, petKindLocked } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
 const { firewallState, repairFirewall } = require('./netcheck');
@@ -409,6 +409,21 @@ function registerHandlers() {
     if (!PET_KINDS.includes(kind)) throw Object.assign(new Error('bad kind'), { code: 'invalid' });
     if (edition === 'client' && petKindLocked(group)) throw Object.assign(new Error('locked'), { code: 'locked' });
     const saved = await store.saveRef({ ...group, petKind: kind, petKindFor: petKindLockKey(group) }, group.updatedAt);
+    sync?.nudge();
+    return saved;
+  }));
+  // Наряд и окрас питомца студенты меняют на панели сами: что надеть из полученных призов и цвет шерсти.
+  // Какие призы получены, считает экран по отметкам; здесь проверяется только, что это призы и окрасы.
+  ipcMain.handle('pet:dress', (_e, groupId, changes) => respond(async () => {
+    const group = (await store.directory()).find((ref) => ref.kind === 'group' && ref.id === groupId);
+    if (!group) throw Object.assign(new Error('no group'), { code: 'not-found' });
+    const next = { ...group };
+    if (changes && typeof changes.look === 'object' && changes.look) next.petLook = changes.look;
+    if (changes && 'coat' in changes) {
+      if (changes.coat && !PET_COATS_IDS.includes(changes.coat)) throw Object.assign(new Error('bad coat'), { code: 'invalid' });
+      next.petCoat = changes.coat;
+    }
+    const saved = await store.saveRef(next, group.updatedAt);
     sync?.nudge();
     return saved;
   }));

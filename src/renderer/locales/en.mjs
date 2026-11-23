@@ -1305,7 +1305,19 @@ export default {
     "Прогулы: {0}.": "Absences: {0}.",
     "Опоздания: {0}.": "Late arrivals: {0}.",
     "Ниже нуля баллы не опускаются, поэтому минус виден не весь.": "Points never go below zero, so not all of the minus shows.",
-    "Названия команд": "Team names"
+    "Названия команд": "Team names",
+    "Наряд": "Outfit",
+    "Окрас": "Coat",
+    "Откроется с {0}-м призом": "Unlocks with prize {0}",
+    "призов: {0} из {1}": "prizes: {0} of {1}",
+    "Окрас и наряд выбирают сами студенты, менять можно сколько угодно. Новые окрасы открываются призами за хорошую посещаемость.": "Students choose the coat and outfit themselves and can change them as often as they like. New coats unlock with prizes for good attendance.",
+    "Родной": "Natural",
+    "Снежный": "Snow",
+    "Шоколадный": "Chocolate",
+    "Золотой": "Golden",
+    "Небесный": "Sky",
+    "Северное сияние": "Northern lights",
+    "Полярная ночь": "Polar night"
   },
   "plurals": {
     "events": {

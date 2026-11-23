@@ -123,6 +123,20 @@ const today = (() => {
   assert.equal(chosen.petKind, 'owl');
   assert.equal((await page.evaluate((id) => window.calendar.choosePetKind(id, 'hare'), chosen.id)).code, 'locked', 'второй выбор отклонён в основном процессе');
   await shot('client-pet-kind');
+  // Окрас и наряд студенты меняют сами, сколько угодно; часть окрасов открывается призами.
+  assert.equal(await page.locator('#pet .petcoats [data-coat=gold]').isDisabled(), true, 'золотой — со 2-го приза');
+  await page.click('#pet .petcoats [data-coat=snow]');
+  await page.waitForSelector('#pet .petcoats [data-coat=snow][aria-pressed=true]');
+  await page.click('#pet .petcoats [data-coat=cocoa]');
+  await page.waitForSelector('#pet .petcoats [data-coat=cocoa][aria-pressed=true]');
+  const dressed = (await page.evaluate(() => window.calendar.directory())).value.find((ref) => ref.kind === 'group');
+  assert.equal(dressed.petCoat, 'cocoa');
+  assert.equal(dressed.petKind, 'owl', 'вид не тронут');
+  assert.equal((await page.evaluate((id) => window.calendar.dressPet(id, { look: { head: 'crown', left: '', right: '' } }), dressed.id)).ok, true, 'наряд с панели принимается');
+  assert.equal((await page.evaluate((id) => window.calendar.dressPet(id, { coat: 'pink' }), dressed.id)).code, 'invalid');
+  await page.waitForSelector('#pet-open svg.kind-owl');
+  await page.locator('#pet .petcoats').scrollIntoViewIfNeeded();
+  await shot('client-pet-coat');
   await page.click('#pet [aria-label=Закрыть]');
 
   // На мероприятии только «был» или «не был».

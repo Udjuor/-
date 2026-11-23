@@ -148,6 +148,8 @@ const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
 const HAND_IN = new Set(['done', 'rework']);
 const FLAG_COLORS = ['yellow', 'red', 'blue', 'green'];
+/** Окрасы питомца, как PET_COATS в pet.mjs. */
+const PET_COATS_IDS = ['snow', 'cocoa', 'gold', 'sky', 'mint', 'night'];
 const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork', 'flagname']);
 const PAST_WORK_TYPES = ['task', 'practice', 'event'];
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
@@ -295,6 +297,9 @@ function normalizeRef(raw) {
     if (!ref.petKindFor) delete ref.petKindFor;
     // Что надето на питомце и что стоит рядом: только названия призов.
     const look = raw.petLook && typeof raw.petLook === 'object' ? raw.petLook : null;
+    // Окрас питомца: выбирают студенты на панели. Пусто — родной окрас вида.
+    ref.petCoat = PET_COATS_IDS.includes(raw.petCoat) ? raw.petCoat : '';
+    if (!ref.petCoat) delete ref.petCoat;
     if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
     else delete ref.petLook;
     ref.petDeaths = (Array.isArray(raw.petDeaths) ? raw.petDeaths : []).slice(-200).map((death) => ({
@@ -304,7 +309,10 @@ function normalizeRef(raw) {
       pairs: Number.isInteger(death?.pairs) ? death.pairs : 0,
     }));
   }
-  if (raw.kind !== 'group') delete ref.petKind;
+  if (raw.kind !== 'group') {
+    delete ref.petKind;
+    delete ref.petCoat;
+  }
   if (raw.kind === 'notice') {
     ref.name = ref.name.slice(0, 200);
     ref.color = NOTICE_COLORS.has(raw.color) ? raw.color : 'blue';
@@ -1024,4 +1032,4 @@ class EventStore {
   }
 }
 
-module.exports = { EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId, eventDiff, CHANGE_DAYS, PET_KINDS, petKindLockKey, petKindLocked };
+module.exports = { PET_COATS_IDS, EventStore, StoreError, normalizeEvent, normalizeRecord, revision, attendanceId, eventDiff, CHANGE_DAYS, PET_KINDS, petKindLockKey, petKindLocked };

@@ -321,10 +321,34 @@ function mix(a, b, k) {
 /** Грусть делает питомца голубее, болезнь — желтовато-зеленее. */
 const MOOD_TINT = { sad: ['#6f9fd8', 0.28], sick: ['#a3a35a', 0.34] };
 
-function paletteFor(species, mood) {
+/*
+ * Окрас питомца выбирают студенты. Родной окрас у каждого вида свой; остальные смешивают
+ * шерсть с цветом окраса, брюшко — слабее, контур и глаза не трогают. Часть окрасов
+ * открывается призами: сколько призов (вместе со звёздами) нужно — need.
+ */
+export const PET_COATS = [
+  { id: '', name: 'Родной', need: 0 },
+  { id: 'snow', name: 'Снежный', tint: '#f4f6fa', k: 0.6, need: 0 },
+  { id: 'cocoa', name: 'Шоколадный', tint: '#5b3923', k: 0.5, need: 0 },
+  { id: 'gold', name: 'Золотой', tint: '#f0c03c', k: 0.5, need: 2 },
+  { id: 'sky', name: 'Небесный', tint: '#6ea8ec', k: 0.5, need: 4 },
+  { id: 'mint', name: 'Северное сияние', tint: '#46d3a0', k: 0.5, need: 6 },
+  { id: 'night', name: 'Полярная ночь', tint: '#3b4378', k: 0.55, need: 8 },
+];
+export const petCoatOf = (coat) => (PET_COATS.some((item) => item.id === coat) ? coat : '');
+/** Сколько призов и звёзд есть у питомца: столько окрасов и открыто. */
+export const coatOpen = (coat, prizes) => (PET_COATS.find((item) => item.id === coat)?.need ?? Infinity) <= prizes.earned.length + prizes.stars;
+const COAT_SOFT = new Set(['belly', 'bellyShade', 'inner']);
+const COAT_KEEP = new Set(['line']);
+
+function paletteFor(species, mood, coat = '') {
+  const paint = PET_COATS.find((item) => item.id === coat && item.tint);
+  const base = paint
+    ? Object.fromEntries(Object.entries(species.pal).map(([key, color]) => [key, COAT_KEEP.has(key) ? color : mix(color, paint.tint, COAT_SOFT.has(key) ? paint.k * 0.45 : paint.k)]))
+    : species.pal;
   const tint = MOOD_TINT[mood];
-  if (!tint) return species.pal;
-  return Object.fromEntries(Object.entries(species.pal).map(([key, color]) => [key, mix(color, tint[0], tint[1])]));
+  if (!tint) return base;
+  return Object.fromEntries(Object.entries(base).map(([key, color]) => [key, mix(color, tint[0], tint[1])]));
 }
 
 /** Поза кадра: дыхание, прыжок, движения ушей и лап. */
@@ -758,11 +782,11 @@ function grave(frame) {
   return c;
 }
 
-function cellsFor(mood, frame, kind) {
+function cellsFor(mood, frame, kind, coat = '') {
   const f = ((frame % PET_FRAMES) + PET_FRAMES) % PET_FRAMES;
   if (mood === 'dead') return grave(f);
   const sp = SPECIES[petKindOf(kind)];
-  const pal = paletteFor(sp, mood);
+  const pal = paletteFor(sp, mood, coat);
   const q = pose(mood, f);
   let c = blank();
   paint(c, ellipse(24, 46.6, 16.5 - q.lift * 1.2, 1.6), SHADOW);
@@ -775,9 +799,9 @@ function cellsFor(mood, frame, kind) {
 }
 
 /** Пиксели питомца 48×48: [{ x, y, fill }]. Кадр 0–7, вид — из PET_KINDS. */
-export function petPixels(mood, frame = 0, kind = DEFAULT_PET_KIND) {
+export function petPixels(mood, frame = 0, kind = DEFAULT_PET_KIND, coat = '') {
   const pixels = [];
-  cellsFor(mood, frame, kind).forEach((row, y) => row.forEach((color, x) => {
+  cellsFor(mood, frame, kind, coat).forEach((row, y) => row.forEach((color, x) => {
     if (color) pixels.push({ x, y, fill: color });
   }));
   return pixels;
@@ -1064,7 +1088,7 @@ function prizeMotion(id, ox, oy, frame) {
 }
 
 /** Пиксели сцены 96×60 с питомцем и призами. Кадр 0–7. */
-export function dressedPixels(mood, look, frame = 0, kind = DEFAULT_PET_KIND) {
+export function dressedPixels(mood, look, frame = 0, kind = DEFAULT_PET_KIND, coat = '') {
   const pixels = [];
   const f = ((frame % PET_FRAMES) + PET_FRAMES) % PET_FRAMES;
   const place = (id, ox, oy) => pixels.push(...prizePixels(id, f).map((p) => ({ ...p, x: p.x + ox, y: p.y + oy })), ...prizeMotion(id, ox, oy, f));
@@ -1072,7 +1096,7 @@ export function dressedPixels(mood, look, frame = 0, kind = DEFAULT_PET_KIND) {
   if (PRIZE_ART[look.left] && !HEAD_PRIZES.has(look.left)) place(look.left, 0, 12);
   if (PRIZE_ART[look.right] && !HEAD_PRIZES.has(look.right)) place(look.right, 72, 12);
   // Питомец 48×48 стоит на земле посередине.
-  pixels.push(...petPixels(mood, f, kind).map((p) => ({ ...p, x: p.x + 24, y: p.y + 12 })));
+  pixels.push(...petPixels(mood, f, kind, coat).map((p) => ({ ...p, x: p.x + 24, y: p.y + 12 })));
   if (HEAD_PRIZES.has(look.head) && mood !== 'dead') {
     // Головной убор двигается вместе с головой: дыхание и прыжки.
     const q = pose(mood, f);
@@ -1134,7 +1158,7 @@ export function prizeIcon(id) {
 }
 
 /** Рисует существо: восемь кадров сменяют друг друга средствами CSS. */
-export function petSprite(mood, look = null, kind = DEFAULT_PET_KIND) {
+export function petSprite(mood, look = null, kind = DEFAULT_PET_KIND, coat = '') {
   const svg = document.createElementNS(NS, 'svg');
   const dressed = Boolean(look && (look.head || look.left || look.right));
   svg.setAttribute('viewBox', dressed ? '0 0 96 60' : `0 0 ${PET_SIZE} ${PET_SIZE}`);
@@ -1143,7 +1167,7 @@ export function petSprite(mood, look = null, kind = DEFAULT_PET_KIND) {
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add('petsprite', `mood-${mood}`, `kind-${petKindOf(kind)}`);
   for (let frame = 0; frame < PET_FRAMES; frame += 1) {
-    svg.append(layer(dressed ? dressedPixels(mood, look, frame, kind) : petPixels(mood, frame, kind), `frame f${frame}`));
+    svg.append(layer(dressed ? dressedPixels(mood, look, frame, kind, coat) : petPixels(mood, frame, kind, coat), `frame f${frame}`));
   }
   return svg;
 }

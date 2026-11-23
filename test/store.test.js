@@ -752,3 +752,10 @@ test('флажки студентов и подписи цветов', async (t)
   assert.equal(label.name, 'Группа риска');
   await assert.rejects(store.saveRef({ kind: 'flagname', name: 'Розовый', color: 'pink' }));
 });
+
+test('окрас питомца: только известные окрасы и только у группы', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', petCoat: 'gold' });
+  assert.equal(group.petCoat, 'gold');
+  assert.equal((await store.saveRef({ ...group, petCoat: 'pink' }, group.updatedAt)).petCoat, undefined);
+});

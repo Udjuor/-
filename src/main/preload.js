@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('calendar', {
   saveRefs: (refs) => ipcRenderer.invoke('directory:save', refs),
   namePet: (groupId, name) => ipcRenderer.invoke('pet:name', groupId, name),
   choosePetKind: (groupId, kind) => ipcRenderer.invoke('pet:kind', groupId, kind),
+  dressPet: (groupId, changes) => ipcRenderer.invoke('pet:dress', groupId, changes),
   removeRefs: (refs) => ipcRenderer.invoke('directory:remove', refs),
   attendance: () => ipcRenderer.invoke('attendance:list'),
   mark: (eventId, name, status, options) => ipcRenderer.invoke('attendance:mark', eventId, name, status, options),

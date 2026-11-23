@@ -653,10 +653,13 @@ dialog::backdrop { background: var(--backdrop); }
 .petname { margin: .8rem 0; }
 .petnew { display: block; margin: .8rem auto; }
 .petkinds { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; }
-.petkind { display: flex; flex-direction: column; align-items: center; gap: .2rem; min-width: 0; padding: .4rem .2rem; font-size: .85rem; }
-.petkind .petsprite { width: 100%; max-width: 3.6rem; }
-.petkind[aria-pressed="true"] { border-color: var(--accent-emphasis, #1f6feb); background: var(--accent-subtle, rgba(56, 139, 253, .15)); }
+.petkind, .petcoat { display: flex; flex-direction: column; align-items: center; gap: .2rem; min-width: 0; padding: .4rem .2rem; font-size: .85rem; }
+.petkind .petsprite, .petcoat .petsprite { width: 100%; max-width: 3.6rem; }
+.petkind[aria-pressed="true"], .petcoat[aria-pressed="true"] { border-color: var(--accent-emphasis, #1f6feb); background: var(--accent-subtle, rgba(56, 139, 253, .15)); }
 .petkind:disabled { opacity: .7; cursor: default; }
+.petcoats { grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); }
+.petcoat:disabled { opacity: .45; cursor: default; }
+.petcoat small { color: var(--fg-muted); font-size: .75rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .petsprite, .petsprite .frame { animation: none; }

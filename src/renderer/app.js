@@ -6,7 +6,7 @@ import {
 } from './logic.mjs';
 
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
-import { petChange, petKindLockKey, petKindLocked, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
+import { PET_COATS, coatOpen, petCoatOf, petChange, petKindLockKey, petKindLocked, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
 
 const POLL_MS = 10_000;
@@ -3123,11 +3123,11 @@ function refreshPet() {
   refreshTicker();
   if (!group) return;
   const pet = petOf(group);
-  const key = `${group.id}:${group.petName}:${group.petKind}:${pet.mood}:${pet.health}`;
+  const key = `${group.id}:${group.petName}:${group.petKind}:${group.petCoat ?? ''}:${pet.mood}:${pet.health}`;
   if (key !== petButtonKey) {
     petButtonKey = key;
     button.setAttribute('aria-label', t('Тамагочи группы {0}', [group.name]));
-    button.replaceChildren(petSprite(pet.mood, null, group.petKind), h('span', {}, group.petName || group.name));
+    button.replaceChildren(petSprite(pet.mood, null, group.petKind, coatFor(group, pet)), h('span', {}, group.petName || group.name));
     if ($('pet').open) drawPet();
   }
 }
@@ -3253,6 +3253,19 @@ function drawPet() {
     drawPet();
   };
 
+  // Наряд и окрас меняют и студенты на панели, и преподаватель.
+  const dress = async (changes) => {
+    const result = await api.dressPet(group.id, changes);
+    if (!result.ok) {
+      failure.textContent = t('Не удалось сохранить. Попробуйте ещё раз.');
+      return;
+    }
+    await loadDirectory();
+    petButtonKey = '';
+    refreshPet();
+    drawPet();
+  };
+
   const name = h('input', { id: 'pet-name', value: group.petName ?? '', maxlength: 24, placeholder: t('Придумайте имя'), autocomplete: 'off', 'aria-label': t('Имя питомца') });
   const saveName = async () => {
     const result = await api.namePet(group.id, name.value);
@@ -3282,7 +3295,7 @@ function drawPet() {
       stage.append(heart);
       setTimeout(() => heart.remove(), 900);
     },
-  }, petSprite(pet.mood, look, group.petKind));
+  }, petSprite(pet.mood, look, group.petKind, coatFor(group, pet, prizes)));
 
   const meter = h('div', { class: 'petmeter' }, h('i'));
   meter.firstChild.style.width = `${pet.health}%`;
@@ -3322,7 +3335,8 @@ function drawPet() {
           h('div', { class: 'adder' }, name, h('button', { type: 'button', onclick: saveName }, t('Назвать'))))),
       failure,
       pet.mood !== 'dead' && kindSection(group, saveGroup, failure),
-      pet.mood !== 'dead' && prizeSection(pet, prizes, look, (next) => saveGroup({ petLook: next })),
+      pet.mood !== 'dead' && prizeSection(pet, prizes, look, (next) => dress({ look: next })),
+      pet.mood !== 'dead' && coatSection(group, pet, prizes, dress),
       healthChart(pet),
       petGraves(group),
       petOverview(groups),
@@ -3385,7 +3399,7 @@ function kindSection(group, saveGroup, failure) {
     confirm);
 }
 
-/** Призы питомца: полученные, следующий и наряд, который выбирает преподаватель. */
+/** Призы питомца: полученные, следующий и наряд. Наряд выбирают студенты на панели. */
 function prizeSection(pet, prizes, look, saveLook) {
   const owned = new Map(prizes.earned.map((prize) => [prize.id, prize]));
   const progress = prizes.next
@@ -3419,10 +3433,40 @@ function prizeSection(pet, prizes, look, saveLook) {
     h('h3', {}, prizes.stars ? t('Призы и звёзды: ★ × {0}', [prizes.stars]) : t('Призы')),
     h('p', { class: 'help' }, progress),
     tiles,
-    canManage() && prizes.earned.length > 0 && h('div', { class: 'prizelook' },
+    prizes.earned.length > 0 && h('h4', {}, t('Наряд')),
+    prizes.earned.length > 0 && h('div', { class: 'prizelook' },
       slot('head', t('На голове'), 'head'),
       slot('left', t('Слева'), 'side'),
       slot('right', t('Справа'), 'side')));
+}
+
+/** Окрас, который сейчас виден: закрытый призами окрас не показывается, пока его не откроют снова. */
+function coatFor(group, pet, prizes = petPrizes(pet)) {
+  const coat = petCoatOf(group.petCoat);
+  return coat && coatOpen(coat, prizes) ? coat : '';
+}
+
+/** Окрас питомца: три сразу, остальные открываются призами. */
+function coatSection(group, pet, prizes, dress) {
+  const current = coatFor(group, pet, prizes);
+  const owned = prizes.earned.length + prizes.stars;
+  return h('section', { class: 'petsection' },
+    h('h3', {}, t('Окрас')),
+    h('div', { class: 'petkinds petcoats', role: 'group', 'aria-label': t('Окрас') }, PET_COATS.map((coat) => {
+      const open = coatOpen(coat.id, prizes);
+      return h('button', {
+        type: 'button',
+        class: 'petcoat',
+        'data-coat': coat.id || 'native',
+        disabled: !open,
+        'aria-pressed': String(coat.id === current),
+        title: open ? t(coat.name) : t('Откроется с {0}-м призом', [coat.need]),
+        onclick: () => coat.id !== current && dress({ coat: coat.id }),
+      }, petSprite('fine', null, group.petKind, coat.id),
+      h('span', {}, t(coat.name)),
+      !open && h('small', {}, t('призов: {0} из {1}', [owned, coat.need])));
+    })),
+    h('p', { class: 'help' }, t('Окрас и наряд выбирают сами студенты, менять можно сколько угодно. Новые окрасы открываются призами за хорошую посещаемость.')));
 }
 
 /* Бегущая строка */

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { LANGUAGES, language, locale, setLanguage, t, tp } from '../src/renderer/i18n.mjs';
-import { PRIZES } from '../src/renderer/pet.mjs';
+import { PET_COATS, PRIZES } from '../src/renderer/pet.mjs';
 import { ABSENCE_REASONS, EVENT_TYPES, JOURNAL_ACTIONS, CANCEL_REASONS, JOURNAL_FIELD_LABELS, OWN_CAMERA, statusName } from '../src/renderer/logic.mjs';
 
 const read = (file) => fs.readFileSync(new URL(`../src/renderer/${file}`, import.meta.url), 'utf8');
@@ -19,6 +19,7 @@ const usedKeys = () => {
   for (const status of ['present', 'late', 'sick', 'order', 'excused', 'absent', 'pending']) keys.add(statusName(status));
   keys.add(OWN_CAMERA);
   for (const prize of PRIZES) keys.add(prize.name);
+  for (const coat of PET_COATS) keys.add(coat.name);
   for (const label of [...Object.values(JOURNAL_FIELD_LABELS), ...Object.values(JOURNAL_ACTIONS), ...CANCEL_REASONS]) keys.add(label);
   keys.add('Без группы');
   return [...keys];

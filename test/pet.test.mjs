@@ -218,3 +218,20 @@ test('вид выбран на питомца до его смерти: новы
   assert.equal(petKindLocked({ petKindFor: 'pet' }), true, 'без даты заведения ключ «pet»');
   assert.equal(petKindLocked({ petSince: '2026-09-01T09:00' }), false, 'вид не выбирали');
 });
+
+test('окрас питомца: меняет шерсть, но не контур; открывается призами', async () => {
+  const { PET_COATS, coatOpen, petPixels: pixelsOf } = await import('../src/renderer/pet.mjs');
+  const { PET_COATS_IDS } = await import('../src/main/store.js').then((m) => m.default ?? m);
+  assert.deepEqual(PET_COATS.filter((coat) => coat.id).map((coat) => coat.id), PET_COATS_IDS, 'окрасы в хранилище и на экране совпадают');
+  const native = pixelsOf('fine', 0, 'mammoth');
+  const snow = pixelsOf('fine', 0, 'mammoth', 'snow');
+  assert.equal(native.length, snow.length, 'фигура та же');
+  assert.notDeepEqual(native, snow);
+  const colorAt = (pixels, x, y) => pixels.find((p) => p.x === x && p.y === y)?.fill;
+  const edge = native.find((p) => p.fill === '#3d2412');
+  assert.equal(colorAt(snow, edge.x, edge.y), '#3d2412', 'контур не перекрашивается');
+  assert.equal(coatOpen('gold', { earned: [{}], stars: 0 }), false);
+  assert.equal(coatOpen('gold', { earned: [{}], stars: 1 }), true, 'звёзды тоже считаются');
+  assert.equal(coatOpen('snow', { earned: [], stars: 0 }), true);
+  assert.equal(coatOpen('pink', { earned: [], stars: 99 }), false);
+});
