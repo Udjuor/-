@@ -1304,7 +1304,8 @@ export default {
     "Рейтинг за две недели: было {0}, стало {1}.": "Rating over two weeks: was {0}, now {1}.",
     "Прогулы: {0}.": "Absences: {0}.",
     "Опоздания: {0}.": "Late arrivals: {0}.",
-    "Ниже нуля баллы не опускаются, поэтому минус виден не весь.": "Points never go below zero, so not all of the minus shows."
+    "Ниже нуля баллы не опускаются, поэтому минус виден не весь.": "Points never go below zero, so not all of the minus shows.",
+    "Названия команд": "Team names"
   },
   "plurals": {
     "events": {

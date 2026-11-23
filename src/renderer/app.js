@@ -4008,7 +4008,6 @@ function drawSignals() {
     return h('li', { class: 'signal', 'data-signal': item.name },
       h('div', { class: 'signalhead' },
         h('strong', {}, item.name),
-        flagToggles(student),
         h('span', { class: 'help' }, [item.group, item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
       h('ul', { class: 'signalreasons' }, item.reasons.map((reason) => h('li', { class: `reason-${reason.kind}` }, SIGNAL_TEXT[reason.kind](reason.count)))),
       open && student && signalDetails(student, incidents),
@@ -5203,9 +5202,8 @@ function gradeItems() {
 let gradeGroup = '';
 
 /*
- * Флажки студентов: жёлтый, красный, синий, зелёный. Чтобы делить и группировать студентов
- * по своему смыслу: группа риска, команда, «сдаёт долги». У студента может быть несколько флажков.
- * Подписи цветов общие для всех устройств. Флажки видит только преподаватель, на панелях их нет.
+ * Флажки студентов: жёлтый, красный, синий, зелёный — деление на команды.
+ * Названия команд общие для всех устройств. Флажки видит только преподаватель, на панелях их нет.
  */
 const FLAG_COLORS = ['yellow', 'red', 'blue', 'green'];
 const flagColorName = (color) => ({ yellow: t('Жёлтый'), red: t('Красный'), blue: t('Синий'), green: t('Зелёный') }[color]);
@@ -5249,11 +5247,10 @@ async function toggleFlag(studentId, color) {
 /** Перерисовать открытые окна, где видны флажки. */
 function redrawFlagged() {
   if ($('grade').open) drawGrades();
-  if ($('signals').open) drawSignals();
   if ($('studentfile').open) drawStudentFile();
 }
 
-/** Подписи цветов: «Красный — группа риска». Пустая подпись возвращает название цвета. */
+/** Название команды для цвета: «Красный — Команда А». Пустое возвращает название цвета. */
 async function saveFlagName(color, value) {
   const name = value.trim();
   const existing = refsOf('flagname').find((ref) => ref.color === color);
@@ -5286,7 +5283,7 @@ function gradeFlagBar(all) {
       FLAG_COLORS.map((color) => chip(color, t('{0}: {1}', [flagLabel(color), count(color)]), color)),
       chip('none', t('Без флажка: {0}', [count('none')]))),
     h('label', { class: 'checkrow' }, h('input', { type: 'checkbox', id: 'gr-byflag', checked: gradeByFlag, onchange: (e) => { gradeByFlag = e.target.checked; drawGrades(); } }), t('Группировать по флажкам')),
-    h('button', { type: 'button', class: 'plain small', id: 'gr-flagnames', 'aria-expanded': String(flagNamesOpen), onclick: () => { flagNamesOpen = !flagNamesOpen; drawGrades(); } }, t('Подписи флажков')),
+    h('button', { type: 'button', class: 'plain small', id: 'gr-flagnames', 'aria-expanded': String(flagNamesOpen), onclick: () => { flagNamesOpen = !flagNamesOpen; drawGrades(); } }, t('Названия команд')),
     flagNamesOpen && h('div', { class: 'flagnames' }, FLAG_COLORS.map((color) => h('label', {},
       h('span', { class: `flagdot flag-${color}` }),
       h('input', {

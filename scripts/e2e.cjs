@@ -1056,7 +1056,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   const bonusRow = page.locator('#grade .gradetable tbody tr', { has: page.locator(`.linkbutton:text-is("${bonusName}")`) });
   assert.equal(Number(await bonusRow.locator('td:nth-child(6)').textContent()), pointsBefore + 10, 'баллы выросли на 10');
   assert.equal((await bonusRow.locator('td:nth-child(14)').textContent()).trim(), '+10');
-  // Флажки: красный этому студенту, фильтр и группировка по флажкам, подпись цвета.
+  // Флажки — команды: красный этому студенту, фильтр и группировка, название команды.
   await bonusRow.locator('[data-flag=red]').click();
   await page.waitForSelector(`#grade tr[data-student="${bonusName}"] [data-flag=red][aria-pressed=true]`);
   await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'student' && r.name === bonusName && r.flags?.includes('red')), 'флажок на другом устройстве');
@@ -1064,12 +1064,12 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#grade .gradetable tbody tr:only-child');
   assert.equal(await page.locator('#grade .gradetable tbody tr').count(), 1);
   await page.click('#gr-flagnames');
-  await page.fill('#grade [data-flagname=red]', 'Группа риска');
+  await page.fill('#grade [data-flagname=red]', 'Команда А');
   await page.press('#grade [data-flagname=red]', 'Enter');
-  await page.waitForSelector('#grade [data-grflag=red]:has-text("Группа риска: 1")');
+  await page.waitForSelector('#grade [data-grflag=red]:has-text("Команда А: 1")');
   await page.click('#grade [data-grflag=all]');
   await page.check('#gr-byflag');
-  await page.waitForSelector('#grade tr.flaghead[data-section=red]:has-text("Группа риска: 1")');
+  await page.waitForSelector('#grade tr.flaghead[data-section=red]:has-text("Команда А: 1")');
   await page.waitForSelector('#grade tr.flaghead[data-section=none]');
   await shot('flags');
   await page.uncheck('#gr-byflag');
@@ -1136,7 +1136,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('balance-hints');
   // Из списка: всех с красным флажком одним нажатием.
   await page.click('#form .field:has(#f-participants) button:has-text("Из списка")');
-  await page.waitForSelector('#picker[open] [data-pickflag=red]:has-text("Группа риска: 1")');
+  await page.waitForSelector('#picker[open] [data-pickflag=red]:has-text("Команда А: 1")');
   await page.click('#picker [data-pickflag=red]');
   await shot('picker-flags');
   await page.click('#picker .sheetfoot button.primary');
@@ -1472,8 +1472,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await signal.textContent(), /пар с прогулом 3 \(дней 3\)/);
   assert.match(await signal.textContent(), /Где проседает[\s\S]*Пара без Ученика30/);
   assert.match(await signal.textContent(), /Рейтинг за две недели: было \d+, стало \d+\. Прогулы: −12\./);
-  await signal.locator('[data-flag=yellow]').click();
-  await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30") [data-flag=yellow][aria-pressed=true]');
+  assert.equal(await signal.locator('[data-flag]').count(), 0, 'флажки — команды, в сигналах их нет');
   await shot('signal-detail');
   // Докладная: период, все нарушения таблицей, меры и подпись.
   await signal.locator('[data-report]').click();
