@@ -759,3 +759,13 @@ test('окрас питомца: только известные окрасы и
   assert.equal(group.petCoat, 'gold');
   assert.equal((await store.saveRef({ ...group, petCoat: 'pink' }, group.updatedAt)).petCoat, undefined);
 });
+
+test('дежурство группы: начало, освобождённые и замены', async (t) => {
+  const store = new EventStore(tempDir(t));
+  const group = await store.saveRef({ kind: 'group', name: 'ИС-21', dutyFrom: '2026-11-02', dutyExempt: ['Васин', 'Васин', ''], duty: { '2026-11-05': ' Белова ', 'вчера': 'Антонов', '2026-11-06': '' } });
+  assert.equal(group.dutyFrom, '2026-11-02');
+  assert.deepEqual(group.dutyExempt, ['Васин']);
+  assert.deepEqual(group.duty, { '2026-11-05': 'Белова' });
+  const plain = await store.saveRef({ ...group, dutyFrom: 'потом', dutyExempt: [], duty: {} }, group.updatedAt);
+  assert.equal('dutyFrom' in plain || 'dutyExempt' in plain || 'duty' in plain, false);
+});

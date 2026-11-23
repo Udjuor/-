@@ -1540,3 +1540,60 @@ export function balanceHints({ candidates, works, points, roleCounts = new Map()
     .sort((a, b) => a.count - b.count || (b.days ?? 9999) - (a.days ?? 9999) || a.points - b.points || a.name.localeCompare(b.name, 'ru'))
     .slice(0, limit);
 }
+
+/* Дежурство: по одному студенту группы в учебный день, по очереди */
+
+/** Самое большее столько дней график просчитывается вперёд от начала. */
+const DUTY_MAX_DAYS = 400;
+
+/**
+ * График дежурства группы. Учебный день — день, когда у группы есть пара.
+ * Дежурит тот, кто дольше всех не дежурил; при равенстве — по алфавиту. Так очередь честная,
+ * даже если студентов добавили, убрали или кого-то заменили вручную (замена тоже считается дежурством).
+ * Если по отметкам дежурный в свой день ни на одной паре не был, дежурство не состоялось:
+ * он остаётся первым в очереди и дежурит в следующий учебный день. Не пришёл и во второй раз —
+ * очередь идёт дальше, чтобы долгий больничный не останавливал график.
+ * group.dutyFrom — начало графика, dutyExempt — кто не дежурит, duty — ручные замены { дата: ФИО }.
+ */
+export function dutyRoster({ group, groups, students, events, attendance, from, to, nowISO, nowTime, start: fallback = from }) {
+  const exempt = new Set((group.dutyExempt ?? []).map(nameKey));
+  const members = groupMembers(group, groups, students).map((student) => student.name).filter((name) => !exempt.has(nameKey(name)))
+    .sort((a, b) => a.localeCompare(b, 'ru'));
+  if (!members.length) return [];
+  const keys = new Set(members.map(nameKey));
+  const start = group.dutyFrom || fallback;
+  const last = addDays(start, DUTY_MAX_DAYS);
+  const until = to < last ? to : last;
+  const lessonsOn = new Map();
+  for (const event of events) {
+    if (event.type !== 'lesson' || !isHeld(event) || event.date < start || event.date > until) continue;
+    if (!event.participants.some((name) => keys.has(nameKey(name)))) continue;
+    if (!lessonsOn.has(event.date)) lessonsOn.set(event.date, []);
+    lessonsOn.get(event.date).push(event);
+  }
+  const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const seen = new Map(members.map((name, index) => [nameKey(name), -1 - (members.length - index)]));
+  const overrides = group.duty ?? {};
+  const missed = new Map();
+  const days = [];
+  [...lessonsOn.keys()].sort().forEach((date, index) => {
+    const manual = overrides[date] && keys.has(nameKey(overrides[date])) ? overrides[date] : '';
+    const name = manual || [...members].sort((a, b) => seen.get(nameKey(a)) - seen.get(nameKey(b)))[0];
+    // Состоялось ли: смотрим отметки пар этого дня, если они закончились.
+    let done = null;
+    const marked = lessonsOn.get(date).filter((event) => docOf.get(event.id) && hasEnded(event, nowISO, nowTime) && event.participants.some((p) => nameKey(p) === nameKey(name)));
+    if (marked.length) {
+      const rows = marked.map((event) => rollCall(event, docOf.get(event.id), nowISO, nowTime, events).find((row) => nameKey(row.name) === nameKey(name)));
+      const statuses = rows.map((row) => row?.status).filter((status) => status && !['pending', 'unmarked'].includes(status));
+      if (statuses.length) done = statuses.some((status) => status === 'present');
+    }
+    const key = nameKey(name);
+    if (done === false && !manual && (missed.get(key) ?? 0) === 0) missed.set(key, 1);
+    else {
+      missed.delete(key);
+      seen.set(key, index);
+    }
+    days.push({ date, name, manual: Boolean(manual), done });
+  });
+  return days.filter((day) => day.date >= from && day.date <= to);
+}

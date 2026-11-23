@@ -302,6 +302,17 @@ function normalizeRef(raw) {
     if (!ref.petCoat) delete ref.petCoat;
     if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
     else delete ref.petLook;
+    // Дежурство: начало графика, кто не дежурит, ручные замены по датам (последние 400).
+    ref.dutyFrom = DATE_RE.test(raw.dutyFrom ?? '') ? raw.dutyFrom : '';
+    if (!ref.dutyFrom) delete ref.dutyFrom;
+    const exempt = (Array.isArray(raw.dutyExempt) ? raw.dutyExempt : []).map((name) => String(name ?? '').trim().slice(0, 200)).filter(Boolean).slice(0, 200);
+    if (exempt.length) ref.dutyExempt = [...new Set(exempt)];
+    else delete ref.dutyExempt;
+    const duty = Object.entries(raw.duty && typeof raw.duty === 'object' ? raw.duty : {})
+      .filter(([date, name]) => DATE_RE.test(date) && typeof name === 'string' && name.trim()).sort(([a], [b]) => a.localeCompare(b)).slice(-400)
+      .map(([date, name]) => [date, name.trim().slice(0, 200)]);
+    if (duty.length) ref.duty = Object.fromEntries(duty);
+    else delete ref.duty;
     ref.petDeaths = (Array.isArray(raw.petDeaths) ? raw.petDeaths : []).slice(-200).map((death) => ({
       name: String(death?.name ?? '').slice(0, 24),
       bornOn: String(death?.bornOn ?? ''),
@@ -310,8 +321,7 @@ function normalizeRef(raw) {
     }));
   }
   if (raw.kind !== 'group') {
-    delete ref.petKind;
-    delete ref.petCoat;
+    for (const field of ['petKind', 'petCoat', 'dutyFrom', 'dutyExempt', 'duty']) delete ref[field];
   }
   if (raw.kind === 'notice') {
     ref.name = ref.name.slice(0, 200);

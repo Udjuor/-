@@ -1124,6 +1124,30 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#studentfile [aria-label=Закрыть]');
   await page.click('#grade [aria-label=Закрыть]');
 
+  // Дежурство: по одному студенту группы в учебный день, по очереди; замена и освобождение.
+  await page.click('#open-sections');
+  await page.click('#open-duty');
+  await page.waitForSelector('#duty[open]');
+  await page.selectOption('#duty-group', { label: 'ИС-21' });
+  await page.waitForSelector('#duty .dutytable tbody tr');
+  const dutyRows = await page.$$eval('#duty .dutytable tbody tr', (rows) => rows.map((row) => [row.dataset.date, row.querySelector('b').textContent]));
+  assert.equal(new Set(dutyRows.map(([date]) => date)).size, dutyRows.length, 'один дежурный в день');
+  await page.waitForSelector(`#duty tr.today[data-date="${day(0)}"]`);
+  const todayName = await page.textContent(`#duty tr[data-date="${day(0)}"] b`);
+  assert.equal((await page.textContent('#duty-today')).trim(), `Сегодня дежурит: ${todayName}`);
+  const substitute = (await page.$$eval(`#duty tr[data-date="${day(0)}"] select option`, (options) => options.map((o) => o.value))).find((name) => name && name !== todayName);
+  await page.selectOption(`#duty tr[data-date="${day(0)}"] select`, substitute);
+  await page.waitForSelector(`#duty tr[data-date="${day(0)}"] b:text-is("${substitute}")`);
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'group' && r.duty?.[day(0)] === substitute), 'замена на другом устройстве');
+  await page.click('#duty .dutysettings summary');
+  await page.check(`#duty [data-exempt="${todayName}"]`);
+  await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 1")');
+  assert.equal(await page.locator(`#duty .dutytable b:text-is("${todayName}")`).count(), 0, 'освобождённый не дежурит');
+  await shot('duty');
+  await page.uncheck(`#duty [data-exempt="${todayName}"]`);
+  await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 0")');
+  await page.click('#duty [aria-label=Закрыть]');
+
   // Кому дать: в новом задании — студенты с наименьшим опытом, одним нажатием в участники.
   await page.click('#add');
   await page.waitForSelector('#form[open]');

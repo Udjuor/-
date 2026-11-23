@@ -1317,7 +1317,27 @@ export default {
     "Золотой": "Golden",
     "Небесный": "Sky",
     "Северное сияние": "Northern lights",
-    "Полярная ночь": "Polar night"
+    "Полярная ночь": "Polar night",
+    "Дежурство": "Duty",
+    "отдежурил": "on duty done",
+    "не пришёл — дежурит в следующий раз": "didn’t come — on duty next time",
+    "Предыдущий месяц": "Previous month",
+    "Следующий месяц": "Next month",
+    "Сегодня дежурит: {0}": "On duty today: {0}",
+    "По одному студенту в каждый день, когда у группы есть пары. Дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Замену можно выбрать в строке дня.": "One student on each day the group has classes. The one who hasn’t been on duty the longest goes next. If the student on duty doesn’t come that day, they are on duty the next study day. A replacement can be chosen in the day’s row.",
+    "Дежурный": "On duty",
+    "Замена": "Replacement",
+    "замена": "replacement",
+    "Замена: {0}": "Replacement: {0}",
+    "По очереди": "In turn",
+    "В этом месяце у группы нет пар.": "The group has no classes this month.",
+    "Начало графика и кто не дежурит": "Roster start and who is exempt",
+    "Начало графика": "Roster start",
+    "Если не указано — с 1 сентября. Новое начало запускает очередь заново, с первого по алфавиту.": "If not set, from September 1. A new start restarts the queue from the first name alphabetically.",
+    "Не дежурят: {0}": "Exempt from duty: {0}",
+    "Дежурство {0} {1}.pdf": "Duty {0} {1}.pdf",
+    "График дежурства": "Duty roster",
+    "Группа {0}, {1}": "Group {0}, {1}"
   },
   "plurals": {
     "events": {

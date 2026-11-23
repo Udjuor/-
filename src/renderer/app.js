@@ -1,4 +1,4 @@
-import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, earlySignals, incidentSummary, portfolio } from './logic.mjs';
+import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, dutyRoster, earlySignals, incidentSummary, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
@@ -2265,7 +2265,7 @@ const canManage = () => !isClient();
 
 /** Клиент на панели не показывает разделы преподавателя. Запрет проверяется и в основном процессе. */
 function applyEdition() {
-  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal', 'open-chronicle']) $(id).hidden = isClient();
+  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal', 'open-chronicle', 'open-duty']) $(id).hidden = isClient();
 }
 
 /* Отметки на паре */
@@ -3956,6 +3956,129 @@ function refreshDeadlines() {
   badge.textContent = String(count);
   badge.classList.toggle('late', list.overdue.length > 0);
   if ($('deadlines').open) drawDeadlines();
+}
+
+
+/*
+ * Дежурство: по одному студенту группы в каждый учебный день, по очереди.
+ * Очередь считает dutyRoster; здесь — месяц графика, замены, кто не дежурит, начало и печать.
+ */
+const dutyState = { groupId: '', month: '', settings: false };
+
+function dutyGroups() {
+  return refsOf('group').filter((group) => !parentGroup(group, refsOf('group')) && groupMembers(group, refsOf('group'), refsOf('student')).length)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+}
+
+function dutyDays(group, from, to) {
+  const clock = now();
+  return dutyRoster({
+    group, groups: refsOf('group'), students: refsOf('student'), events: state.allEvents, attendance: state.attendance,
+    from, to, nowISO: clock.iso, nowTime: clock.time, start: `${schoolYearOf(clock.iso)}-09-01`,
+  });
+}
+
+function dutyMonth() {
+  const first = `${dutyState.month}-01`;
+  const next = new Date(`${first}T12:00`);
+  next.setMonth(next.getMonth() + 1);
+  return { from: first, to: addDays(toISO(next), -1) };
+}
+
+function openDuty() {
+  const groups = dutyGroups();
+  if (!groups.some((group) => group.id === dutyState.groupId)) dutyState.groupId = groups[0]?.id ?? '';
+  dutyState.month = now().iso.slice(0, 7);
+  drawDuty();
+  $('duty').showModal();
+}
+
+async function saveDutyGroup(group, changes) {
+  const result = await api.saveRefs([{ ref: { ...group, ...changes }, base: group.updatedAt }]);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return;
+  }
+  await loadDirectory();
+  drawDuty();
+}
+
+function drawDuty() {
+  const dialog = $('duty');
+  const groups = dutyGroups();
+  const group = groups.find((item) => item.id === dutyState.groupId);
+  const today = now().iso;
+  const shift = (delta) => {
+    const date = new Date(`${dutyState.month}-01T12:00`);
+    date.setMonth(date.getMonth() + delta);
+    dutyState.month = toISO(date).slice(0, 7);
+    drawDuty();
+  };
+  const head = h('div', { class: 'sheethead' }, h('h2', {}, t('Дежурство')), closeButton(dialog));
+  if (!group) {
+    dialog.replaceChildren(head, h('div', { class: 'sheetbody' }, h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))));
+    return;
+  }
+  const { from, to } = dutyMonth();
+  const days = dutyDays(group, from, to);
+  const members = groupMembers(group, refsOf('group'), refsOf('student')).map((student) => student.name).sort((a, b) => a.localeCompare(b, 'ru'));
+  const exempt = new Set((group.dutyExempt ?? []).map(nameKey));
+  const onDuty = members.filter((name) => !exempt.has(nameKey(name)));
+  const todayDuty = dutyDays(group, today, today)[0];
+  const monthName = fmt(`${dutyState.month}-01`, { month: 'long', year: 'numeric' });
+  const stateText = (day) => (day.done === true ? t('отдежурил') : day.done === false ? t('не пришёл — дежурит в следующий раз') : '');
+  const replace = (day, value) => {
+    const duty = { ...(group.duty ?? {}) };
+    if (value) duty[day.date] = value;
+    else delete duty[day.date];
+    saveDutyGroup(group, { duty });
+  };
+  dialog.replaceChildren(
+    head,
+    h('div', { class: 'targets weektools' },
+      h('select', { id: 'duty-group', 'aria-label': t('Группа'), onchange: (e) => { dutyState.groupId = e.target.value; drawDuty(); } },
+        groups.map((item) => h('option', { value: item.id, selected: item.id === group.id }, item.name))),
+      h('button', { type: 'button', class: 'plain', 'aria-label': t('Предыдущий месяц'), onclick: () => shift(-1) }, '‹'),
+      h('strong', { id: 'duty-month' }, monthName),
+      h('button', { type: 'button', class: 'plain', 'aria-label': t('Следующий месяц'), onclick: () => shift(1) }, '›')),
+    h('div', { class: 'sheetbody' },
+      todayDuty && h('p', { class: 'dutytoday', id: 'duty-today' }, t('Сегодня дежурит: {0}', [todayDuty.name])),
+      h('p', { class: 'help' }, t('По одному студенту в каждый день, когда у группы есть пары. Дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Замену можно выбрать в строке дня.')),
+      days.length
+        ? h('div', { class: 'tablewrap' }, h('table', { class: 'filetable dutytable' },
+          h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Отметка'), t('Замена')].map((name) => h('th', { scope: 'col' }, name)))),
+          h('tbody', {}, days.map((day) => h('tr', { 'data-date': day.date, class: [day.date === today ? 'today' : '', day.done === false ? 'missed' : ''].filter(Boolean).join(' ') },
+            h('td', {}, fmt(day.date, { weekday: 'short', day: 'numeric', month: 'long' })),
+            h('td', {}, h('b', {}, day.name), day.manual && h('small', { class: 'pastmark' }, t('замена'))),
+            h('td', {}, stateText(day)),
+            h('td', {}, h('select', { 'aria-label': t('Замена: {0}', [day.date]), onchange: (e) => replace(day, e.target.value) },
+              h('option', { value: '', selected: !day.manual }, t('По очереди')),
+              onDuty.map((name) => h('option', { value: name, selected: day.manual && name === day.name }, name)))))))))
+        : h('p', { class: 'help' }, t('В этом месяце у группы нет пар.')),
+      h('details', { class: 'dutysettings', open: dutyState.settings, ontoggle: (e) => { dutyState.settings = e.target.open; } },
+        h('summary', {}, t('Начало графика и кто не дежурит')),
+        h('label', { class: 'field' }, h('span', { class: 'label' }, t('Начало графика')),
+          h('input', { type: 'date', id: 'duty-from', value: group.dutyFrom ?? '', onchange: (e) => saveDutyGroup(group, { dutyFrom: e.target.value }) }),
+          h('p', { class: 'help' }, t('Если не указано — с 1 сентября. Новое начало запускает очередь заново, с первого по алфавиту.'))),
+        h('fieldset', { class: 'dutyexempt' },
+          h('legend', {}, t('Не дежурят: {0}', [members.length - onDuty.length])),
+          members.map((name) => h('label', { class: 'checkrow' },
+            h('input', { type: 'checkbox', 'data-exempt': name, checked: exempt.has(nameKey(name)), onchange: (e) => {
+              const list = (group.dutyExempt ?? []).filter((item) => nameKey(item) !== nameKey(name));
+              saveDutyGroup(group, { dutyExempt: e.target.checked ? [...list, name] : list });
+            } }), name))))),
+    h('div', { class: 'sheetfoot' }, printButtons(() => dutySheet(group, days, monthName), () => t('Дежурство {0} {1}.pdf', [group.name, monthName]))),
+  );
+}
+
+/** Лист графика на стену: дата, дежурный и подпись. */
+function dutySheet(group, days, monthName) {
+  return h('article', { class: 'paper dutypaper' },
+    h('header', {}, h('h2', {}, t('График дежурства')), h('p', {}, t('Группа {0}, {1}', [group.name, monthName]))),
+    h('table', {},
+      h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Подпись')].map((name) => h('th', {}, name)))),
+      h('tbody', {}, days.map((day) => h('tr', {},
+        h('td', {}, fmt(day.date, { weekday: 'short', day: 'numeric', month: 'long' })), h('td', {}, day.name), h('td', { class: 'mark' }, ''))))));
 }
 
 /* Ранний сигнал для кураторов */
@@ -5992,6 +6115,7 @@ function wire() {
   $('open-groupweek').addEventListener('click', openGroupWeek);
   $('open-chronicle').addEventListener('click', openChronicle);
   $('open-grade').addEventListener('click', openGrades);
+  $('open-duty').addEventListener('click', openDuty);
   // Табло перемены: любое касание или нажатие убирает его и откладывает на минуту.
   for (const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, touched, { capture: true, passive: true });
   setInterval(refreshBoard, 5000);

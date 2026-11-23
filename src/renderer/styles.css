@@ -1163,3 +1163,20 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .misconductpaper table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 10pt; }
 .misconductpaper th, .misconductpaper td { border: .5pt solid #000; padding: 1mm 1.5mm; text-align: left; }
 .misconductpaper .signature { margin-top: 10mm; text-align: right; }
+
+/* Дежурство */
+#duty .weektools { align-items: center; }
+#duty-month { min-width: 9rem; text-align: center; text-transform: capitalize; }
+.dutytoday { font-size: 1.2rem; font-weight: 600; margin: 0 0 .4rem; }
+.dutytable { width: 100%; border-collapse: collapse; }
+.dutytable th, .dutytable td { padding: .35rem .5rem; border-bottom: .05rem solid var(--border); text-align: left; }
+.dutytable tr.today td { background: var(--accent-subtle); }
+.dutytable tr.missed td:nth-child(3) { color: var(--danger-fg, #e5534b); }
+.dutytable select { min-height: 2.3rem; max-width: 14rem; padding: .15rem .4rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.dutysettings { margin-top: 1rem; }
+.dutysettings summary { cursor: pointer; min-height: 2.4rem; display: flex; align-items: center; font-weight: 600; }
+.dutysettings input[type=date] { min-height: 2.4rem; padding: .2rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.dutyexempt { border: .05rem solid var(--border); border-radius: .4rem; padding: .5rem .8rem; display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; }
+.dutyexempt .checkrow { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.2rem; }
+.dutypaper td.mark { width: 45mm; }
+.dutytable td:first-child { white-space: nowrap; }
