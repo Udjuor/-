@@ -1180,3 +1180,11 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .dutyexempt .checkrow { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.2rem; }
 .dutypaper td.mark { width: 45mm; }
 .dutytable td:first-child { white-space: nowrap; }
+.dutyhead { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem 1rem; margin-bottom: .8rem; padding: .6rem .8rem; border: .05rem solid var(--border); border-radius: .4rem; background: var(--canvas-subtle); }
+.dutyhead p { margin: 0; flex: 1 1 100%; }
+.dutyhead label { display: flex; flex-direction: column; gap: .2rem; }
+.dutyhead input, .dutyhead select { min-height: 2.5rem; padding: .2rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.dutyhead #duty-code { width: 9rem; letter-spacing: .2em; }
+.dutycode { font-size: 1.1rem; font-weight: 600; }
+.dutytable select:disabled { opacity: .6; }
+.chip.dutychip { --type: #8250df; }

@@ -23,7 +23,10 @@ const today = (() => {
     fs.writeFileSync(path.join(events, `${id}.json`), JSON.stringify({ id, updatedAt: '2026-11-01T00:00:00.000Z', ...record }));
     return id;
   };
-  put({ kind: 'group', name: 'ИС-21' });
+  // Группа со старостой: код 4821, в справочнике только отпечаток.
+  const dutyHash = crypto.createHash('sha256').update('kerdiis-duty:4821').digest('hex');
+  const groupId = put({ kind: 'group', name: 'ИС-21', headman: 'Петров', headCode: dutyHash });
+  for (const name of ['Иванов', 'Петров', 'Сидоров', 'Козлов']) put({ kind: 'student', name, groupId });
   put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '19:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
   put({ title: 'Пара с перекличкой', type: 'lesson', date: today, start: '00:10', end: '01:30', participants: ['Алексеев', 'Борисов', 'Волков'], devices: [] });
   put({ title: 'Концерт на панели', type: 'event', date: today, start: '19:00', end: '19:30', participants: ['Сидоров'], devices: [] });
@@ -271,6 +274,29 @@ const today = (() => {
   assert.equal(await page.locator('#grade .gradetable .linkbutton').count(), 0, 'личное дело на панели не открывается');
   assert.equal(await page.locator('#grade .gradetable button:has-text("±")').count(), 0, 'баллы вручную на панели не добавляют');
   await page.click('#grade [aria-label=Закрыть]');
+
+  // Дежурство: дежурный в верхней строке дня, староста распределяет одногруппников по коду.
+  const dutyChip = page.locator('.dutychip[data-duty="ИС-21"]').first();
+  await dutyChip.waitFor();
+  assert.match(await dutyChip.textContent(), /^Дежурит: \S+, ИС-21$/);
+  await dutyChip.click();
+  await page.waitForSelector('#duty[open] #duty-code');
+  assert.equal(await page.locator('#duty .dutytable select:disabled').count() > 0, true, 'без кода только просмотр');
+  assert.equal(await page.locator('#duty-headman, #duty .dutysettings').count(), 0, 'старосту и настройки задаёт преподаватель');
+  await page.fill('#duty-code', '1111');
+  await page.click('#duty-login');
+  await page.waitForSelector('#duty-message:has-text("Код старосты не подходит")');
+  await page.fill('#duty-code', '4821');
+  await page.click('#duty-login');
+  await page.waitForSelector('#duty-head:has-text("Дежурных распределяет староста: Петров")');
+  await page.selectOption(`#duty tr[data-date="${today}"] select`, 'Козлов');
+  await page.waitForSelector(`#duty tr[data-date="${today}"] b:text-is("Козлов")`);
+  assert.equal((await page.evaluate(() => window.calendar.directory())).value.find((r) => r.kind === 'group').duty[today], 'Козлов');
+  assert.equal((await page.evaluate((id) => window.calendar.setDuty(id, '0000', { '2026-12-01': 'Иванов' }), groupId)).code, 'forbidden', 'без кода основной процесс не пускает');
+  assert.equal((await page.evaluate((id) => window.calendar.setDuty(id, '4821', { '2026-12-01': 'Чужой' }), groupId)).code, 'invalid', 'только одногруппники');
+  await shot('client-duty');
+  await page.click('#duty [aria-label=Закрыть]');
+  await page.waitForSelector('.dutychip[data-duty="ИС-21"]:has-text("Дежурит: Козлов, ИС-21")');
 
   // Табло перемены: через минуту без касаний панель показывает следующее в аудитории, касание убирает.
   await page.clock.setFixedTime(new Date(`${today}T20:30`));

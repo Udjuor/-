@@ -303,6 +303,11 @@ function normalizeRef(raw) {
     if (look) ref.petLook = Object.fromEntries(['head', 'left', 'right'].map((slot) => [slot, /^[a-z]{0,20}$/.test(look[slot] ?? '') ? look[slot] ?? '' : '']));
     else delete ref.petLook;
     // Дежурство: начало графика, кто не дежурит, ручные замены по датам (последние 400).
+    // Староста распределяет дежурство с панели по коду. Хранится только отпечаток кода (SHA-256).
+    ref.headman = String(raw.headman ?? '').trim().slice(0, 200);
+    if (!ref.headman) delete ref.headman;
+    ref.headCode = /^[0-9a-f]{64}$/.test(raw.headCode ?? '') ? raw.headCode : '';
+    if (!ref.headCode || !ref.headman) delete ref.headCode;
     ref.dutyFrom = DATE_RE.test(raw.dutyFrom ?? '') ? raw.dutyFrom : '';
     if (!ref.dutyFrom) delete ref.dutyFrom;
     const exempt = (Array.isArray(raw.dutyExempt) ? raw.dutyExempt : []).map((name) => String(name ?? '').trim().slice(0, 200)).filter(Boolean).slice(0, 200);
@@ -321,7 +326,7 @@ function normalizeRef(raw) {
     }));
   }
   if (raw.kind !== 'group') {
-    for (const field of ['petKind', 'petCoat', 'dutyFrom', 'dutyExempt', 'duty']) delete ref[field];
+    for (const field of ['petKind', 'petCoat', 'dutyFrom', 'dutyExempt', 'duty', 'headman', 'headCode']) delete ref[field];
   }
   if (raw.kind === 'notice') {
     ref.name = ref.name.slice(0, 200);

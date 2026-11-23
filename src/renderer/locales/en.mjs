@@ -355,6 +355,7 @@ export default {
     "Отчёт зафиксирован и отправлен на другие устройства.": "The report is locked and sent to other devices.",
     "Время прихода: {0}": "Arrival time: {0}",
     "Зафиксировать": "Lock",
+    "Выйти": "Sign out",
     "Зафиксировать и отправить": "Lock and send",
     "Отчёт зафиксирован: {0}, {1}": "Report locked: {0}, {1}",
     "Исправления после фиксации: {0}": "Corrections after locking: {0}",
@@ -1337,7 +1338,22 @@ export default {
     "Не дежурят: {0}": "Exempt from duty: {0}",
     "Дежурство {0} {1}.pdf": "Duty {0} {1}.pdf",
     "График дежурства": "Duty roster",
-    "Группа {0}, {1}": "Group {0}, {1}"
+    "Группа {0}, {1}": "Group {0}, {1}",
+    "Дежурный назначен: {0}": "On duty assigned: {0}",
+    "Дежурит: {0}, {1}": "On duty: {0}, {1}",
+    "Код старосты не подходит.": "Wrong class monitor code.",
+    "Старосту группы назначает преподаватель. Пока график только для просмотра.": "The teacher appoints the class monitor. For now the roster is view-only.",
+    "Дежурных распределяет староста: {0}": "Duty is assigned by the class monitor: {0}",
+    "Староста {0}: код": "Class monitor {0}: code",
+    "Распределить": "Assign duty",
+    "Староста": "Class monitor",
+    "Не назначен": "Not appointed",
+    "Новый код": "New code",
+    "Код старосты: {0}. Передайте его старосте — код показывается один раз.": "Class monitor code: {0}. Give it to the class monitor — the code is shown only once.",
+    "Староста распределяет дежурных на панели по своему коду. Забыли код — выдайте новый.": "The class monitor assigns duty on the panel with their code. Code forgotten? Issue a new one.",
+    "Дежурство — обязательная воспитательная работа. По одному студенту в каждый день, когда у группы есть пары. Староста распределяет одногруппников; где он никого не выбрал, дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Дежурные видны в верхней строке дня.": "Duty is compulsory educational work. One student on each day the group has classes. The class monitor assigns classmates; where nobody is chosen, the one who hasn’t been on duty the longest goes next. If the student on duty doesn’t come that day, they are on duty the next study day. Students on duty are shown in the day’s top row.",
+    "Назначить": "Assign",
+    "по очереди": "in turn"
   },
   "plurals": {
     "events": {

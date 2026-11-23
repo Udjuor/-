@@ -1,4 +1,4 @@
-import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, dutyRoster, earlySignals, incidentSummary, portfolio } from './logic.mjs';
+import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, dutyRoster, earlySignals, isHeld, incidentSummary, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
@@ -232,13 +232,53 @@ function allDayChip(event) {
 }
 
 /** События на весь день и сроки не привязаны к часам, поэтому идут полосой над сеткой. */
+/*
+ * Дежурные дня в верхней строке: по группе, у которой в этот день есть пары среди показанных.
+ * На панелях студент без согласия на показ виден как «дежурный назначен».
+ */
+let dutyCache = { key: null, rosters: new Map() };
+function dutyOn(iso) {
+  const key = [state.allEvents, state.attendance, state.directory, now().iso];
+  if (!dutyCache.key || dutyCache.key.some((item, i) => item !== key[i])) dutyCache = { key, rosters: new Map() };
+  const shownGroups = new Set();
+  const students = refsOf('student');
+  const groupOf = new Map(students.map((student) => [nameKey(student.name), student.groupId]));
+  for (const event of eventsOn(state.shown, iso)) {
+    if (event.type !== 'lesson' || !isHeld(event)) continue;
+    for (const name of event.participants) if (groupOf.has(nameKey(name))) shownGroups.add(groupOf.get(nameKey(name)));
+  }
+  const groups = refsOf('group');
+  const tops = new Set([...shownGroups].map((id) => groups.find((group) => group.id === id)).filter(Boolean).map((group) => (parentGroup(group, groups) ?? group).id));
+  return dutyGroups().filter((group) => tops.has(group.id)).flatMap((group) => {
+    const month = iso.slice(0, 7);
+    const cacheKey = `${group.id}|${month}`;
+    if (!dutyCache.rosters.has(cacheKey)) {
+      const first = `${month}-01`;
+      dutyCache.rosters.set(cacheKey, dutyDays(group, first, addDays(addMonths(first, 1), -1)));
+    }
+    const day = dutyCache.rosters.get(cacheKey).find((item) => item.date === iso);
+    return day ? [{ group, name: day.name, date: iso }] : [];
+  });
+}
+
+function dutyChip({ group, name, date }) {
+  const hidden = isClient() && hiddenOnPanel().has(nameKey(name));
+  return h('button', {
+    class: 'chip alldaychip dutychip',
+    'data-duty': group.name,
+    onclick: (e) => { e.stopPropagation(); openDuty(group.id, date); },
+  }, hidden ? t('Дежурный назначен: {0}', [group.name]) : t('Дежурит: {0}, {1}', [name, group.name]));
+}
+
 function deadlineStrip(days) {
   const allDay = days.map((iso) => eventsOn(state.shown, iso).filter(isAllDay));
   const perDay = days.map(deadlinesOn);
-  if (![...allDay, ...perDay].some((items) => items.length)) return null;
+  const duties = days.map(dutyOn);
+  if (![...allDay, ...perDay, ...duties].some((items) => items.length)) return null;
   return h('div', { class: 'deadlinestrip' },
     h('span', { class: 'deadlinegutter' }),
     perDay.map((items, i) => h('div', { class: 'deadlineday' },
+      duties[i].map(dutyChip),
       allDay[i].map(allDayChip),
       items.slice(0, 2).map(deadlineChip),
       items.length > 2 && h('button', { class: 'more', onclick: openDeadlines }, t('ещё {0}', [items.length - 2])))));
@@ -2265,7 +2305,7 @@ const canManage = () => !isClient();
 
 /** Клиент на панели не показывает разделы преподавателя. Запрет проверяется и в основном процессе. */
 function applyEdition() {
-  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal', 'open-chronicle', 'open-duty']) $(id).hidden = isClient();
+  for (const id of ['open-catalog', 'open-reports', 'notices-open', 'open-journal', 'open-chronicle']) $(id).hidden = isClient();
 }
 
 /* Отметки на паре */
@@ -3963,7 +4003,7 @@ function refreshDeadlines() {
  * Дежурство: по одному студенту группы в каждый учебный день, по очереди.
  * Очередь считает dutyRoster; здесь — месяц графика, замены, кто не дежурит, начало и печать.
  */
-const dutyState = { groupId: '', month: '', settings: false };
+const dutyState = { groupId: '', month: '', settings: false, code: '', unlocked: '', headman: '', newCode: '', message: '' };
 
 function dutyGroups() {
   return refsOf('group').filter((group) => !parentGroup(group, refsOf('group')) && groupMembers(group, refsOf('group'), refsOf('student')).length)
@@ -3985,10 +4025,13 @@ function dutyMonth() {
   return { from: first, to: addDays(toISO(next), -1) };
 }
 
-function openDuty() {
+function openDuty(groupId = '', date = '') {
   const groups = dutyGroups();
+  if (groupId) dutyState.groupId = groupId;
   if (!groups.some((group) => group.id === dutyState.groupId)) dutyState.groupId = groups[0]?.id ?? '';
-  dutyState.month = now().iso.slice(0, 7);
+  dutyState.month = (date || now().iso).slice(0, 7);
+  // Староста входит заново при каждом открытии: панель общая.
+  Object.assign(dutyState, { code: '', unlocked: '', headman: '', newCode: '', message: '' });
   drawDuty();
   $('duty').showModal();
 }
@@ -4001,6 +4044,7 @@ async function saveDutyGroup(group, changes) {
   }
   await loadDirectory();
   drawDuty();
+  render();
 }
 
 function drawDuty() {
@@ -4027,12 +4071,56 @@ function drawDuty() {
   const todayDuty = dutyDays(group, today, today)[0];
   const monthName = fmt(`${dutyState.month}-01`, { month: 'long', year: 'numeric' });
   const stateText = (day) => (day.done === true ? t('отдежурил') : day.done === false ? t('не пришёл — дежурит в следующий раз') : '');
-  const replace = (day, value) => {
-    const duty = { ...(group.duty ?? {}) };
-    if (value) duty[day.date] = value;
-    else delete duty[day.date];
-    saveDutyGroup(group, { duty });
+  // Распределяет староста (с панели, по коду) или преподаватель.
+  const canEdit = canManage() || dutyState.unlocked === group.id;
+  const replace = async (day, value) => {
+    const result = await api.setDuty(group.id, dutyState.code, { [day.date]: value });
+    if (!result.ok) {
+      dutyState.message = result.code === 'forbidden' ? t('Код старосты не подходит.') : storeMessage(result);
+      drawDuty();
+      return;
+    }
+    dutyState.message = '';
+    await loadDirectory();
+    drawDuty();
+    render();
   };
+  const unlock = async () => {
+    const code = $('duty-code').value.trim();
+    const result = await api.checkDuty(group.id, code);
+    if (!result.ok) {
+      dutyState.message = t('Код старосты не подходит.');
+      drawDuty();
+      return;
+    }
+    Object.assign(dutyState, { code, unlocked: group.id, headman: result.value.headman, message: '' });
+    drawDuty();
+  };
+  const newCode = async (headman) => {
+    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 9000 + 1000);
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`kerdiis-duty:${code}`));
+    const headCode = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    dutyState.newCode = headman ? code : '';
+    await saveDutyGroup(group, headman ? { headman, headCode } : { headman: '', headCode: '' });
+  };
+  const headBox = isClient()
+    ? h('div', { class: 'dutyhead', id: 'duty-head' }, !group.headman
+      ? h('p', { class: 'help' }, t('Старосту группы назначает преподаватель. Пока график только для просмотра.'))
+      : canEdit
+        ? [h('p', {}, t('Дежурных распределяет староста: {0}', [dutyState.headman || group.headman])),
+          h('button', { type: 'button', class: 'plain', id: 'duty-logout', onclick: () => { Object.assign(dutyState, { code: '', unlocked: '' }); drawDuty(); } }, t('Выйти'))]
+        : [h('label', {}, h('span', {}, t('Староста {0}: код', [group.headman])),
+          h('input', { id: 'duty-code', type: 'password', inputmode: 'numeric', maxlength: 8, autocomplete: 'off', onkeydown: (e) => { if (e.key === 'Enter') unlock(); } })),
+          h('button', { type: 'button', class: 'primary', id: 'duty-login', onclick: unlock }, t('Распределить'))])
+    : h('div', { class: 'dutyhead', id: 'duty-head' },
+      h('label', {}, h('span', {}, t('Староста')),
+        h('select', { id: 'duty-headman', onchange: (e) => newCode(e.target.value) },
+          h('option', { value: '' }, t('Не назначен')),
+          members.map((name) => h('option', { value: name, selected: name === group.headman }, name)))),
+      group.headman && h('button', { type: 'button', class: 'plain', id: 'duty-newcode', onclick: () => newCode(group.headman) }, t('Новый код')),
+      dutyState.newCode
+        ? h('p', { class: 'dutycode', id: 'duty-newcode-value' }, t('Код старосты: {0}. Передайте его старосте — код показывается один раз.', [dutyState.newCode]))
+        : group.headman && h('p', { class: 'help' }, t('Староста распределяет дежурных на панели по своему коду. Забыли код — выдайте новый.')));
   dialog.replaceChildren(
     head,
     h('div', { class: 'targets weektools' },
@@ -4042,20 +4130,22 @@ function drawDuty() {
       h('strong', { id: 'duty-month' }, monthName),
       h('button', { type: 'button', class: 'plain', 'aria-label': t('Следующий месяц'), onclick: () => shift(1) }, '›')),
     h('div', { class: 'sheetbody' },
+      headBox,
+      dutyState.message && h('p', { class: 'message error', id: 'duty-message' }, dutyState.message),
       todayDuty && h('p', { class: 'dutytoday', id: 'duty-today' }, t('Сегодня дежурит: {0}', [todayDuty.name])),
-      h('p', { class: 'help' }, t('По одному студенту в каждый день, когда у группы есть пары. Дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Замену можно выбрать в строке дня.')),
+      h('p', { class: 'help' }, t('Дежурство — обязательная воспитательная работа. По одному студенту в каждый день, когда у группы есть пары. Староста распределяет одногруппников; где он никого не выбрал, дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Дежурные видны в верхней строке дня.')),
       days.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'filetable dutytable' },
-          h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Отметка'), t('Замена')].map((name) => h('th', { scope: 'col' }, name)))),
+          h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Отметка'), t('Назначить')].map((name) => h('th', { scope: 'col' }, name)))),
           h('tbody', {}, days.map((day) => h('tr', { 'data-date': day.date, class: [day.date === today ? 'today' : '', day.done === false ? 'missed' : ''].filter(Boolean).join(' ') },
             h('td', {}, fmt(day.date, { weekday: 'short', day: 'numeric', month: 'long' })),
-            h('td', {}, h('b', {}, day.name), day.manual && h('small', { class: 'pastmark' }, t('замена'))),
+            h('td', {}, h('b', {}, day.name), !day.manual && h('small', { class: 'pastmark' }, t('по очереди'))),
             h('td', {}, stateText(day)),
-            h('td', {}, h('select', { 'aria-label': t('Замена: {0}', [day.date]), onchange: (e) => replace(day, e.target.value) },
+            h('td', {}, h('select', { 'aria-label': t('Замена: {0}', [day.date]), disabled: !canEdit, onchange: (e) => replace(day, e.target.value) },
               h('option', { value: '', selected: !day.manual }, t('По очереди')),
               onDuty.map((name) => h('option', { value: name, selected: day.manual && name === day.name }, name)))))))))
         : h('p', { class: 'help' }, t('В этом месяце у группы нет пар.')),
-      h('details', { class: 'dutysettings', open: dutyState.settings, ontoggle: (e) => { dutyState.settings = e.target.open; } },
+      canManage() && h('details', { class: 'dutysettings', open: dutyState.settings, ontoggle: (e) => { dutyState.settings = e.target.open; } },
         h('summary', {}, t('Начало графика и кто не дежурит')),
         h('label', { class: 'field' }, h('span', { class: 'label' }, t('Начало графика')),
           h('input', { type: 'date', id: 'duty-from', value: group.dutyFrom ?? '', onchange: (e) => saveDutyGroup(group, { dutyFrom: e.target.value }) }),
@@ -4067,7 +4157,7 @@ function drawDuty() {
               const list = (group.dutyExempt ?? []).filter((item) => nameKey(item) !== nameKey(name));
               saveDutyGroup(group, { dutyExempt: e.target.checked ? [...list, name] : list });
             } }), name))))),
-    h('div', { class: 'sheetfoot' }, printButtons(() => dutySheet(group, days, monthName), () => t('Дежурство {0} {1}.pdf', [group.name, monthName]))),
+    canManage() && h('div', { class: 'sheetfoot' }, printButtons(() => dutySheet(group, days, monthName), () => t('Дежурство {0} {1}.pdf', [group.name, monthName]))),
   );
 }
 

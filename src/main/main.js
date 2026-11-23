@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron');
 const { execFile } = require('node:child_process');
+const { createHash } = require('node:crypto');
 const { existsSync, readFileSync } = require('node:fs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -424,6 +425,40 @@ function registerHandlers() {
       next.petCoat = changes.coat;
     }
     const saved = await store.saveRef(next, group.updatedAt);
+    sync?.nudge();
+    return saved;
+  }));
+  // Дежурство: староста группы распределяет одногруппников с панели по своему коду, преподаватель — без кода.
+  // Меняются только дежурные по датам (duty), и только на студентов этой группы и её подгрупп.
+  const dutyGroup = async (groupId, code) => {
+    const directory = await store.directory();
+    const group = directory.find((ref) => ref.kind === 'group' && ref.id === groupId);
+    if (!group) throw Object.assign(new Error('no group'), { code: 'not-found' });
+    if (edition === 'client') {
+      const hash = createHash('sha256').update(`kerdiis-duty:${String(code ?? '').trim()}`).digest('hex');
+      if (!group.headCode || hash !== group.headCode) throw Object.assign(new Error('bad code'), { code: 'forbidden' });
+    }
+    return { directory, group };
+  };
+  ipcMain.handle('duty:check', (_e, groupId, code) => respond(async () => {
+    const { group } = await dutyGroup(groupId, code);
+    return { headman: group.headman ?? '' };
+  }));
+  ipcMain.handle('duty:set', (_e, groupId, code, changes) => respond(async () => {
+    const { directory, group } = await dutyGroup(groupId, code);
+    // Подгруппы — как parentGroup в logic.mjs: «ИС-21-1» входит в «ИС-21».
+    const key = (name) => String(name ?? '').trim().toLowerCase().replaceAll('ё', 'е');
+    const groupIds = new Set(directory.filter((ref) => ref.kind === 'group'
+      && (ref.id === group.id || key(String(ref.name).trim().match(/^(.+)-\d+$/)?.[1]) === key(group.name))).map((ref) => ref.id));
+    const members = new Set(directory.filter((ref) => ref.kind === 'student' && groupIds.has(ref.groupId)).map((ref) => ref.name));
+    const duty = { ...(group.duty ?? {}) };
+    for (const [date, name] of Object.entries(changes && typeof changes === 'object' ? changes : {})) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Object.assign(new Error('bad date'), { code: 'invalid' });
+      if (!name) delete duty[date];
+      else if (members.has(name)) duty[date] = name;
+      else throw Object.assign(new Error('not a member'), { code: 'invalid' });
+    }
+    const saved = await store.saveRef({ ...group, duty }, group.updatedAt);
     sync?.nudge();
     return saved;
   }));

@@ -1143,10 +1143,19 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.check(`#duty [data-exempt="${todayName}"]`);
   await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 1")');
   assert.equal(await page.locator(`#duty .dutytable b:text-is("${todayName}")`).count(), 0, 'освобождённый не дежурит');
+  // Старосту назначает преподаватель: код показывается один раз, в справочнике — только отпечаток.
+  await page.selectOption('#duty-headman', todayName === substitute ? dutyRows[0][1] : substitute);
+  const shownCode = (await page.textContent('#duty-newcode-value')).match(/Код старосты: (\d{4})/)[1];
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'group' && r.name === 'ИС-21' && r.headCode), 'староста на другом устройстве');
+  const withHead = (await teacherStore.directory()).find((r) => r.kind === 'group' && r.name === 'ИС-21');
+  assert.match(withHead.headCode, /^[0-9a-f]{64}$/);
+  assert.equal(JSON.stringify(withHead).includes(shownCode), false, 'код не хранится открыто');
   await shot('duty');
   await page.uncheck(`#duty [data-exempt="${todayName}"]`);
   await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 0")');
   await page.click('#duty [aria-label=Закрыть]');
+  // Дежурный — в верхней строке дня.
+  await page.waitForSelector(`.dutychip[data-duty="ИС-21"]:has-text("Дежурит: ${substitute}")`);
 
   // Кому дать: в новом задании — студенты с наименьшим опытом, одним нажатием в участники.
   await page.click('#add');
