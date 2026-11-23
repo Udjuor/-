@@ -234,7 +234,7 @@ function allDayChip(event) {
 /** События на весь день и сроки не привязаны к часам, поэтому идут полосой над сеткой. */
 /*
  * Дежурные дня в верхней строке: по группе, у которой в этот день есть пары среди показанных.
- * На панелях студент без согласия на показ виден как «дежурный назначен».
+ * Дежурство — обязательная воспитательная работа по договору, поэтому ФИО дежурного видно всегда.
  */
 let dutyCache = { key: null, rosters: new Map() };
 function dutyOn(iso) {
@@ -262,12 +262,11 @@ function dutyOn(iso) {
 }
 
 function dutyChip({ group, name, date }) {
-  const hidden = isClient() && hiddenOnPanel().has(nameKey(name));
   return h('button', {
     class: 'chip alldaychip dutychip',
     'data-duty': group.name,
     onclick: (e) => { e.stopPropagation(); openDuty(group.id, date); },
-  }, hidden ? t('Дежурный назначен: {0}', [group.name]) : t('Дежурит: {0}, {1}', [name, group.name]));
+  }, t('Дежурит: {0}, {1}', [name, group.name]));
 }
 
 function deadlineStrip(days) {
