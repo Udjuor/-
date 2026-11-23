@@ -1039,7 +1039,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   // Баллы вручную: преподаватель добавляет +10 за олимпиаду последнему в списке.
   const lastRow = '#grade .gradetable tbody tr:last-child';
   const bonusName = (await page.textContent(`${lastRow} .linkbutton`)).trim();
-  const pointsBefore = Number(await page.textContent(`${lastRow} td:nth-child(5)`));
+  const pointsBefore = Number(await page.textContent(`${lastRow} td:nth-child(6)`));
   await page.click(`${lastRow} button:has-text("±")`);
   await page.waitForSelector('#gradebonus[open] #gb-points');
   await page.fill('#gb-points', '0');
@@ -1054,8 +1054,26 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await shot('gradebonus');
   await page.click('#gradebonus [aria-label=Закрыть]');
   const bonusRow = page.locator('#grade .gradetable tbody tr', { has: page.locator(`.linkbutton:text-is("${bonusName}")`) });
-  assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10, 'баллы выросли на 10');
-  assert.equal((await bonusRow.locator('td:nth-child(13)').textContent()).trim(), '+10');
+  assert.equal(Number(await bonusRow.locator('td:nth-child(6)').textContent()), pointsBefore + 10, 'баллы выросли на 10');
+  assert.equal((await bonusRow.locator('td:nth-child(14)').textContent()).trim(), '+10');
+  // Флажки: красный этому студенту, фильтр и группировка по флажкам, подпись цвета.
+  await bonusRow.locator('[data-flag=red]').click();
+  await page.waitForSelector(`#grade tr[data-student="${bonusName}"] [data-flag=red][aria-pressed=true]`);
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'student' && r.name === bonusName && r.flags?.includes('red')), 'флажок на другом устройстве');
+  await page.click('#grade [data-grflag=red]');
+  await page.waitForSelector('#grade .gradetable tbody tr:only-child');
+  assert.equal(await page.locator('#grade .gradetable tbody tr').count(), 1);
+  await page.click('#gr-flagnames');
+  await page.fill('#grade [data-flagname=red]', 'Группа риска');
+  await page.press('#grade [data-flagname=red]', 'Enter');
+  await page.waitForSelector('#grade [data-grflag=red]:has-text("Группа риска: 1")');
+  await page.click('#grade [data-grflag=all]');
+  await page.check('#gr-byflag');
+  await page.waitForSelector('#grade tr.flaghead[data-section=red]:has-text("Группа риска: 1")');
+  await page.waitForSelector('#grade tr.flaghead[data-section=none]');
+  await shot('flags');
+  await page.uncheck('#gr-byflag');
+  await page.click('#gr-flagnames');
   // Расчёт баллов: по дням, за что и итог; ручной плюс — поощрение.
   await bonusRow.locator('[data-calc]').click();
   await page.waitForSelector('#gradecalc[open] h2:has-text("Расчёт баллов")');
@@ -1071,7 +1089,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#gradecalc [aria-label=Закрыть]');
   await shot('grade');
   // Из грейда преподаватель открывает личное дело студента.
-  await bonusRow.locator('td:nth-child(2) .linkbutton').click();
+  await bonusRow.locator('td:nth-child(3) .linkbutton').click();
   await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Олимпиада по программированию")');
   await page.waitForSelector('#studentfile[open] .filepaper h2');
   await page.waitForSelector('#studentfile .filepaper h3:has-text("Посещаемость")');
@@ -1081,7 +1099,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#studentfile [aria-label=Закрыть]');
 
   // Прошлые работы: мероприятие до начала работы в Kerdiis, внесённое задним числом, даёт +5 и +2 за роль.
-  const eventsBefore = Number(await bonusRow.locator('td:nth-child(11)').textContent());
+  const eventsBefore = Number(await bonusRow.locator('td:nth-child(12)').textContent());
   await page.click('#gr-past');
   await page.waitForSelector('#pastworks[open] #pw-type');
   await page.selectOption('#pw-type', 'event');
@@ -1098,119 +1116,12 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   assert.match(await page.textContent('#pastworks .pastworks li:has-text("Неделя кино")'), /были 1, с ролью 1/);
   await shot('pastworks');
   await page.click('#pastworks [aria-label=Закрыть]');
-  assert.equal(Number(await bonusRow.locator('td:nth-child(5)').textContent()), pointsBefore + 10 + 7, 'прошлое мероприятие с ролью: +7');
-  assert.equal(Number(await bonusRow.locator('td:nth-child(11)').textContent()), eventsBefore + 1);
-  await bonusRow.locator('td:nth-child(2) .linkbutton').click();
+  assert.equal(Number(await bonusRow.locator('td:nth-child(6)').textContent()), pointsBefore + 10 + 7, 'прошлое мероприятие с ролью: +7');
+  assert.equal(Number(await bonusRow.locator('td:nth-child(12)').textContent()), eventsBefore + 1);
+  await bonusRow.locator('td:nth-child(3) .linkbutton').click();
   await page.waitForSelector('#studentfile[open] .filepaper td:has-text("Неделя кино")');
   assert.match(await page.textContent('#studentfile .filepaper'), /внесено задним числом/);
   await page.click('#studentfile [aria-label=Закрыть]');
-  await page.click('#grade [aria-label=Закрыть]');
-
-  // Кинохакатон: команды поровну по опыту, роли, этапы, техника за командами, жюри и итоги — в рейтинг.
-  await page.click('#open-sections');
-  await page.click('#open-hackathon');
-  await page.waitForSelector('#hackathon[open] #hk-name');
-  await page.fill('#hk-name', 'Осень');
-  await page.fill('#hk-from', day(0));
-  await page.fill('#hk-to', day(0));
-  await page.fill('#hk-start', '10:00');
-  await page.fill('#hk-end', '18:00');
-  await page.check('#hackathon .hk-group[data-group="ИС-21"]');
-  await page.click('#hk-save');
-  await page.waitForSelector('#hackathon [data-hktab=teams][aria-pressed=true]');
-  await page.fill('#hk-count', '2');
-  await page.click('#hk-build');
-  await page.waitForSelector('#hackathon .hkteam >> nth=1');
-  const teamSizes = await page.$$eval('#hackathon .hkteam', (teams) => teams.map((team) => team.querySelectorAll('.hkmembers li').length));
-  assert.equal(teamSizes.length, 2);
-  assert.ok(Math.abs(teamSizes[0] - teamSizes[1]) <= 1, `команды поровну: ${teamSizes}`);
-  assert.match(await page.textContent('#hk-balance'), /Опыт команд: \d+ · \d+ \(разница \d+\)/);
-  const roleCount = await page.$$eval('#hackathon .hkteam select[aria-label^="Роль"]', (selects) => selects.filter((s) => s.value).length);
-  assert.ok(roleCount >= 2, 'ключевые роли розданы');
-  await page.click('#hk-again');
-  await page.waitForSelector('#hackathon .hkteam >> nth=1');
-  // Перевод студента в другую команду вручную.
-  const moved = await page.getAttribute('#hackathon .hkteam >> nth=0 >> .hkmembers li >> nth=0', 'data-member');
-  const secondTeam = await page.getAttribute('#hackathon .hkteam >> nth=1', 'data-team');
-  await page.selectOption(`#hackathon [aria-label="Перевести: ${moved}"]`, secondTeam);
-  await page.waitForSelector(`#hackathon .hkteam[data-team="${secondTeam}"] li[data-member="${moved}"]`);
-  await page.click('#hk-approve');
-  await page.waitForSelector('#hk-balance.hkok:has-text("Команды утверждены")');
-  await shot('hackathon-teams');
-
-  await page.click('#hackathon [data-hktab=stages]');
-  await page.click('#hk-stage-typical');
-  await page.waitForSelector('#hackathon .hkstages li >> nth=3');
-  assert.match(await page.textContent('#hackathon .hkstages'), /Идея и сценарий[\s\S]*12:00[\s\S]*Показ[\s\S]*18:00/);
-  const firstStage = '#hackathon .hkgrid tbody tr:first-child td:nth-child(3) .hkstage';
-  await page.click(firstStage);
-  await page.waitForSelector(`${firstStage}:has-text("Сдано")`);
-  await page.fill('#hackathon .hkgrid tbody tr:first-child .hkfilm', 'Последний троллейбус');
-  await page.press('#hackathon .hkgrid tbody tr:first-child .hkfilm', 'Enter');
-  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'hackathon' && r.teams[0]?.film === 'Последний троллейбус'), 'хакатон на другом устройстве');
-  await shot('hackathon-stages');
-
-  await page.click('#hackathon [data-hktab=gear]');
-  const gearTeam = '#hackathon .hkteam >> nth=0';
-  await page.selectOption(`${gearTeam} >> .hkaddgear`, 'Камера');
-  await page.waitForSelector(`${gearTeam} >> .hkgear li[data-item="Камера"]`);
-  // Каждое действие перерисовывает окно: ждём новую отрисовку, прежде чем жать дальше.
-  const redrawn = async (action) => {
-    await page.evaluate(() => { document.querySelector('#hackathon .hackbody').dataset.old = '1'; });
-    await action();
-    await page.waitForSelector('#hackathon .hackbody:not([data-old])');
-  };
-  for (let i = 0; i < 3 && !(await page.isVisible('#hk-message')); i += 1) await redrawn(() => page.click(`${gearTeam} >> [aria-label="Больше: Камера"]`));
-  assert.match(await page.textContent('#hk-message'), /Камера: нужно \d, свободно \d из 2/);
-  await shot('hackathon-gear');
-  // Камера команды видна в «Технике» и занята для пар в часы хакатона.
-  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'hackathon' && r.teams[0]?.equipment?.['Камера'] >= 1), 'техника команды на другом устройстве');
-
-  await page.click('#hackathon [data-hktab=board]');
-  await page.waitForSelector('#hk-count-down:has-text("Идея и сценарий")');
-  assert.match(await page.textContent('#hk-count-down'), /0 ч 18 мин|18 мин/);
-  await page.waitForSelector('#ticker .notice:has-text("Кинохакатон «Осень»")');
-  await shot('hackathon-board');
-
-  await page.click('#hackathon [data-hktab=jury]');
-  await page.fill('#hk-jury-add', 'Павлов С. Н.; Иванова А. А.');
-  await page.click('#hk-jury-btn');
-  await page.waitForSelector('#hackathon .hkjury li >> nth=1');
-  await page.click('#hk-crit-typical');
-  await page.waitForSelector('#hackathon .hkscores');
-  const score = (team, criterion, value) => redrawn(async () => {
-    const input = `#hackathon .hkscores tbody tr >> nth=${team} >> input >> nth=${criterion}`;
-    await page.fill(input, String(value));
-    await page.press(input, 'Tab');
-  });
-  for (let c = 0; c < 5; c += 1) await score(0, c, 9);
-  for (let c = 0; c < 5; c += 1) await score(1, c, 7);
-  await page.selectOption('#hk-juror', 'Иванова А. А.');
-  await score(0, 0, 8);
-  await page.waitForSelector('#hk-result');
-  assert.match(await page.textContent('#hackathon'), /Не хватает оценок: 9/);
-  assert.equal(await page.isVisible('#hk-message'), false);
-  await page.click('#hk-finish');
-  await page.waitForSelector('#hk-finish:has-text("Подвести итоги всё равно")');
-  await page.click('#hk-finish');
-  await page.waitForSelector('#hk-finish:has-text("Вернуть к оценке")');
-  const winners = await page.textContent('#hk-result tbody tr >> nth=0');
-  assert.match(winners, /^1/);
-  assert.match(winners, /\+15/);
-  await shot('hackathon-results');
-  await page.waitForSelector('#ticker .notice:has-text("первое место")');
-  await page.click('#hackathon [aria-label=Закрыть]');
-
-  // Итоги в рейтинге: участие +5, роль +2, места — поощрение команде.
-  const champion = (await teacherStore.directory()).find((r) => r.kind === 'hackathon').teams[0].members[0];
-  await page.click('#open-sections');
-  await page.click('#open-grade');
-  await page.click(`#grade [data-calc="${champion}"]`);
-  await page.waitForSelector('#gradecalc[open]');
-  assert.match(await page.textContent('#gradecalc'), /Кинохакатон «Осень»/);
-  assert.match(await page.textContent('#gradecalc'), /1 место на кинохакатоне «Осень», команда/);
-  await shot('hackathon-calc');
-  await page.click('#gradecalc [aria-label=Закрыть]');
   await page.click('#grade [aria-label=Закрыть]');
 
   // Кому дать: в новом задании — студенты с наименьшим опытом, одним нажатием в участники.
@@ -1223,6 +1134,13 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector(`#form .tags .tag:has-text("${hinted}")`);
   assert.equal(await page.locator(`#f-hints [data-hint="${hinted}"]`).count(), 0, 'добавленный уходит из подсказок');
   await shot('balance-hints');
+  // Из списка: всех с красным флажком одним нажатием.
+  await page.click('#form .field:has(#f-participants) button:has-text("Из списка")');
+  await page.waitForSelector('#picker[open] [data-pickflag=red]:has-text("Группа риска: 1")');
+  await page.click('#picker [data-pickflag=red]');
+  await shot('picker-flags');
+  await page.click('#picker .sheetfoot button.primary');
+  await page.waitForSelector(`#form .tags .tag:has-text("${bonusName}")`);
   await page.click('#form [aria-label=Закрыть]');
 
   // Сроки сдачи.
@@ -1548,6 +1466,26 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'achievement' && r.student === 'Тестов Ученик30'), 'достижение на другом устройстве');
   await shot('portfolio');
   await page.click('#portfolio [aria-label=Закрыть]');
+  // Подробности: где и как студент просел — каждая пара с прогулом.
+  await signal.locator('[data-detail]').click();
+  await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30") .signaltable tbody tr >> nth=2');
+  assert.match(await signal.textContent(), /пар с прогулом 3 \(дней 3\)/);
+  assert.match(await signal.textContent(), /Где проседает[\s\S]*Пара без Ученика30/);
+  assert.match(await signal.textContent(), /Рейтинг за две недели: было \d+, стало \d+\. Прогулы: −12\./);
+  await signal.locator('[data-flag=yellow]').click();
+  await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30") [data-flag=yellow][aria-pressed=true]');
+  await shot('signal-detail');
+  // Докладная: период, все нарушения таблицей, меры и подпись.
+  await signal.locator('[data-report]').click();
+  await page.waitForSelector('#misconduct[open] .misconductpaper');
+  assert.match(await page.textContent('#misconduct .misconductpaper'), /Докладная записка[\s\S]*Тестов Ученик30[\s\S]*без уважительной причины: 3 \(в 3 дн\.\)[\s\S]*Пара без Ученика30/);
+  await page.fill('#mc-measures', 'проведена беседа');
+  await page.dispatchEvent('#mc-measures', 'change');
+  await page.waitForSelector('#misconduct .misconductpaper:has-text("Принятые меры: проведена беседа")');
+  await page.click('#misconduct [data-period=two]');
+  assert.match(await page.textContent('#misconduct .misconductpaper'), /Принятые меры: проведена беседа/);
+  await shot('misconduct');
+  await page.click('#misconduct [aria-label=Закрыть]');
   await page.click('#signals .signal:has-text("Тестов Ученик30") >> text=Разобрались');
   await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30")', { state: 'detached' });
   await page.click('#signals [aria-label=Закрыть]');

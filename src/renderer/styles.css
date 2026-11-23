@@ -1107,73 +1107,56 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 #gradecalc .calcledger td:last-child { white-space: normal; width: 7.5rem; }
 #gradecalc .calcledger td:nth-child(2) { width: 100%; }
 
-/* Кинохакатон */
-.hackbody h3 { margin: 1.2rem 0 .5rem; }
-#hackathon .sheethead { gap: .8rem; }
-.hkhead { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
-.hkhead h2 { margin-right: .4rem; }
-#hk-juror { min-height: 2.6rem; padding: .3rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkcols .adder .hknum { flex: 0 0 5.5rem; }
-.hkhead select { min-height: 2.6rem; max-width: 22rem; padding: .3rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkset { border: .05rem solid var(--border); border-radius: .4rem; padding: .6rem .9rem .8rem; margin: 0; }
-.hkset legend { padding: 0 .3rem; font-weight: 600; }
-.hkset input:not([type=checkbox]) { width: 100%; min-height: 2.6rem; margin-top: .5rem; padding: .3rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkchecks { display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; }
-.hkchecks .checkrow { display: flex; align-items: center; gap: .45rem; min-height: 2.4rem; }
-.hkchecks input[type=checkbox] { width: 1.2rem; height: 1.2rem; }
-.hkbuild { margin-bottom: .6rem; }
-.hkbuild label.inline, .hackbody label.inline { display: inline-flex; align-items: center; gap: .5rem; }
-.hkbuild input[type=number], .hknum { width: 5rem; min-height: 2.6rem; padding: .3rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); font-variant-numeric: tabular-nums; }
-.hkok { color: var(--success-fg, #3fb950); font-weight: 600; }
-.hkteams { display: grid; grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr)); gap: .9rem; margin-top: .6rem; }
-.hkteam { border: .05rem solid var(--border); border-top: .3rem solid var(--accent); border-radius: .4rem; padding: .6rem .8rem .8rem; background: var(--canvas-subtle); }
-.hkteamhead { display: flex; align-items: baseline; gap: .6rem; margin-bottom: .4rem; }
-.hkteamhead small { margin-left: auto; color: var(--fg-muted); white-space: nowrap; }
-.hkname { flex: 1; min-width: 0; min-height: 2.4rem; padding: .2rem .5rem; border: .05rem solid transparent; border-radius: .3rem; background: none; color: var(--fg); font-size: 1.1rem; font-weight: 600; }
-.hkname:hover, .hkname:focus { border-color: var(--border); background: var(--canvas); }
-.hkmembers { list-style: none; margin: 0; padding: 0; }
-.hkmembers li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .3rem .5rem; padding: .3rem 0; border-bottom: .05rem solid var(--border-muted, var(--border)); }
-.hkmembers.board li, .hkfree .hkmembers li { grid-template-columns: minmax(0, 1fr) auto; }
-.hkmembers li:last-child { border-bottom: 0; }
-.hkwho { display: flex; flex-direction: column; min-width: 0; }
-.hkwho small { display: flex; gap: .4rem; align-items: center; color: var(--fg-muted); font-size: .85rem; }
-.hkmembers select { min-height: 2.3rem; max-width: 9.5rem; padding: .15rem .4rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkmembers.board li { padding: .2rem 0; }
-.hkmembers.board small { color: var(--fg-muted); }
-.hkfirst { padding: .05rem .4rem; border-radius: 1rem; background: var(--accent-subtle); color: var(--fg); font-size: .8rem; }
-.hkfree { margin-top: 1rem; }
-.hkgrid td, .hkgrid th, .hkscores td, .hkscores th, .hkresult td, .hkresult th { padding: .35rem .5rem; border-bottom: .05rem solid var(--border); text-align: left; }
-.hkgrid, .hkscores, .hkresult { width: 100%; border-collapse: collapse; }
-.hkscores .num, .hkresult .num { text-align: right; }
-.hkfilm { width: 100%; min-width: 10rem; min-height: 2.4rem; padding: .2rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkstage { display: inline-block; min-height: 2.3rem; padding: .25rem .6rem; border: .05rem solid var(--border); border-radius: 1rem; font-size: .9rem; }
-span.hkstage { min-height: 0; }
-.hk-done { border-color: var(--success-emphasis); background: color-mix(in srgb, var(--success-emphasis) 18%, transparent); }
-.hk-rework { border-color: var(--attention-border); background: var(--attention-subtle); }
-.hk-late { border-color: var(--danger-emphasis); background: var(--danger-subtle); }
-.hk-open { color: var(--fg-muted); }
-.hkstagerow { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
-.hkgear { list-style: none; margin: 0 0 .5rem; padding: 0; }
-.hkgear li { display: flex; align-items: center; gap: .4rem; padding: .15rem 0; }
-.hkgear li span { flex: 1; }
-.hkgear b { min-width: 1.6rem; text-align: center; font-variant-numeric: tabular-nums; }
-.hkaddgear { width: 100%; min-height: 2.4rem; padding: .2rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.5rem; }
-.hkcols .adder { display: flex; gap: .4rem; flex-wrap: wrap; }
-.hkcols .adder input:not(.hknum) { flex: 1 1 12rem; min-height: 2.6rem; padding: .3rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
-.hkjury { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; margin: 0 0 .5rem; padding: 0; }
-.hkplace-1 td:first-child { font-weight: 700; color: #d4a72c; }
-.hkplace-2 td:first-child { font-weight: 700; color: #8c959f; }
-.hkplace-3 td:first-child { font-weight: 700; color: #bc6c25; }
-.hkboard { margin-bottom: 1rem; }
-.hkboardhead h3 { margin: 0; font-size: 1.6rem; }
-.hkboardhead p { margin: .2rem 0 .6rem; color: var(--fg-muted); }
-.hkcount { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem 1rem; padding: .8rem 1rem; border-radius: .4rem; background: var(--accent-subtle); }
-.hkcount b { font-size: 2.2rem; font-variant-numeric: tabular-nums; }
-.hkcount small { color: var(--fg-muted); }
-.hkgearline { margin: .5rem 0 0; }
+/* Кому дать */
 .hintbox[hidden] { display: none; }
 .hintlist { list-style: none; margin: .2rem 0; padding: 0; }
 .hintlist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; padding: .15rem 0; }
 .hintlist small { color: var(--fg-muted); }
-.hkmembers select.hkmove { max-width: 8.5rem; }
+
+/* Флажки студентов */
+.flag-yellow { --flag: #e3b341; }
+.flag-red { --flag: #e5534b; }
+.flag-blue { --flag: #4493f8; }
+.flag-green { --flag: #3fb950; }
+.flags { display: inline-flex; gap: .15rem; vertical-align: middle; }
+.flag { width: 1.7rem; height: 1.7rem; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; display: inline-grid; place-items: center; cursor: pointer; }
+.flag::before { content: ''; width: .85rem; height: .85rem; border-radius: 50%; border: .12rem solid var(--flag); opacity: .35; }
+.flag:hover::before { opacity: .8; }
+.flag[aria-pressed=true]::before { background: var(--flag); opacity: 1; }
+.flag:focus-visible { outline: .12rem solid var(--accent); }
+.flagdot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; background: var(--flag); flex: none; }
+.flagdots { display: inline-flex; gap: .2rem; margin-left: .5rem; vertical-align: middle; }
+.flagbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.2rem; margin-bottom: .8rem; }
+.flagchips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.flagchip { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.3rem; padding: .2rem .8rem; border: .05rem solid var(--border); border-radius: 1.2rem; background: none; color: var(--fg); }
+.flagchip[aria-pressed=true] { border-color: var(--accent); background: var(--accent-subtle); font-weight: 600; }
+.flagbar .checkrow { display: inline-flex; align-items: center; gap: .4rem; }
+.flagnames { display: flex; flex-wrap: wrap; gap: .5rem 1rem; width: 100%; }
+.flagnames label { display: inline-flex; align-items: center; gap: .4rem; }
+.flagnames input { width: 12rem; min-height: 2.3rem; padding: .2rem .5rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); }
+.gradetable tr.flaghead th { padding: .8rem .5rem .3rem; text-align: left; font-weight: 600; background: var(--canvas-subtle); }
+.gradetable tr.flaghead .flagdot { margin-right: .5rem; }
+.pickflags { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
+.pickflags button { display: inline-flex; align-items: center; gap: .4rem; }
+.pickflags button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-subtle); }
+.fileflags { margin-left: auto; display: inline-flex; align-items: center; }
+
+/* Подробности сигнала и докладная */
+.signalhead .flags { margin-left: .3rem; }
+.signaldetail { margin: .6rem 0; padding: .6rem .8rem; border-left: .2rem solid var(--attention-border, var(--border)); background: var(--canvas-subtle); border-radius: .3rem; }
+.signaldetail p { margin: .2rem 0; }
+.signaldetail h4 { margin: .6rem 0 .2rem; font-size: 1rem; }
+.signalsubjects { margin: 0 0 .4rem; padding-left: 1.2rem; }
+.signaltable { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+.signaltable th, .signaltable td { padding: .3rem .5rem; border-bottom: .05rem solid var(--border); text-align: left; }
+.signaltable tr.incident-absent td:last-child { color: var(--danger-fg, #e5534b); }
+#mc-measures { width: 100%; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas); color: var(--fg); font: inherit; }
+.misconductpaper .addressee { margin-left: 50%; margin-bottom: 8mm; }
+.misconductpaper .addressee p { margin: 0; }
+.misconductpaper h2 { text-align: center; margin-bottom: 2mm; }
+.misconductpaper .docdate { text-align: center; margin-bottom: 6mm; }
+.misconductpaper p { text-indent: 0; margin: 0 0 3mm; }
+.misconductpaper ul { margin: 0 0 3mm; }
+.misconductpaper table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 10pt; }
+.misconductpaper th, .misconductpaper td { border: .5pt solid #000; padding: 1mm 1.5mm; text-align: left; }
+.misconductpaper .signature { margin-top: 10mm; text-align: right; }

@@ -845,6 +845,58 @@ export function earlySignals({ events, attendance, students, groups, nowISO, now
   return signals.sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name, 'ru'));
 }
 
+/**
+ * Нарушения посещаемости одного студента за период: каждая пара с прогулом без причины
+ * или опозданием — когда, какая пара, у кого и где. Для раннего сигнала и докладной.
+ * since — отметка «Разобрались»: что было раньше, не считается.
+ */
+export function attendanceIncidents({ events, attendance, name, from, to, nowISO, nowTime, since = '' }) {
+  const key = nameKey(name);
+  const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
+  const after = since ? localMoment(since) : '';
+  return events
+    .filter((event) => event.date >= from && event.date <= to && isHeld(event) && takesAttendance(event) && docOf.get(event.id)
+      && hasEnded(event, nowISO, nowTime) && event.participants.some((person) => nameKey(person) === key) && (!after || `${event.date}T${event.end}` > after))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
+    .flatMap((event) => {
+      const row = rollCall(event, docOf.get(event.id), nowISO, nowTime, events).find((item) => nameKey(item.name) === key);
+      if (!row) return [];
+      const base = { id: event.id, date: event.date, start: event.start, end: event.end, title: event.title, type: event.type, teacher: event.responsible ?? '', place: event.place ?? '' };
+      if (row.status === 'absent') return [{ ...base, kind: 'absent', came: Boolean(row.lateMark) }];
+      if (row.status === 'present' && row.late > 0) return [{ ...base, kind: 'late', minutes: row.late }];
+      return [];
+    });
+}
+
+/**
+ * Где студент проседает: по парам (предметам) и дням недели, сколько прогулов и опозданий,
+ * плюс итоги — пар и дней с прогулом, опозданий и минут опоздания.
+ */
+export function incidentSummary(incidents) {
+  const bySubject = new Map();
+  const byWeekday = new Map();
+  for (const item of incidents) {
+    const subject = bySubject.get(item.title) ?? { title: item.title, teacher: item.teacher, absent: 0, late: 0, minutes: 0 };
+    subject[item.kind] += 1;
+    subject.minutes += item.minutes ?? 0;
+    bySubject.set(item.title, subject);
+    const weekday = (new Date(`${item.date}T12:00`).getDay() + 6) % 7;
+    const day = byWeekday.get(weekday) ?? { weekday, absent: 0, late: 0 };
+    day[item.kind] += 1;
+    byWeekday.set(weekday, day);
+  }
+  const absent = incidents.filter((item) => item.kind === 'absent');
+  const late = incidents.filter((item) => item.kind === 'late');
+  return {
+    absent: absent.length,
+    absentDays: new Set(absent.map((item) => item.date)).size,
+    late: late.length,
+    lateMinutes: late.reduce((sum, item) => sum + item.minutes, 0),
+    subjects: [...bySubject.values()].sort((a, b) => b.absent + b.late - (a.absent + a.late) || a.title.localeCompare(b.title, 'ru')),
+    weekdays: [...byWeekday.values()].sort((a, b) => b.absent + b.late - (a.absent + a.late) || a.weekday - b.weekday),
+  };
+}
+
 /** Момент «ГГГГ-ММ-ДДTЧЧ:ММ» по местному времени из отметки ISO. */
 function localMoment(iso) {
   const d = new Date(iso);
@@ -1275,12 +1327,6 @@ export function pastWorkChanges(work) {
   return changes;
 }
 
-/** Роль студента в прошлой работе или хакатоне, если она названа. */
-function roleNameOf(work, name) {
-  for (const [who, role] of Object.entries(work.roleNames ?? {})) if (nameKey(who) === nameKey(name)) return role;
-  return '';
-}
-
 export const gradeLevel = (points) => [...GRADE_LEVELS].reverse().find((level) => points >= level.from);
 
 /**
@@ -1345,7 +1391,7 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
   // Баллы, добавленные или снятые преподавателем вручную.
   for (const bonus of bonuses) {
     const counted = bonus.date >= from || (bonus.date >= retroFrom && bonus.points > 0);
-    if (counted && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '', ...(bonus.place ? { place: bonus.place, team: bonus.team ?? '' } : {}) });
+    if (counted && bonus.date <= until) add(bonus.student, bonus.date, 'manual', bonus.points, { title: bonus.name, by: bonus.by ?? '' });
   }
 
   // Прошлые работы, внесённые задним числом: до того, как колледж начал вести их в программе.
@@ -1355,8 +1401,7 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
     const early = work.date < from;
     for (const change of pastWorkChanges(work)) {
       if (early && GRADE_POINTS[change.kind] < 0) continue;
-      const role = change.kind === 'role' ? roleNameOf(work, change.name) : '';
-      add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], work.hackathon ? { title: work.name, hackathon: true, role } : { title: work.name, past: true, role });
+      add(change.name, work.date, change.kind, GRADE_POINTS[change.kind], { title: work.name, past: true });
     }
   }
 
@@ -1439,8 +1484,8 @@ export function studentFile({ student, events, attendance, students, groups, ach
   const pastItems = pastWorks
     .filter((work) => work.work !== 'task' && work.date >= from && work.date <= to && work.students.some((name) => nameKey(name) === key))
     .map((work) => ({
-      id: work.id, date: work.date, type: work.work, title: work.name, place: '', responsible: work.by ?? '', past: !work.hackathon, hackathon: Boolean(work.hackathon),
-      role: work.work === 'event' && work.roles.some((name) => nameKey(name) === key) ? roleNameOf(work, student.name) || 'role' : '',
+      id: work.id, date: work.date, type: work.work, title: work.name, place: '', responsible: work.by ?? '', past: true,
+      role: work.work === 'event' && work.roles.some((name) => nameKey(name) === key) ? 'role' : '',
     }));
   const manual = bonuses.filter((bonus) => nameKey(bonus.student) === key && bonus.date >= from && bonus.date <= until).sort((a, b) => a.date.localeCompare(b.date));
   const work = portfolio({ name: student.name, events, attendance, achievements, nowISO, nowTime });
@@ -1457,4 +1502,41 @@ export function studentFile({ student, events, attendance, students, groups, ach
     awards: work.awards.filter((item) => item.date >= from && item.date <= to),
     manual,
   };
+}
+
+/* Кому дать: подсказки для студентов без инициативы */
+
+/**
+ * Кому дать задание, мероприятие или роль: студенты, у которых меньше всех участий,
+ * давно не было заданий и мероприятий, мало баллов или роли, которых они ещё не пробовали.
+ * works — [{ date, students: [...] }] — задания, мероприятия, практики и хакатоны за учёт.
+ * Решает преподаватель: здесь только список с причинами.
+ */
+export function balanceHints({ candidates, works, points, roleCounts = new Map(), roles = [], todayISO, exclude = [], limit = 6 }) {
+  const skip = new Set(exclude.map(nameKey));
+  const rows = candidates.filter((name) => !skip.has(nameKey(name))).map((name) => {
+    const key = nameKey(name);
+    const mine = works.filter((work) => work.students.some((student) => nameKey(student) === key));
+    const last = mine.reduce((max, work) => (work.date > max ? work.date : max), '');
+    const days = last ? Math.round((Date.parse(todayISO) - Date.parse(last)) / 86400000) : null;
+    const tried = roleCounts.get(key) ?? {};
+    return { name, count: mine.length, last, days, points: points.get(key) ?? 0, untried: roles.filter((role) => !tried[role]) };
+  });
+  if (!rows.length) return [];
+  const counts = rows.map((row) => row.count).sort((a, b) => a - b);
+  const median = counts[Math.floor((counts.length - 1) / 2)];
+  const pointList = rows.map((row) => row.points).sort((a, b) => a - b);
+  const pointMedian = pointList[Math.floor((pointList.length - 1) / 2)];
+  return rows
+    .map((row) => ({
+      ...row,
+      reasons: [
+        row.count === 0 ? 'none' : row.count < median ? 'few' : null,
+        row.days !== null && row.days >= 21 ? 'long' : null,
+        row.points < pointMedian ? 'points' : null,
+      ].filter(Boolean),
+    }))
+    .filter((row) => row.reasons.length)
+    .sort((a, b) => a.count - b.count || (b.days ?? 9999) - (a.days ?? 9999) || a.points - b.points || a.name.localeCompare(b.name, 'ru'))
+    .slice(0, limit);
 }

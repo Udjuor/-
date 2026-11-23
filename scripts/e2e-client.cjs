@@ -24,15 +24,6 @@ const today = (() => {
     return id;
   };
   put({ kind: 'group', name: 'ИС-21' });
-  put({
-    kind: 'hackathon', name: 'Весна', from: today, to: today, start: '00:10', end: '23:00', approved: true, groups: [], keyRoles: ['Режиссёр'],
-    teams: [
-      { id: 't1', name: 'Север', members: ['Иванов', 'Петров'], roles: { Иванов: 'Режиссёр' }, equipment: { Камера: 1 }, film: 'Утро' },
-      { id: 't2', name: 'Юг', members: ['Сидоров', 'Козлов'], roles: { Козлов: 'Режиссёр' }, equipment: {}, film: '' },
-    ],
-    stages: [{ id: 's1', name: 'Сценарий', due: `${today}T01:00` }, { id: 's2', name: 'Показ', due: `${today}T22:00` }],
-    handIn: { t1: { s1: 'done' } }, criteria: [], jury: [], scores: {},
-  });
   put({ title: 'Пара на панели', type: 'lesson', date: today, start: '00:05', end: '19:55', participants: ['Иванов', 'Петров', 'Сидоров', 'Козлов'], devices: [] });
   put({ title: 'Пара с перекличкой', type: 'lesson', date: today, start: '00:10', end: '01:30', participants: ['Алексеев', 'Борисов', 'Волков'], devices: [] });
   put({ title: 'Концерт на панели', type: 'event', date: today, start: '19:00', end: '19:30', participants: ['Сидоров'], devices: [] });
@@ -266,18 +257,6 @@ const today = (() => {
   assert.equal(await page.locator('#grade .gradetable .linkbutton').count(), 0, 'личное дело на панели не открывается');
   assert.equal(await page.locator('#grade .gradetable button:has-text("±")').count(), 0, 'баллы вручную на панели не добавляют');
   await page.click('#grade [aria-label=Закрыть]');
-
-  // Кинохакатон на панели: только табло — отсчёт до ближайшего срока, команды, роли и сдача этапов.
-  if (!(await page.isVisible('#open-hackathon'))) await page.click('#open-sections');
-  await page.click('#open-hackathon');
-  await page.waitForSelector('#hackathon[open] #hk-count-down:has-text("Сценарий")');
-  assert.match(await page.textContent('#hk-count-down'), /40 мин/);
-  assert.equal(await page.locator('#hackathon [data-hktab], #hk-new, #hackathon select, #hackathon input').count(), 1, 'только выбор хакатона, без правки');
-  assert.match(await page.textContent('#hackathon .hkteam[data-team="t1"]'), /Север[\s\S]*«Утро»[\s\S]*Иванов[\s\S]*Режиссёр[\s\S]*Сценарий: Сдано/);
-  assert.match(await page.textContent('#hackathon .hkteam[data-team="t2"]'), /Сценарий: Идёт/);
-  await page.waitForSelector('#ticker .notice:has-text("Кинохакатон «Весна»: этап «Сценарий»")');
-  await shot('client-hackathon');
-  await page.click('#hackathon [aria-label=Закрыть]');
 
   // Табло перемены: через минуту без касаний панель показывает следующее в аудитории, касание убирает.
   await page.clock.setFixedTime(new Date(`${today}T20:30`));

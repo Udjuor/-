@@ -1,11 +1,10 @@
-import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, earlySignals, portfolio } from './logic.mjs';
+import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, earlySignals, incidentSummary, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
   monthWeeks, nameKey, needsMemo, hasPaper, hasRoles, roleOf, takesAttendance, handInOf, handInSummary, debtors, roleStats, decisionList, weekStart, weeklySummaryCsv, groupWeek, breakBoard, bestGroupOfMonth, yearChronicle, schoolYearOf, gradeReport, semesterOf, ratingPeriod, pastWorkChanges, PAST_WORK_TYPES, studentFile, GRADE_LEVELS, greetingName, birthdaysOn, pickGreeting, splitPeople, parseBirthday, rollStage, lessonIsNow, lessonOver, arrivalNow, parentGroup, pendingCertificates, parseEquipment, plural, rollCall, shortages, splitList, splitNames, suggestedStart, statusName, toCsv, toISO, toMinutes, typeName, uniqueValues, visibleOn, weekDays,
 } from './logic.mjs';
 
-import { HACKATHON_PLACE_POINTS, balanceHints, buildTeams, hackathonActive, hackathonBusy, hackathonMembers, hackathonRecords, minutesUntil, missingScores, nextStage, stageState, standings, teamExperience, teamRole } from './hackathon.mjs';
 import { SHAPES, SKINS, activeSkin, garlandLayout, holidayGreeting } from './skins.mjs';
 import { petChange, petKindLockKey, petKindLocked, petKindOf, petLook, petPrizes, petSprite, petStatus, PET_KINDS, PRIZE_DAYS, PRIZE_HEALTH, prizeIcon, PRIZES } from './pet.mjs';
 import { LANGUAGES, locale, t, tp, translatePage } from './i18n.mjs';
@@ -1321,8 +1320,8 @@ async function openForm(source = {}) {
   const updateConflicts = () => {
     if (!dialog.open) return;
     const event = read();
-    const found = findConflicts(event, busyEvents(), refsOf('equipment'));
-    const lacking = shortages(event, busyEvents(), refsOf('equipment'));
+    const found = findConflicts(event, state.allEvents, refsOf('equipment'));
+    const lacking = shortages(event, state.allEvents, refsOf('equipment'));
     conflictBox.hidden = !found.length && !lacking.length;
     conflictBox.replaceChildren(
       found.length > 0 && h('h3', {}, t('Уже заняты в это время')),
@@ -1339,7 +1338,7 @@ async function openForm(source = {}) {
   const busyNames = (kind) => {
     const names = state.directory.map((ref) => ref.name);
     const probe = { ...read(), responsible: '', participants: kind === 'person' ? names : [], equipment: kind === 'equipment' ? names : [] };
-    return new Map(findConflicts(probe, busyEvents()).map((c) => [nameKey(c.name), eventLabel(c.event)]));
+    return new Map(findConflicts(probe, state.allEvents).map((c) => [nameKey(c.name), eventLabel(c.event)]));
   };
 
   const people = () => [...refsOf('teacher'), ...refsOf('student')].map((ref) => ref.name)
@@ -1410,6 +1409,7 @@ async function openForm(source = {}) {
       const teachers = refsOf('teacher').map((ref) => ref.name);
       pickInto(draft.participants, {
         title: meeting ? t('Участники') : t('Студенты'),
+        flagged: canManage(),
         sections: [
           ...(meeting && teachers.length ? [{ name: t('Преподаватели'), items: teachers }] : []),
           ...refsOf('group').map((group) => ({
@@ -1459,7 +1459,7 @@ async function openForm(source = {}) {
       : !until.value || until.value < event.date ? (isPractice() ? t('Последний день практики не может быть раньше начала') : t('Укажите дату окончания повторов не раньше даты события'))
         : plan.length >= MAX_REPEATS ? t('Слишком длинная цепочка: не больше {0} событий', [MAX_REPEATS - 1]) : '';
     setInvalid(repeat, repeatError);
-    const lacking = shortages(event, busyEvents(), refsOf('equipment'));
+    const lacking = shortages(event, state.allEvents, refsOf('equipment'));
     message.textContent = lacking.length ? t('Не хватает: {0}. Уменьшите количество или выберите другое время.', [lacking.map((item) => item.name).join(', ')]) : '';
     return !(titleError || timeError || dateError || repeatError || lacking.length);
   };
@@ -1605,7 +1605,7 @@ async function openForm(source = {}) {
  * Окно выбора. Значения, введённые в форме вручную, остаются нетронутыми:
  * окно меняет только то, что есть в его списке.
  */
-function openPicker({ title, sections, selected, single = false, busy = new Map(), empty, selectAll = null, done }) {
+function openPicker({ title, sections, selected, single = false, busy = new Map(), empty, selectAll = null, flagged = false, done }) {
   const dialog = $('picker');
   const chosen = new Set(selected.map(nameKey));
   const listed = new Map(sections.flatMap((section) => section.items).map((name) => [nameKey(name), name]));
@@ -1641,7 +1641,7 @@ function openPicker({ title, sections, selected, single = false, busy = new Map(
         else chosen.add(key);
         draw();
       },
-    }, h('strong', {}, name), note && h('span', {}, t('Занято: {0}', [note])));
+    }, h('strong', {}, name, flagged && flagDots(name)), note && h('span', {}, t('Занято: {0}', [note])));
   };
 
   function draw() {
@@ -1660,6 +1660,25 @@ function openPicker({ title, sections, selected, single = false, busy = new Map(
           draw();
         },
       }, everyone ? t('Снять всех') : `${selectAll}: ${listed.size}`));
+    }
+    // Флажки: одним нажатием выбрать всех студентов с флажком этого цвета.
+    if (flagged && !single) {
+      const marked = FLAG_COLORS.map((color) => [color, [...listed.keys()].filter((key) => studentByName(listed.get(key))?.flags?.includes(color))]).filter(([, keys]) => keys.length);
+      if (marked.length) {
+        rows.push(h('div', { class: 'pickflags', role: 'group', 'aria-label': t('Выбрать по флажку') }, marked.map(([color, keys]) => {
+          const all = keys.every((key) => chosen.has(key));
+          return h('button', {
+            type: 'button', class: 'plain', 'data-pickflag': color, 'aria-pressed': String(all),
+            onclick: () => {
+              for (const key of keys) {
+                if (all) chosen.delete(key);
+                else chosen.add(key);
+              }
+              draw();
+            },
+          }, h('span', { class: `flagdot flag-${color}` }), t('{0}: {1}', [flagLabel(color), keys.length]));
+        })));
+      }
     }
     for (const section of sections) {
       const items = section.items.filter((name) => !query || nameKey(name).includes(query));
@@ -1721,7 +1740,7 @@ function openStockPicker({ event, values, qty, holders, done }) {
 
   // Строки не пересоздаются: меняется только число, поэтому список стоит на месте.
   const stockRow = (item) => {
-    const free = freeStock(event, busyEvents(), item);
+    const free = freeStock(event, state.allEvents, item);
     const value = h('output', { 'aria-label': t('Выбрано: {0}', [item.name]) });
     const change = (delta) => { counts.set(item.name, counts.get(item.name) + delta); update(); };
     const less = h('button', { type: 'button', 'aria-label': t('Меньше: {0}', [item.name]), onclick: () => change(-1) }, '−');
@@ -3600,7 +3619,7 @@ function petItems() {
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
   const holiday = holidayGreeting(state.skin, now().iso);
-  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...gradeItems(), ...activeNotices(refsOf('notice'), moment()), ...hackathonItems(), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...gradeItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -3919,6 +3938,62 @@ function refreshSignals() {
   if ($('signals').open) drawSignals();
 }
 
+const SIGNAL_DAYS_SHOWN = 14;
+const signalOpen = new Set();
+
+/** Нарушения студента в окне сигнала: две недели или с «Разобрались», если это позже. */
+function signalIncidents(student) {
+  const clock = now();
+  return attendanceIncidents({
+    events: state.allEvents, attendance: state.attendance, name: student.name, from: addDays(clock.iso, -(SIGNAL_DAYS_SHOWN - 1)), to: clock.iso,
+    nowISO: clock.iso, nowTime: clock.time, since: student.signalSince ?? '',
+  });
+}
+
+const weekdayName = (index) => fmt(addDays('2026-11-02', index), { weekday: 'long' });
+const incidentText = (item) => (item.kind === 'late' ? t('Опоздание на {0} мин', [item.minutes])
+  : item.came ? t('Прогул: пришёл через 40 мин и позже') : t('Прогул без причины'));
+
+/** Как изменились баллы рейтинга за окно сигнала и сколько сняли прогулы и опоздания. */
+function signalRating(name, from) {
+  const row = currentGrades().find((item) => nameKey(item.name) === nameKey(name));
+  const days = (row?.history ?? []).filter((day) => day.date >= from);
+  if (!days.length) return null;
+  const lostBy = (kind) => days.flatMap((day) => day.items).filter((item) => item.kind === kind).reduce((sum, item) => sum + item.points, 0);
+  return { before: days[0].before, after: days.at(-1).after, absent: lostBy('absent'), late: lostBy('late') };
+}
+
+/** Подробности сигнала: где и как просел, каждая пара с прогулом или опозданием. */
+function signalDetails(student, incidents) {
+  const sum = incidentSummary(incidents);
+  const from = addDays(now().iso, -(SIGNAL_DAYS_SHOWN - 1));
+  const rating = signalRating(student.name, from);
+  const subjectText = (subject) => [
+    subject.absent && t('прогулов: {0}', [subject.absent]),
+    subject.late && t('опозданий: {0} ({1} мин)', [subject.late, subject.minutes]),
+  ].filter(Boolean).join(', ');
+  const worstDay = sum.weekdays[0];
+  return h('div', { class: 'signaldetail' },
+    h('p', {}, t('За две недели: пар с прогулом {0} (дней {1}), опозданий {2}, всего {3} мин.', [sum.absent, sum.absentDays, sum.late, sum.lateMinutes])),
+    rating && h('p', {}, [
+      t('Рейтинг за две недели: было {0}, стало {1}.', [rating.before, rating.after]),
+      rating.absent && t('Прогулы: {0}.', [signed(rating.absent)]),
+      rating.late && t('Опоздания: {0}.', [signed(rating.late)]),
+      rating.after === 0 && rating.absent + rating.late < 0 && t('Ниже нуля баллы не опускаются, поэтому минус виден не весь.'),
+    ].filter(Boolean).join(' ')),
+    sum.subjects.length > 0 && [
+      h('h4', {}, t('Где проседает')),
+      h('ul', { class: 'signalsubjects' }, sum.subjects.map((subject) => h('li', {},
+        h('b', {}, subject.title), subject.teacher && h('span', { class: 'help' }, t(' — {0}', [subject.teacher])), ': ', subjectText(subject)))),
+      worstDay && worstDay.absent + worstDay.late > 1 && h('p', { class: 'help' }, t('Чаще всего — {0}: прогулов {1}, опозданий {2}.', [weekdayName(worstDay.weekday), worstDay.absent, worstDay.late])),
+    ],
+    incidents.length > 0 && h('div', { class: 'tablewrap' }, h('table', { class: 'filetable signaltable' },
+      h('thead', {}, h('tr', {}, [t('Дата'), t('Время'), t('Пара'), t('Преподаватель'), t('Что случилось')].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, incidents.map((item) => h('tr', { class: `incident-${item.kind}` },
+        h('td', {}, shortDay(item.date)), h('td', {}, `${item.start}–${item.end}`), h('td', {}, item.title),
+        h('td', {}, item.teacher || '—'), h('td', {}, incidentText(item))))))));
+}
+
 function drawSignals() {
   const box = $('signals-list');
   const list = currentSignals();
@@ -3926,27 +4001,118 @@ function drawSignals() {
     box.replaceChildren(h('p', { class: 'help' }, t('Сигналов нет: ни у кого не копятся пропуски и опоздания.')));
     return;
   }
-  box.replaceChildren(h('ul', { class: 'signals' }, list.map((item) => h('li', { class: 'signal' },
-    h('div', { class: 'signalhead' },
-      h('strong', {}, item.name),
-      h('span', { class: 'help' }, [item.group, item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
-    h('ul', { class: 'signalreasons' }, item.reasons.map((reason) => h('li', { class: `reason-${reason.kind}` }, SIGNAL_TEXT[reason.kind](reason.count)))),
-    h('div', { class: 'targets' },
-      h('button', { type: 'button', class: 'plain', onclick: () => openPortfolio(item.id) }, t('Портфолио')),
-      h('button', {
-        type: 'button',
-        class: 'primary',
-        onclick: async () => {
-          const student = state.directory.find((ref) => ref.id === item.id);
-          if (!student) return;
-          const result = await api.saveRefs([{ ref: { ...student, signalSince: new Date().toISOString() }, base: student.updatedAt }]);
-          if (result.ok) {
-            await loadDirectory();
-            refreshSignals();
-          }
-        },
-      }, t('Разобрались'))),
-  ))));
+  keepScroll(box.closest('.sheetbody') ?? box, () => box.replaceChildren(h('ul', { class: 'signals' }, list.map((item) => {
+    const student = state.directory.find((ref) => ref.id === item.id);
+    const incidents = student ? signalIncidents(student) : [];
+    const open = signalOpen.has(item.id);
+    return h('li', { class: 'signal', 'data-signal': item.name },
+      h('div', { class: 'signalhead' },
+        h('strong', {}, item.name),
+        flagToggles(student),
+        h('span', { class: 'help' }, [item.group, item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
+      h('ul', { class: 'signalreasons' }, item.reasons.map((reason) => h('li', { class: `reason-${reason.kind}` }, SIGNAL_TEXT[reason.kind](reason.count)))),
+      open && student && signalDetails(student, incidents),
+      h('div', { class: 'targets' },
+        h('button', { type: 'button', class: 'plain', 'aria-expanded': String(open), 'data-detail': item.name, onclick: () => {
+          if (open) signalOpen.delete(item.id);
+          else signalOpen.add(item.id);
+          drawSignals();
+        } }, open ? t('Свернуть') : t('Подробнее')),
+        h('button', { type: 'button', class: 'plain', onclick: () => openPortfolio(item.id) }, t('Портфолио')),
+        student && h('button', { type: 'button', class: 'plain', 'data-report': item.name, onclick: () => openMisconduct(student.id) }, t('Докладная')),
+        h('button', {
+          type: 'button',
+          class: 'primary',
+          onclick: async () => {
+            if (!student) return;
+            const result = await api.saveRefs([{ ref: { ...student, signalSince: new Date().toISOString() }, base: student.updatedAt }]);
+            if (result.ok) {
+              await loadDirectory();
+              refreshSignals();
+            }
+          },
+        }, t('Разобрались'))));
+  }))));
+}
+
+/*
+ * Докладная о нарушениях посещаемости: период, все пропуски без причины и опоздания
+ * с датами, парами и преподавателями — основание для разговора или взыскания.
+ * Текст и меры, которые уже приняты, преподаватель дописывает сам, подпись — как в служебной записке.
+ */
+const misconductState = { id: null, period: 'month', measures: '' };
+
+function misconductPeriod(kind) {
+  const today = now().iso;
+  if (kind === 'two') return { from: addDays(today, -13), to: today };
+  if (kind === 'semester') return { from: semesterOf(today).from, to: today };
+  if (kind === 'all') return { from: ratingPeriod(today).from, to: today };
+  return { from: addDays(today, -29), to: today };
+}
+
+function openMisconduct(studentId) {
+  Object.assign(misconductState, { id: studentId, period: 'month', measures: '' });
+  drawMisconduct();
+  $('misconduct').showModal();
+}
+
+function drawMisconduct() {
+  const dialog = $('misconduct');
+  const student = state.directory.find((ref) => ref.id === misconductState.id);
+  const periods = [['two', t('2 недели')], ['month', t('Месяц')], ['semester', t('Семестр')], ['all', t('С начала учёта')]];
+  const measures = h('textarea', {
+    id: 'mc-measures', rows: 3, maxlength: 1000, placeholder: t('Например: проведены беседы 10 и 17 ноября, сообщено родителям'),
+    oninput: (e) => { misconductState.measures = e.target.value; },
+  });
+  measures.value = misconductState.measures;
+  dialog.replaceChildren(
+    h('div', { class: 'sheethead' }, h('h2', {}, t('Докладная: {0}', [student?.name ?? ''])), closeButton(dialog)),
+    h('div', { class: 'tabs weektools', role: 'group', 'aria-label': t('Период') },
+      periods.map(([id, label]) => h('button', { type: 'button', 'data-period': id, 'aria-pressed': String(misconductState.period === id), onclick: () => { misconductState.period = id; drawMisconduct(); } }, label))),
+    h('div', { class: 'sheetbody' },
+      h('label', { class: 'field' }, h('span', { class: 'label' }, t('Какие меры уже приняты')), measures,
+        h('p', { class: 'help' }, t('Попадёт в докладную. Если пусто — останется строка, чтобы дописать от руки.'))),
+      h('div', { class: 'paperview', id: 'mc-preview' }, misconductSheet())),
+    h('div', { class: 'sheetfoot' }, printButtons(misconductSheet, () => t('Докладная {0}.pdf', [student?.name ?? '']))),
+  );
+  measures.addEventListener('change', () => $('mc-preview').replaceChildren(misconductSheet()));
+}
+
+function misconductSheet() {
+  const student = state.directory.find((ref) => ref.id === misconductState.id);
+  if (!student) return h('p', { class: 'help' }, t('Студент не найден.'));
+  const clock = now();
+  const { from, to } = misconductPeriod(misconductState.period);
+  const incidents = attendanceIncidents({ events: state.allEvents, attendance: state.attendance, name: student.name, from, to, nowISO: clock.iso, nowTime: clock.time });
+  const sum = incidentSummary(incidents);
+  const long = (iso) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
+  const numeric = (iso) => fmt(iso, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const group = groupOfStudent(student) || '—';
+  const from_ = state.settings?.memoFrom ?? '';
+  const signer = state.settings?.memoSigner ?? '';
+  return h('article', { class: 'paper misconductpaper' },
+    h('div', { class: 'addressee' },
+      h('p', {}, t('Заместителю директора по учебной работе')),
+      h('p', {}, from_ ? t('от {0}', [from_]) : t('от ____________________'))),
+    h('h2', {}, t('Докладная записка')),
+    h('p', { class: 'docdate' }, long(clock.iso)),
+    h('p', {}, t('Довожу до Вашего сведения, что обучающийся группы {0} {1} за период с {2} по {3} допустил нарушения учебной дисциплины:', [group, student.name, long(from), long(to)])),
+    h('ul', {},
+      h('li', {}, t('пропуски учебных занятий без уважительной причины: {0} (в {1} дн.);', [sum.absent, sum.absentDays])),
+      h('li', {}, t('опоздания на учебные занятия: {0}, всего {1} мин.', [sum.late, sum.lateMinutes]))),
+    incidents.length
+      ? h('table', {},
+        h('thead', {}, h('tr', {}, [t('№'), t('Дата'), t('Время'), t('Занятие'), t('Преподаватель'), t('Нарушение')].map((name) => h('th', {}, name)))),
+        h('tbody', {}, incidents.map((item, index) => h('tr', {},
+          h('td', {}, String(index + 1)), h('td', {}, numeric(item.date)), h('td', {}, `${item.start}–${item.end}`),
+          h('td', {}, item.title), h('td', {}, item.teacher || '—'), h('td', {}, incidentText(item))))))
+      : h('p', {}, t('Нарушений посещаемости за этот период нет.')),
+    sum.subjects.length > 0 && h('p', {}, t('Больше всего нарушений: {0}.', [sum.subjects.slice(0, 3).map((subject) => t('{0} — {1}', [subject.title, subject.absent + subject.late])).join('; ')])),
+    h('p', {}, misconductState.measures.trim()
+      ? t('Принятые меры: {0}', [misconductState.measures.trim()])
+      : t('Принятые меры: ________________________________________________')),
+    h('p', {}, t('Прошу рассмотреть вопрос о мерах дисциплинарного воздействия в соответствии с частью 4 статьи 43 Федерального закона от 29.12.2012 № 273-ФЗ «Об образовании в Российской Федерации» и правилами внутреннего распорядка обучающихся.')),
+    h('p', { class: 'signature' }, t('Подпись ____________ / {0}', [signer || '____________'])));
 }
 
 function openSignals() {
@@ -3966,7 +4132,7 @@ function openSignals() {
 
 function portfolioData(student) {
   const clock = now();
-  return portfolio({ name: student.name, events: state.allEvents, attendance: state.attendance, achievements: allAchievements(), nowISO: clock.iso, nowTime: clock.time });
+  return portfolio({ name: student.name, events: state.allEvents, attendance: state.attendance, achievements: refsOf('achievement'), nowISO: clock.iso, nowTime: clock.time });
 }
 
 const groupOfStudent = (student) => state.directory.find((ref) => ref.id === student.groupId)?.name ?? '';
@@ -4188,7 +4354,7 @@ const gearView = { query: '' };
 function gearRows() {
   const clock = now();
   const query = nameKey(gearView.query);
-  return equipmentNow(refsOf('equipment'), busyEvents(), clock.iso, clock.time)
+  return equipmentNow(refsOf('equipment'), state.allEvents, clock.iso, clock.time)
     .filter((row) => !query || nameKey(row.name).includes(query));
 }
 
@@ -4947,7 +5113,7 @@ function chronicleSheet() {
   const clock = now();
   const data = yearChronicle({
     events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
-    achievements: allAchievements(), bonuses: allBonuses(), pastWorks: allPastWorks(), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), year: chronicleYear, nowISO: clock.iso, nowTime: clock.time,
   });
   const day = (iso) => fmt(iso, { day: 'numeric', month: 'long' });
   const monthName = (month) => fmt(`${month}-01`, { month: 'long', year: 'numeric' });
@@ -5015,7 +5181,7 @@ function currentGrades() {
   const key = [state.allEvents, state.attendance, state.directory, clock.iso, clock.time.slice(0, 4)];
   if (gradeCache.key && key.every((part, i) => part === gradeCache.key[i])) return gradeCache.rows;
   const { from, to, retroFrom } = ratingPeriod(clock.iso);
-  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: allBonuses(), pastWorks: allPastWorks(), from, to, retroFrom, nowISO: clock.iso, nowTime: clock.time });
+  const rows = gradeReport({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, retroFrom, nowISO: clock.iso, nowTime: clock.time });
   gradeCache = { key, rows };
   return rows;
 }
@@ -5036,6 +5202,100 @@ function gradeItems() {
 
 let gradeGroup = '';
 
+/*
+ * Флажки студентов: жёлтый, красный, синий, зелёный. Чтобы делить и группировать студентов
+ * по своему смыслу: группа риска, команда, «сдаёт долги». У студента может быть несколько флажков.
+ * Подписи цветов общие для всех устройств. Флажки видит только преподаватель, на панелях их нет.
+ */
+const FLAG_COLORS = ['yellow', 'red', 'blue', 'green'];
+const flagColorName = (color) => ({ yellow: t('Жёлтый'), red: t('Красный'), blue: t('Синий'), green: t('Зелёный') }[color]);
+const flagLabel = (color) => refsOf('flagname').find((ref) => ref.color === color)?.name || flagColorName(color);
+
+/** Закрашенные кружки флажков у имени: только смотреть. */
+function flagDots(name) {
+  if (!canManage()) return null;
+  const flags = studentByName(name)?.flags ?? [];
+  return flags.length ? h('span', { class: 'flagdots' }, FLAG_COLORS.filter((color) => flags.includes(color)).map((color) => h('span', { class: `flagdot flag-${color}`, title: flagLabel(color) }))) : null;
+}
+
+/** Четыре флажка, нажатие ставит или снимает. */
+function flagToggles(student) {
+  if (!canManage() || !student) return null;
+  const flags = student.flags ?? [];
+  return h('span', { class: 'flags', role: 'group', 'aria-label': t('Флажки: {0}', [student.name]) }, FLAG_COLORS.map((color) => h('button', {
+    type: 'button',
+    class: `flag flag-${color}`,
+    'data-flag': color,
+    'aria-pressed': String(flags.includes(color)),
+    title: flagLabel(color),
+    'aria-label': t('{0}: {1}', [flagLabel(color), student.name]),
+    onclick: () => toggleFlag(student.id, color),
+  })));
+}
+
+async function toggleFlag(studentId, color) {
+  const student = state.directory.find((ref) => ref.id === studentId);
+  if (!student) return;
+  const flags = student.flags?.includes(color) ? student.flags.filter((item) => item !== color) : [...(student.flags ?? []), color];
+  const result = await api.saveRefs([{ ref: { ...student, flags }, base: student.updatedAt }]);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return;
+  }
+  await loadDirectory();
+  redrawFlagged();
+}
+
+/** Перерисовать открытые окна, где видны флажки. */
+function redrawFlagged() {
+  if ($('grade').open) drawGrades();
+  if ($('signals').open) drawSignals();
+  if ($('studentfile').open) drawStudentFile();
+}
+
+/** Подписи цветов: «Красный — группа риска». Пустая подпись возвращает название цвета. */
+async function saveFlagName(color, value) {
+  const name = value.trim();
+  const existing = refsOf('flagname').find((ref) => ref.color === color);
+  if ((existing?.name ?? '') === name) return;
+  const result = name
+    ? await api.saveRefs([{ ref: { ...(existing ?? { kind: 'flagname', color }), name }, base: existing?.updatedAt }])
+    : await api.removeRefs([{ id: existing.id, base: existing.updatedAt }]);
+  if (!result.ok) {
+    toast(storeMessage(result));
+    return;
+  }
+  await loadDirectory();
+  redrawFlagged();
+}
+
+let gradeFlag = '';
+let gradeByFlag = false;
+let flagNamesOpen = false;
+
+/** Строка фильтра по флажкам над таблицей грейда. */
+function gradeFlagBar(all) {
+  const count = (color) => all.filter((row) => (color === 'none' ? !(studentByName(row.name)?.flags ?? []).length : studentByName(row.name)?.flags?.includes(color))).length;
+  const chip = (value, label, dot) => h('button', {
+    type: 'button', class: 'flagchip', 'data-grflag': value || 'all', 'aria-pressed': String(gradeFlag === value),
+    onclick: () => { gradeFlag = value; drawGrades(); },
+  }, dot && h('span', { class: `flagdot flag-${dot}` }), label);
+  return h('div', { class: 'flagbar' },
+    h('div', { class: 'flagchips', role: 'group', 'aria-label': t('Флажки') },
+      chip('', t('Все')),
+      FLAG_COLORS.map((color) => chip(color, t('{0}: {1}', [flagLabel(color), count(color)]), color)),
+      chip('none', t('Без флажка: {0}', [count('none')]))),
+    h('label', { class: 'checkrow' }, h('input', { type: 'checkbox', id: 'gr-byflag', checked: gradeByFlag, onchange: (e) => { gradeByFlag = e.target.checked; drawGrades(); } }), t('Группировать по флажкам')),
+    h('button', { type: 'button', class: 'plain small', id: 'gr-flagnames', 'aria-expanded': String(flagNamesOpen), onclick: () => { flagNamesOpen = !flagNamesOpen; drawGrades(); } }, t('Подписи флажков')),
+    flagNamesOpen && h('div', { class: 'flagnames' }, FLAG_COLORS.map((color) => h('label', {},
+      h('span', { class: `flagdot flag-${color}` }),
+      h('input', {
+        value: refsOf('flagname').find((ref) => ref.color === color)?.name ?? '', maxlength: 60, placeholder: flagColorName(color),
+        'aria-label': t('Подпись: {0}', [flagColorName(color)]), 'data-flagname': color,
+        onchange: (e) => saveFlagName(color, e.target.value),
+      })))));
+}
+
 function openGrades() {
   drawGrades();
   $('grade').showModal();
@@ -5045,7 +5305,15 @@ function drawGrades() {
   const dialog = $('grade');
   const { from, to } = ratingPeriod(now().iso);
   const hidden = hiddenOnPanel();
-  const rows = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)));
+  const inGroup = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)));
+  const flagsOfRow = (row) => (canManage() ? studentByName(row.name)?.flags ?? [] : []);
+  const rows = inGroup.filter((row) => !gradeFlag || (gradeFlag === 'none' ? !flagsOfRow(row).length : flagsOfRow(row).includes(gradeFlag)));
+  // Группировка по флажкам: разделы по цветам, студент с двумя флажками — в обоих.
+  const sections = canManage() && gradeByFlag
+    ? [...FLAG_COLORS.map((color) => ({ color, label: flagLabel(color), rows: rows.filter((row) => flagsOfRow(row).includes(color)) })),
+      { color: '', label: t('Без флажка'), rows: rows.filter((row) => !flagsOfRow(row).length) }].filter((section) => section.rows.length)
+    : [{ color: null, rows }];
+  const columns = canManage() ? 16 : 14;
   const groups = [...new Set(currentGrades().map((row) => row.group).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Грейд студентов')), closeButton(dialog)),
@@ -5055,14 +5323,19 @@ function drawGrades() {
         groups.map((name) => h('option', { value: name, selected: name === gradeGroup }, name))),
       canManage() && h('button', { type: 'button', id: 'gr-past', onclick: openPastWorks }, t('Прошлые работы'))),
     h('div', { class: 'sheetbody' },
+      canManage() && inGroup.length > 0 && gradeFlagBar(inGroup),
       h('p', { class: 'help' }, t('Рейтинг за всё обучение, без сброса по семестрам: учёт с {0}. День на парах +1, прогул −4, опоздание −2, сданное задание +3, несданное в срок −2, мероприятие +5 и ещё +2 за роль, практика +2. Ниже нуля баллы не опускаются.', [shortDay(from)])),
       h('p', { class: 'help' }, GRADE_LEVELS.map((level) => t('{0} — от {1}', [gradeName(level.name), level.from])).join(' · ')),
       rows.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'gradetable' },
-          h('thead', {}, h('tr', {}, ['№', t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика'), t('Поощрения'), t('Поведение'), canManage() ? '' : null].filter((name) => name !== null)
+          h('thead', {}, h('tr', {}, ['№', canManage() ? t('Флажки') : null, t('Студент'), t('Группа'), t('Звание'), t('Баллы'), t('До следующего'), t('Дни'), t('Прогулы'), t('Опоздания'), t('Задания'), t('Мероприятия'), t('Практика'), t('Поощрения'), t('Поведение'), canManage() ? '' : null].filter((name) => name !== null)
             .map((name) => h('th', { scope: 'col' }, name)))),
-          h('tbody', {}, rows.map((row, index) => h('tr', {},
+          h('tbody', {}, sections.flatMap((section) => [
+            section.color !== null && h('tr', { class: 'flaghead', 'data-section': section.color || 'none' }, h('th', { colspan: columns, scope: 'colgroup' },
+              section.color && h('span', { class: `flagdot flag-${section.color}` }), t('{0}: {1}', [section.label, section.rows.length]))),
+            ...section.rows.map((row, index) => h('tr', { 'data-student': row.name },
             h('td', {}, String(index + 1)),
+            canManage() && h('td', {}, flagToggles(studentByName(row.name))),
             h('td', {}, canManage() && studentByName(row.name)
               ? h('button', { type: 'button', class: 'linkbutton', onclick: () => openStudentFile(studentByName(row.name).id) }, row.name)
               : row.name),
@@ -5081,8 +5354,9 @@ function drawGrades() {
             h('td', { class: 'num' }, signed(row.breakdown.reward)),
             h('td', { class: 'num' }, signed(row.breakdown.conduct)),
             canManage() && studentByName(row.name) && h('td', {},
-              h('button', { type: 'button', class: 'plain small', 'aria-label': t('Поощрения и поведение: {0}', [row.name]), onclick: () => openBonus(studentByName(row.name).id) }, '±')))))))
-        : h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))),
+              h('button', { type: 'button', class: 'plain small', 'aria-label': t('Поощрения и поведение: {0}', [row.name]), onclick: () => openBonus(studentByName(row.name).id) }, '±')))),
+          ]))))
+        : h('p', { class: 'help' }, inGroup.length ? t('Нет студентов с таким флажком.') : t('Добавьте студентов в «Справочниках».'))),
   );
 }
 
@@ -5114,12 +5388,10 @@ function calcText(item) {
     ];
     case 'task': return [t('Задание «{0}» сдано', [item.title]), past];
     case 'taskMissed': return [t('Задание «{0}» не сдано в срок', [item.title]), past];
-    case 'event': return [item.hackathon ? t('Кинохакатон «{0}»', [item.title]) : t('Мероприятие «{0}»', [item.title]), past];
-    case 'role': return [item.hackathon ? t('Роль «{0}» на кинохакатоне «{1}»', [item.role, item.title])
-      : item.role ? t('Роль «{0}» на мероприятии «{1}»', [item.role, item.title]) : t('Роль на мероприятии «{0}»', [item.title]), past];
+    case 'event': return [t('Мероприятие «{0}»', [item.title]), past];
+    case 'role': return [item.role ? t('Роль «{0}» на мероприятии «{1}»', [item.role, item.title]) : t('Роль на мероприятии «{0}»', [item.title]), past];
     case 'practice': return [t('Практика «{0}»', [item.title]), past];
     case 'manual': {
-      if (item.place) return t('{0} место на кинохакатоне «{1}», команда «{2}»', [item.place, item.title, item.team]);
       const text = item.by ? t('{0} ({1})', [item.title, item.by]) : item.title;
       return item.points > 0 ? t('Поощрение: {0}', [text]) : t('Поведение: {0}', [text]);
     }
@@ -5480,612 +5752,16 @@ function drawPastWorks() {
 const fileState = { id: null, period: 'all' };
 
 /** Периоды личного дела: всё обучение, этот семестр, прошлый, учебный год. */
-/*
- * Кинохакатон. Kerdiis выросла из кинохакатона, поэтому он здесь целиком: команды поровну по опыту,
- * ключевые роли тем, кто их ещё не пробовал, этапы со сроками, техника за командами, жюри и итоги.
- * Хакатон — запись справочника. После последнего дня участие идёт в рейтинг как мероприятие,
- * места после итогов — поощрением всей команде, и всё это попадает в портфолио.
- */
-
-let hackCache = { key: null, value: null };
-
-/** Баллы, роли и места хакатонов в том же виде, что прошлые работы, поощрения и достижения. */
-function hackRecords() {
-  const today = now().iso;
-  if (hackCache.key && hackCache.key[0] === state.directory && hackCache.key[1] === today) return hackCache.value;
-  const { pastWorks, bonuses } = hackathonRecords(refsOf('hackathon'), today);
-  const awards = bonuses.map((bonus) => ({ id: bonus.id, kind: 'achievement', student: bonus.student, date: bonus.date, name: bonus.name, result: t('{0} место, команда «{1}»', [bonus.place, bonus.team]) }));
-  hackCache = { key: [state.directory, today], value: { pastWorks, bonuses, awards } };
-  return hackCache.value;
-}
-const allPastWorks = () => [...refsOf('pastwork'), ...hackRecords().pastWorks];
-const allBonuses = () => [...refsOf('bonus'), ...hackRecords().bonuses];
-const allAchievements = () => [...refsOf('achievement'), ...hackRecords().awards];
-/** Мероприятия вместе с техникой, отданной командам хакатона: так её не займут дважды. */
-const busyEvents = () => [...state.allEvents, ...hackathonBusy(refsOf('hackathon'))];
-
-const hackathons = () => refsOf('hackathon').sort((a, b) => b.from.localeCompare(a.from) || a.name.localeCompare(b.name, 'ru'));
-const currentHack = () => refsOf('hackathon').find((hack) => hack.id === hackState.id) ?? null;
-const hackState = { id: null, tab: 'teams', seed: 0, juror: '', message: '', teamCount: 4, confirm: '', creating: false };
-const shortId = () => crypto.randomUUID().slice(0, 8);
-const defaultKeyRoles = () => [t('Режиссёр'), t('Сценарист'), t('Оператор'), t('Монтажёр'), t('Звукорежиссёр')];
-
 /** Опыт студента — его баллы рейтинга за всё обучение. */
 function experienceMap() {
   return new Map(currentGrades().map((row) => [nameKey(row.name), row.points]));
 }
 
-/** Сколько раз студент был в каждой роли: мероприятия, практика, задания и прошлые хакатоны. */
-function roleCountsMap(exceptId = '') {
+/** Сколько раз студент был в каждой роли на мероприятиях, практике и заданиях. */
+function roleCountsMap() {
   const map = new Map();
-  const bump = (name, role, count = 1) => {
-    const key = nameKey(name);
-    const roles = map.get(key) ?? {};
-    roles[role] = (roles[role] ?? 0) + count;
-    map.set(key, roles);
-  };
-  for (const person of roleStats(state.allEvents, now().iso).people) for (const [role, count] of Object.entries(person.roles)) bump(person.name, role, count);
-  for (const hack of refsOf('hackathon')) {
-    if (hack.id === exceptId) continue;
-    for (const team of hack.teams) for (const [name, role] of Object.entries(team.roles)) bump(name, role);
-  }
+  for (const person of roleStats(state.allEvents, now().iso).people) map.set(nameKey(person.name), { ...person.roles });
   return map;
-}
-
-/** Студенты выбранных групп хакатона (с подгруппами). */
-function hackPool(hack) {
-  const groups = refsOf('group').filter((group) => hack.groups.includes(group.id));
-  const seen = new Set();
-  const names = [];
-  for (const group of groups) {
-    for (const student of groupMembers(group, refsOf('group'), refsOf('student'))) {
-      if (seen.has(nameKey(student.name))) continue;
-      seen.add(nameKey(student.name));
-      names.push(student.name);
-    }
-  }
-  return names.sort((a, b) => a.localeCompare(b, 'ru'));
-}
-
-function openHackathon(id = null) {
-  const today = now().iso;
-  const list = hackathons().filter((hack) => canManage() || hack.approved);
-  hackState.id = id ?? (list.find((hack) => hackathonActive(hack, today)) ?? list[0])?.id ?? null;
-  hackState.tab = isClient() ? 'board' : hackState.id ? 'teams' : 'setup';
-  hackState.creating = canManage() && !hackState.id;
-  Object.assign(hackState, { message: '', confirm: '', seed: 0 });
-  drawHackathon();
-  $('hackathon').showModal();
-}
-
-async function saveHack(mutate) {
-  const hack = currentHack();
-  const draft = structuredClone(hack ?? { kind: 'hackathon', teams: [], stages: [], criteria: [], jury: [], scores: {}, handIn: {}, groups: [], keyRoles: [] });
-  mutate(draft);
-  const result = await api.saveRefs([{ ref: draft, base: hack?.updatedAt }]);
-  if (!result.ok) {
-    hackState.message = storeMessage(result);
-    drawHackathon();
-    return false;
-  }
-  hackState.id = result.value[0].id;
-  hackState.message = '';
-  hackState.creating = false;
-  await loadDirectory();
-  drawHackathon();
-  refreshTicker();
-  return true;
-}
-
-/** «2 ч 15 мин», «3 дн. 4 ч», «12 мин». */
-function durationText(minutes) {
-  if (minutes >= 1440) return t('{0} дн. {1} ч', [Math.floor(minutes / 1440), Math.floor((minutes % 1440) / 60)]);
-  if (minutes >= 60) return t('{0} ч {1} мин', [Math.floor(minutes / 60), minutes % 60]);
-  return t('{0} мин', [minutes]);
-}
-
-const dueText = (due) => (due.slice(0, 10) === now().iso ? due.slice(11) : momentText(due));
-const stageLabel = (state) => ({ done: t('Сдано'), rework: t('На доработке'), late: t('Срок прошёл'), open: t('Идёт') }[state]);
-
-/** Строка для бегущей строки: ближайший срок хакатона и победители в первые три дня после итогов. */
-function hackathonItems() {
-  const clock = moment();
-  const today = now().iso;
-  return hackathons().flatMap((hack) => {
-    if (hackathonActive(hack, today)) {
-      const next = nextStage(hack, clock);
-      return [{ id: `hack-${hack.id}-${next?.id ?? 'end'}`, color: 'blue', name: next
-        ? t('🎬 Кинохакатон «{0}»: этап «{1}» — сдать до {2}', [hack.name, next.name, dueText(next.due)])
-        : t('🎬 Кинохакатон «{0}» идёт: все этапы сданы или сроки прошли', [hack.name]) }];
-    }
-    if (hack.finished && hack.to >= addDays(today, -3) && hack.to <= today) {
-      const winners = standings(hack).filter((row) => row.place === 1).map((row) => row.team.name);
-      if (winners.length) return [{ id: `hack-${hack.id}-won`, color: 'trophy', name: t('🏆 Кинохакатон «{0}»: первое место — {1}! Поздравляем!', [hack.name, winners.join(', ')]) }];
-    }
-    return [];
-  });
-}
-
-function drawHackathon() {
-  const dialog = $('hackathon');
-  const scrolled = dialog.querySelector('.sheetbody')?.scrollTop ?? 0;
-  const hack = hackState.creating ? null : currentHack();
-  const list = hackathons().filter((item) => canManage() || item.approved);
-  const tabs = canManage()
-    ? [['setup', t('Хакатон')], ['teams', t('Команды')], ['stages', t('Этапы')], ['gear', t('Техника')], ['jury', t('Жюри и итоги')], ['board', t('Табло')]]
-    : [];
-  const tab = hack || hackState.tab === 'setup' ? hackState.tab : 'setup';
-  const pane = !hack && !canManage() ? h('p', { class: 'help' }, t('Кинохакатонов пока нет.'))
-    : !hack || tab === 'setup' ? hackSetupPane(hack)
-      : tab === 'teams' ? hackTeamsPane(hack)
-        : tab === 'stages' ? hackStagesPane(hack)
-          : tab === 'gear' ? hackGearPane(hack)
-            : tab === 'jury' ? hackJuryPane(hack)
-              : hackBoardPane(hack);
-  dialog.replaceChildren(
-    h('div', { class: 'sheethead' },
-      h('div', { class: 'hkhead' },
-      h('h2', {}, t('Кинохакатон')),
-      list.length > 0 && h('select', {
-        id: 'hk-pick',
-        'aria-label': t('Кинохакатон'),
-        onchange: (e) => {
-          Object.assign(hackState, { id: e.target.value, creating: false, message: '', confirm: '', seed: 0 });
-          if (hackState.tab === 'setup') hackState.tab = 'teams';
-          drawHackathon();
-        },
-      }, list.map((item) => h('option', { value: item.id, selected: !hackState.creating && item.id === hackState.id }, `${item.name} · ${shortDay(item.from)}`))),
-      canManage() && h('button', { type: 'button', class: 'plain', id: 'hk-new', onclick: () => {
-        Object.assign(hackState, { creating: true, tab: 'setup', message: '', confirm: '' });
-        drawHackathon();
-      } }, t('Новый хакатон'))),
-      closeButton(dialog)),
-    hack && tabs.length > 0 && h('div', { class: 'tabs', role: 'group', 'aria-label': t('Раздел хакатона') }, tabs.map(([id, label]) => h('button', {
-      type: 'button',
-      'data-hktab': id,
-      'aria-pressed': String(tab === id),
-      onclick: () => {
-        Object.assign(hackState, { tab: id, message: '', confirm: '' });
-        drawHackathon();
-        dialog.querySelector('.sheetbody').scrollTop = 0;
-      },
-    }, label))),
-    h('div', { class: 'sheetbody hackbody' }, hackState.message && h('p', { class: 'notice', id: 'hk-message' }, hackState.message), pane),
-  );
-  dialog.querySelector('.sheetbody').scrollTop = scrolled;
-}
-
-/* Хакатон: название, дни, часы, группы и ключевые роли */
-
-function hackSetupPane(hack) {
-  const today = now().iso;
-  const roleOptions = [...new Set([...(hack?.keyRoles ?? []), ...refsOf('role').map((ref) => ref.name), ...defaultKeyRoles()])];
-  const chosenRoles = new Set(hack?.keyRoles ?? (refsOf('role').length ? refsOf('role').slice(0, 5).map((ref) => ref.name) : defaultKeyRoles()));
-  const groups = refsOf('group').filter((group) => !parentGroup(group, refsOf('group')));
-  const field = (label, input) => h('label', {}, h('span', {}, label), input);
-  const save = async () => {
-    const name = $('hk-name').value.trim();
-    const from = $('hk-from').value;
-    const to = $('hk-to').value || from;
-    const start = $('hk-start').value || '09:00';
-    const end = $('hk-end').value || '18:00';
-    const picked = [...document.querySelectorAll('.hk-group:checked')].map((box) => box.value);
-    const roles = [...document.querySelectorAll('.hk-role:checked')].map((box) => box.value);
-    const extra = splitList($('hk-role-add').value);
-    if (!name || !from) {
-      hackState.message = t('Укажите название и первый день хакатона.');
-      return drawHackathon();
-    }
-    if (to < from || addDays(from, 30) < to) {
-      hackState.message = t('Последний день — не раньше первого и не позже чем через 30 дней.');
-      return drawHackathon();
-    }
-    if (start >= end) {
-      hackState.message = t('Окончание дня должно быть позже начала');
-      return drawHackathon();
-    }
-    const created = !hack;
-    await saveHack((draft) => {
-      Object.assign(draft, { name, from, to, start, end, place: $('hk-place').value.trim(), groups: picked, keyRoles: [...new Set([...roles, ...extra])] });
-    });
-    if (created && currentHack()) {
-      hackState.tab = 'teams';
-      drawHackathon();
-    }
-  };
-  const remove = async () => {
-    if (hackState.confirm !== 'remove') {
-      hackState.confirm = 'remove';
-      return drawHackathon();
-    }
-    const result = await api.removeRefs([{ id: hack.id, base: hack.updatedAt }]);
-    if (!result.ok) {
-      hackState.message = storeMessage(result);
-      return drawHackathon();
-    }
-    Object.assign(hackState, { id: null, confirm: '', creating: true, tab: 'setup' });
-    await loadDirectory();
-    hackState.id = hackathons()[0]?.id ?? null;
-    hackState.creating = !hackState.id;
-    drawHackathon();
-    refreshTicker();
-  };
-  return h('div', { class: 'pastform hackform' },
-    !hack && h('p', { class: 'help' }, t('Команды собираются из студентов выбранных групп. Ключевые роли раздаются тем, кто пробовал их меньше всех: так у каждого со временем будет опыт во всех ролях.')),
-    h('div', { class: 'pastfields' },
-      h('label', { class: 'grow' }, h('span', {}, t('Название')), h('input', { id: 'hk-name', value: hack?.name ?? '', maxlength: 200, placeholder: t('Например: Кинохакатон «Осень»') })),
-      field(t('Первый день'), h('input', { id: 'hk-from', type: 'date', value: hack?.from ?? today })),
-      field(t('Последний день'), h('input', { id: 'hk-to', type: 'date', value: hack?.to ?? hack?.from ?? today })),
-      field(t('С'), h('input', { id: 'hk-start', type: 'time', value: hack?.start ?? '09:00' })),
-      field(t('До'), h('input', { id: 'hk-end', type: 'time', value: hack?.end ?? '18:00' })),
-      h('label', { class: 'grow' }, h('span', {}, t('Место')), h('input', { id: 'hk-place', value: hack?.place ?? '', maxlength: 200 }))),
-    h('fieldset', { class: 'hkset' },
-      h('legend', {}, t('Группы')),
-      groups.length
-        ? h('div', { class: 'hkchecks' }, groups.map((group) => h('label', { class: 'checkrow' },
-          h('input', { type: 'checkbox', class: 'hk-group', value: group.id, 'data-group': group.name, checked: hack?.groups.includes(group.id) ?? false }),
-          t('{0} ({1})', [group.name, groupMembers(group, refsOf('group'), refsOf('student')).length]))))
-        : h('p', { class: 'help' }, t('Добавьте студентов в «Справочниках».'))),
-    h('fieldset', { class: 'hkset' },
-      h('legend', {}, t('Ключевые роли в каждой команде')),
-      h('div', { class: 'hkchecks' }, roleOptions.map((role) => h('label', { class: 'checkrow' },
-        h('input', { type: 'checkbox', class: 'hk-role', value: role, checked: chosenRoles.has(role) }), role))),
-      h('input', { id: 'hk-role-add', placeholder: t('Ещё роли через точку с запятой'), 'aria-label': t('Ещё роли через точку с запятой') })),
-    h('div', { class: 'pasttools' },
-      h('button', { type: 'button', class: 'primary', id: 'hk-save', onclick: save }, hack ? t('Сохранить') : t('Создать хакатон')),
-      hack && h('button', { type: 'button', class: hackState.confirm === 'remove' ? 'danger' : 'plain', id: 'hk-remove', onclick: remove },
-        hackState.confirm === 'remove' ? t('Точно удалить? Нажмите ещё раз') : t('Удалить хакатон'))),
-  );
-}
-
-/* Команды: автоматически поровну по опыту, преподаватель правит и утверждает */
-
-function hackTeamsPane(hack) {
-  const pool = hackPool(hack);
-  const experience = experienceMap();
-  const counts = roleCountsMap(hack.id);
-  const exp = (name) => experience.get(nameKey(name)) ?? 0;
-  const inTeams = new Set(hackathonMembers(hack).map(nameKey));
-  const free = pool.filter((name) => !inTeams.has(nameKey(name)));
-  const sums = hack.teams.map((team) => teamExperience(team, exp));
-  const gap = sums.length ? Math.max(...sums) - Math.min(...sums) : 0;
-
-  const build = (seed) => {
-    if (hack.teams.length && hackState.confirm !== 'build' && seed === 0) {
-      hackState.confirm = 'build';
-      return drawHackathon();
-    }
-    const people = pool.map((name) => ({ name, experience: exp(name), roles: counts.get(nameKey(name)) ?? {} }));
-    const built = buildTeams(people, hackState.teamCount, hack.keyRoles, seed);
-    hackState.confirm = '';
-    hackState.seed = seed;
-    return saveHack((draft) => {
-      draft.teams = built.map((team, index) => ({
-        id: draft.teams[index]?.id ?? shortId(),
-        name: draft.teams[index]?.name ?? t('Команда {0}', [index + 1]),
-        members: team.members,
-        roles: team.roles,
-        equipment: draft.teams[index]?.equipment ?? {},
-        film: draft.teams[index]?.film ?? '',
-      }));
-      draft.approved = false;
-    });
-  };
-  const moveTo = (name, from, to) => saveHack((draft) => {
-    const source = draft.teams.find((team) => team.id === from);
-    if (source) {
-      source.members = source.members.filter((member) => nameKey(member) !== nameKey(name));
-      delete source.roles[name];
-    }
-    const target = draft.teams.find((team) => team.id === to);
-    if (target) target.members.push(name);
-  });
-  const setRole = (teamId, name, role) => saveHack((draft) => {
-    const team = draft.teams.find((item) => item.id === teamId);
-    if (role) team.roles[name] = role;
-    else delete team.roles[name];
-  });
-  const rename = (teamId, value) => saveHack((draft) => {
-    draft.teams.find((item) => item.id === teamId).name = value.trim() || t('Команда');
-  });
-  const moveSelect = (name, from) => h('select', {
-    class: 'hkmove',
-    'aria-label': t('Перевести: {0}', [name]),
-    onchange: (e) => moveTo(name, from, e.target.value),
-  },
-  h('option', { value: from, selected: true }, from ? t('Перевести…') : t('В команду…')),
-  hack.teams.filter((team) => team.id !== from).map((team) => h('option', { value: team.id }, team.name)),
-  from && h('option', { value: '' }, t('Убрать из команд')));
-
-  if (!pool.length) {
-    return h('p', { class: 'help' }, t('Выберите группы на вкладке «Хакатон»: команды собираются из их студентов.'));
-  }
-  return [
-    h('div', { class: 'pasttools hkbuild' },
-      h('label', { class: 'inline' }, t('Команд'), h('input', {
-        id: 'hk-count', type: 'number', min: 1, max: Math.max(1, pool.length), value: hack.teams.length || hackState.teamCount,
-        onchange: (e) => { hackState.teamCount = Math.max(1, Math.min(pool.length, Math.round(Number(e.target.value) || 1))); },
-      })),
-      h('button', { type: 'button', class: hackState.confirm === 'build' ? 'danger' : 'primary', id: 'hk-build', onclick: () => {
-        hackState.teamCount = Math.max(1, Math.min(pool.length, Math.round(Number($('hk-count').value) || 1)));
-        build(0);
-      } }, hackState.confirm === 'build' ? t('Пересобрать? Ручные правки пропадут — нажмите ещё раз') : hack.teams.length ? t('Пересобрать команды') : t('Собрать команды')),
-      hack.teams.length > 0 && h('button', { type: 'button', class: 'plain', id: 'hk-again', onclick: () => {
-        hackState.teamCount = hack.teams.length;
-        build(hackState.seed + 1);
-      } }, t('Другой вариант')),
-      hack.teams.length > 0 && h('button', {
-        type: 'button', id: 'hk-approve', class: hack.approved ? 'plain' : 'primary',
-        onclick: () => saveHack((draft) => { draft.approved = !draft.approved; }),
-      }, hack.approved ? t('Снять утверждение') : t('Утвердить команды'))),
-    h('p', { class: 'help' }, t('Студентов: {0}. Команды собираются поровну по опыту — баллам рейтинга за всё обучение. Ключевые роли получают те, кто пробовал их меньше всех. Поправьте вручную и утвердите: после утверждения команды видны на панелях.', [pool.length])),
-    hack.teams.length > 0 && h('p', { class: hack.approved ? 'hkok' : 'help', id: 'hk-balance' },
-      hack.approved ? `${t('Команды утверждены.')} ` : '',
-      t('Опыт команд: {0} (разница {1}).', [sums.join(' · '), gap])),
-    h('div', { class: 'hkteams' }, hack.teams.map((team) => h('section', { class: 'hkteam', 'data-team': team.id },
-      h('div', { class: 'hkteamhead' },
-        h('input', { class: 'hkname', value: team.name, maxlength: 80, 'aria-label': t('Название команды'), onchange: (e) => rename(team.id, e.target.value) }),
-        h('small', {}, t('опыт {0}', [teamExperience(team, exp)]))),
-      h('ul', { class: 'hkmembers' }, team.members.map((name) => {
-        const role = teamRole(team, name);
-        const first = role && !(counts.get(nameKey(name))?.[role]);
-        const options = [...new Set([...hack.keyRoles, ...refsOf('role').map((ref) => ref.name), ...(role ? [role] : [])])];
-        return h('li', { 'data-member': name },
-          h('span', { class: 'hkwho' }, name, h('small', {}, t('баллов {0}', [exp(name)]), first && h('span', { class: 'hkfirst' }, t('впервые')))),
-          h('select', { 'aria-label': t('Роль: {0}', [name]), onchange: (e) => setRole(team.id, name, e.target.value) },
-            h('option', { value: '' }, t('Без роли')),
-            options.map((item) => h('option', { value: item, selected: item === role }, item))),
-          moveSelect(name, team.id));
-      })),
-    ))),
-    free.length > 0 && h('section', { class: 'hkfree' },
-      h('h3', {}, t('Не в командах: {0}', [free.length])),
-      h('ul', { class: 'hkmembers' }, free.map((name) => h('li', {}, h('span', { class: 'hkwho' }, name, h('small', {}, t('баллов {0}', [exp(name)]))), hack.teams.length > 0 && moveSelect(name, ''))))),
-  ];
-}
-
-/* Этапы со сроками и сдача по командам */
-
-function hackStagesPane(hack) {
-  const clock = moment();
-  // Типовые этапы: в один день — четверть дня на идею, потом съёмка и монтаж, показ в конце.
-  // В несколько дней — идея в первый день, съёмка до конца предпоследнего, монтаж и показ в последний.
-  const typical = () => {
-    const start = toMinutes(hack.start);
-    const length = toMinutes(hack.end) - start;
-    const at = (date, share) => `${date}T${fromMinutes(start + Math.round((length * share) / 15) * 15)}`;
-    const names = [t('Идея и сценарий'), t('Съёмка'), t('Монтаж'), t('Показ')];
-    const dues = hack.from === hack.to
-      ? [at(hack.from, 0.25), at(hack.from, 0.55), at(hack.from, 0.85), at(hack.from, 1)]
-      : [at(hack.from, 0.45), at(addDays(hack.to, -1), 1), at(hack.to, 0.65), at(hack.to, 1)];
-    return names.map((name, index) => ({ name, due: dues[index] }));
-  };
-  const cycle = (teamId, stageId) => saveHack((draft) => {
-    const current = draft.handIn[teamId]?.[stageId];
-    const next = current === 'done' ? 'rework' : current === 'rework' ? '' : 'done';
-    draft.handIn[teamId] ??= {};
-    if (next) draft.handIn[teamId][stageId] = next;
-    else delete draft.handIn[teamId][stageId];
-  });
-  const addStage = () => {
-    const name = $('hk-stage-name').value.trim();
-    const due = $('hk-stage-due').value.slice(0, 16);
-    if (!name || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(due)) {
-      hackState.message = t('Укажите название этапа и срок сдачи.');
-      return drawHackathon();
-    }
-    return saveHack((draft) => { draft.stages.push({ id: shortId(), name, due }); });
-  };
-  return [
-    h('p', { class: 'help' }, t('Этапы с крайним сроком. На панелях идёт отсчёт до ближайшего срока. Сдачу отмечайте по команде: нажатие меняет «сдано» → «на доработке» → «не сдано».')),
-    hack.stages.length > 0 && h('ul', { class: 'bonuslist hkstages' }, hack.stages.map((stage) => h('li', { 'data-stage': stage.id },
-      h('b', {}, stage.name),
-      h('span', {}, t('до {0}', [momentText(stage.due)])),
-      stage.due > clock && h('small', {}, t('через {0}', [durationText(minutesUntil(stage.due, clock))])),
-      h('button', { type: 'button', class: 'plain small', 'aria-label': t('Убрать: {0}', [stage.name]), onclick: () => saveHack((draft) => {
-        draft.stages = draft.stages.filter((item) => item.id !== stage.id);
-      }) }, '×')))),
-    h('div', { class: 'pastfields' },
-      h('label', { class: 'grow' }, h('span', {}, t('Этап')), h('input', { id: 'hk-stage-name', maxlength: 120, placeholder: t('Например: Сценарий') })),
-      h('label', {}, h('span', {}, t('Сдать до')), h('input', { id: 'hk-stage-due', type: 'datetime-local', value: `${hack.from}T${hack.end}` })),
-      h('button', { type: 'button', class: 'plain', id: 'hk-stage-add', onclick: addStage }, t('Добавить этап')),
-      !hack.stages.length && h('button', { type: 'button', class: 'plain', id: 'hk-stage-typical', onclick: () => saveHack((draft) => {
-        draft.stages = typical().map((stage) => ({ id: shortId(), ...stage }));
-      }) }, t('Типовые этапы'))),
-    hack.teams.length > 0 && hack.stages.length > 0 && h('div', { class: 'tablewrap' }, h('table', { class: 'filetable hkgrid' },
-      h('thead', {}, h('tr', {}, h('th', {}, t('Команда')), h('th', {}, t('Фильм')), hack.stages.map((stage) => h('th', {}, stage.name)))),
-      h('tbody', {}, hack.teams.map((team) => h('tr', { 'data-team': team.id },
-        h('td', {}, h('b', {}, team.name)),
-        h('td', {}, h('input', { class: 'hkfilm', value: team.film, maxlength: 200, placeholder: t('Название фильма'), 'aria-label': t('Фильм команды {0}', [team.name]),
-          onchange: (e) => saveHack((draft) => { draft.teams.find((item) => item.id === team.id).film = e.target.value.trim(); }) })),
-        hack.stages.map((stage) => {
-          const status = stageState(hack, team.id, stage, clock);
-          return h('td', {}, h('button', { type: 'button', class: `hkstage hk-${status}`, 'data-stage': stage.id, onclick: () => cycle(team.id, stage.id) }, stageLabel(status)));
-        })))))),
-  ];
-}
-
-/* Техника за командами */
-
-/** Чего не хватает хакатону в какой-нибудь из его дней: с учётом пар, мероприятий и других хакатонов. */
-function hackShortages(hack, teams = hack.teams) {
-  const others = [...state.allEvents, ...hackathonBusy(refsOf('hackathon').filter((item) => item.id !== hack.id))];
-  const total = {};
-  for (const team of teams) for (const [name, qty] of Object.entries(team.equipment)) total[name] = (total[name] ?? 0) + qty;
-  const names = Object.keys(total);
-  const worst = new Map();
-  for (let date = hack.from; date <= hack.to; date = addDays(date, 1)) {
-    const draft = { id: `hk-${hack.id}`, date, start: hack.start, end: hack.end, equipment: names, equipmentQty: total, participants: [] };
-    for (const item of shortages(draft, others, refsOf('equipment'))) {
-      if (!worst.has(item.name) || worst.get(item.name).free > item.free) worst.set(item.name, { ...item, date });
-    }
-  }
-  return [...worst.values()];
-}
-
-function hackGearPane(hack) {
-  const stock = refsOf('equipment').filter((item) => item.name !== OWN_CAMERA);
-  const lacking = hackShortages(hack);
-  const change = (teamId, name, qty) => {
-    const teams = structuredClone(hack.teams);
-    const team = teams.find((item) => item.id === teamId);
-    if (qty > 0) team.equipment[name] = qty;
-    else delete team.equipment[name];
-    const over = hackShortages(hack, teams).find((item) => nameKey(item.name) === nameKey(name));
-    if (over && qty > (hack.teams.find((item) => item.id === teamId).equipment[name] ?? 0)) {
-      hackState.message = t('{0}: нужно {1}, свободно {2} из {3}', [over.name, over.need, over.free, over.total]);
-      return drawHackathon();
-    }
-    return saveHack((draft) => { draft.teams = teams; });
-  };
-  if (!hack.teams.length) return h('p', { class: 'help' }, t('Сначала соберите команды.'));
-  return [
-    h('p', { class: 'help' }, t('Техника закрепляется за командой на все дни хакатона, {0}–{1}. Пары и мероприятия в эти часы её уже не займут, а в разделе «Техника» видно, у какой она команды.', [hack.start, hack.end])),
-    lacking.length > 0 && h('div', { class: 'conflicts', id: 'hk-lacking' }, h('h3', {}, t('Не хватает техники')),
-      h('ul', {}, lacking.map((item) => h('li', {}, t('{0}: нужно {1}, свободно {2} из {3}', [item.name, item.need, item.free, item.total]))))),
-    !stock.length && h('p', { class: 'help' }, t('Добавьте технику в «Справочники → Техника».')),
-    h('div', { class: 'hkteams' }, hack.teams.map((team) => h('section', { class: 'hkteam', 'data-team': team.id },
-      h('div', { class: 'hkteamhead' }, h('b', {}, team.name)),
-      h('ul', { class: 'hkgear' }, Object.entries(team.equipment).map(([name, qty]) => h('li', { 'data-item': name },
-        h('span', {}, name),
-        h('button', { type: 'button', class: 'plain small', 'aria-label': t('Меньше: {0}', [name]), onclick: () => change(team.id, name, qty - 1) }, '−'),
-        h('b', {}, String(qty)),
-        h('button', { type: 'button', class: 'plain small', 'aria-label': t('Больше: {0}', [name]), onclick: () => change(team.id, name, qty + 1) }, '+')))),
-      stock.length > 0 && h('select', {
-        class: 'hkaddgear',
-        'aria-label': t('Добавить технику команде {0}', [team.name]),
-        onchange: (e) => e.target.value && change(team.id, e.target.value, (team.equipment[e.target.value] ?? 0) + 1),
-      }, h('option', { value: '' }, t('Добавить технику…')), stock.map((item) => h('option', { value: item.name }, item.quantity === null ? item.name : t('{0} (всего {1})', [item.name, item.quantity]))))))),
-  ];
-}
-
-/* Жюри, критерии, оценки и итоги */
-
-function hackJuryPane(hack) {
-  const rows = standings(hack);
-  const missing = missingScores(hack);
-  if (!hack.jury.includes(hackState.juror)) hackState.juror = hack.jury[0] ?? '';
-  const juror = hackState.juror;
-  const addJury = () => {
-    const names = splitNames($('hk-jury-add').value);
-    if (!names.length) return;
-    saveHack((draft) => { draft.jury = [...draft.jury, ...names.filter((name) => !draft.jury.some((item) => nameKey(item) === nameKey(name)))]; });
-  };
-  const addCriterion = () => {
-    const name = $('hk-crit-name').value.trim();
-    const max = Math.round(Number($('hk-crit-max').value) || 10);
-    if (!name) return;
-    saveHack((draft) => { draft.criteria.push({ id: shortId(), name, max: Math.max(1, Math.min(100, max)) }); });
-  };
-  const setScore = (teamId, criterion, value) => saveHack((draft) => {
-    draft.scores[teamId] ??= {};
-    draft.scores[teamId][criterion.id] ??= {};
-    if (value === '') delete draft.scores[teamId][criterion.id][juror];
-    else draft.scores[teamId][criterion.id][juror] = Math.max(0, Math.min(criterion.max, Number(value)));
-  });
-  const finish = () => {
-    if (!hack.finished && missing > 0 && hackState.confirm !== 'finish') {
-      hackState.confirm = 'finish';
-      return drawHackathon();
-    }
-    hackState.confirm = '';
-    return saveHack((draft) => { draft.finished = !draft.finished; });
-  };
-  const typical = [[t('Идея и сценарий'), 10], [t('Операторская работа'), 10], [t('Монтаж'), 10], [t('Звук'), 10], [t('Раскрытие темы'), 10]];
-  return [
-    h('div', { class: 'hkcols' },
-      h('section', {},
-        h('h3', {}, t('Жюри')),
-        h('ul', { class: 'tags hkjury' }, hack.jury.map((name) => h('li', { class: 'tag' }, name, h('button', {
-          type: 'button', 'aria-label': t('Убрать: {0}', [name]),
-          onclick: () => saveHack((draft) => { draft.jury = draft.jury.filter((item) => item !== name); }),
-        }, '×')))),
-        h('div', { class: 'adder' },
-          h('input', { id: 'hk-jury-add', placeholder: t('ФИО, можно несколько через точку с запятой'), 'aria-label': t('Член жюри'), list: 'hk-teachers' }),
-          h('datalist', { id: 'hk-teachers' }, refsOf('teacher').map((ref) => h('option', { value: ref.name }))),
-          h('button', { type: 'button', id: 'hk-jury-btn', onclick: addJury }, t('Добавить')))),
-      h('section', {},
-        h('h3', {}, t('Критерии')),
-        h('ul', { class: 'bonuslist' }, hack.criteria.map((criterion) => h('li', {},
-          h('span', {}, criterion.name), h('small', {}, t('до {0} баллов', [criterion.max])),
-          h('button', { type: 'button', class: 'plain small', 'aria-label': t('Убрать: {0}', [criterion.name]), onclick: () => saveHack((draft) => {
-            draft.criteria = draft.criteria.filter((item) => item.id !== criterion.id);
-          }) }, '×')))),
-        h('div', { class: 'adder' },
-          h('input', { id: 'hk-crit-name', placeholder: t('Критерий'), 'aria-label': t('Критерий') }),
-          h('input', { id: 'hk-crit-max', type: 'number', min: 1, max: 100, value: 10, 'aria-label': t('Наибольший балл'), class: 'hknum' }),
-          h('button', { type: 'button', id: 'hk-crit-btn', onclick: addCriterion }, t('Добавить'))),
-        !hack.criteria.length && h('button', { type: 'button', class: 'plain', id: 'hk-crit-typical', onclick: () => saveHack((draft) => {
-          draft.criteria = typical.map(([name, max]) => ({ id: shortId(), name, max }));
-        }) }, t('Типовые критерии')))),
-    hack.jury.length > 0 && hack.criteria.length > 0 && hack.teams.length > 0 && [
-      h('h3', {}, t('Оценки')),
-      h('div', { class: 'pasttools' },
-        h('label', { class: 'inline' }, t('Член жюри'), h('select', { id: 'hk-juror', onchange: (e) => { hackState.juror = e.target.value; drawHackathon(); } },
-          hack.jury.map((name) => h('option', { value: name, selected: name === juror }, name)))),
-        missing > 0 && h('small', {}, t('Не хватает оценок: {0}', [missing]))),
-      h('div', { class: 'tablewrap' }, h('table', { class: 'filetable hkscores' },
-        h('thead', {}, h('tr', {}, h('th', {}, t('Команда')), hack.criteria.map((criterion) => h('th', { class: 'num' }, t('{0} (до {1})', [criterion.name, criterion.max]))))),
-        h('tbody', {}, hack.teams.map((team) => h('tr', { 'data-team': team.id },
-          h('td', {}, h('b', {}, team.name), team.film && h('small', { class: 'pastmark' }, team.film)),
-          hack.criteria.map((criterion) => h('td', { class: 'num' }, h('input', {
-            type: 'number', min: 0, max: criterion.max, step: 0.5, class: 'hknum', 'data-criterion': criterion.id, disabled: hack.finished,
-            value: hack.scores[team.id]?.[criterion.id]?.[juror] ?? '',
-            'aria-label': t('{0}: {1}', [team.name, criterion.name]),
-            onchange: (e) => setScore(team.id, criterion, e.target.value),
-          })))))))),
-    ],
-    rows.some((row) => row.scored) && [
-      h('h3', {}, t('Итоги')),
-      hackStandings(hack, rows),
-    ],
-    hack.teams.length > 0 && h('div', { class: 'pasttools' },
-      h('button', { type: 'button', id: 'hk-finish', class: hack.finished ? 'plain' : hackState.confirm === 'finish' ? 'danger' : 'primary', disabled: !hack.approved || !rows.some((row) => row.scored), onclick: finish },
-        hack.finished ? t('Вернуть к оценке') : hackState.confirm === 'finish' ? t('Оценки есть не у всех. Подвести итоги всё равно?') : t('Подвести итоги')),
-      !hack.approved && h('small', {}, t('Сначала утвердите команды.'))),
-    h('p', { class: 'help' }, hack.finished
-      ? t('Итоги подведены. Всем участникам — мероприятие +5 и роль +2 в рейтинг; места — поощрение команде: 1-е +{0}, 2-е +{1}, 3-е +{2}. В портфолио — участие, роль и место.', HACKATHON_PLACE_POINTS)
-      : t('Итог команды — сумма средних оценок жюри по критериям. После последнего дня участие засчитывается как мероприятие (+5, роль +2). Места дают поощрение всей команде после подведения итогов: 1-е +{0}, 2-е +{1}, 3-е +{2}.', HACKATHON_PLACE_POINTS)),
-  ];
-}
-
-function hackStandings(hack, rows = standings(hack)) {
-  return h('div', { class: 'tablewrap' }, h('table', { class: 'filetable hkresult', id: 'hk-result' },
-    h('thead', {}, h('tr', {}, h('th', {}, t('Место')), h('th', {}, t('Команда')), hack.criteria.map((criterion) => h('th', { class: 'num' }, criterion.name)), h('th', { class: 'num' }, t('Итог')), h('th', { class: 'num' }, t('В рейтинг')))),
-    h('tbody', {}, rows.map((row) => h('tr', { class: row.place && row.place <= 3 ? `hkplace hkplace-${row.place}` : '' },
-      h('td', {}, row.place ? String(row.place) : '—'),
-      h('td', {}, h('b', {}, row.team.name), row.team.film && h('small', { class: 'pastmark' }, t('«{0}»', [row.team.film]))),
-      row.byCriterion.map((value) => h('td', { class: 'num' }, value === null ? '—' : String(value))),
-      h('td', { class: 'num' }, h('b', {}, String(row.total))),
-      h('td', { class: 'num' }, row.points ? signed(row.points) : ''))))));
-}
-
-/* Табло: то, что видят на панелях */
-
-function hackBoardPane(hack) {
-  const clock = moment();
-  const next = nextStage(hack, clock);
-  return [
-    h('div', { class: 'hkboard' },
-      h('div', { class: 'hkboardhead' },
-        h('h3', {}, hack.name),
-        h('p', {}, hack.from === hack.to ? t('{0}, {1}–{2}', [shortDay(hack.from), hack.start, hack.end]) : t('{0} — {1}, {2}–{3}', [shortDay(hack.from), shortDay(hack.to), hack.start, hack.end]), hack.place && ` · ${hack.place}`)),
-      !hack.approved && h('p', { class: 'help' }, t('Команды ещё не утверждены: на панелях хакатон появится после утверждения.')),
-      !hack.finished && next && h('p', { class: 'hkcount', id: 'hk-count-down' },
-        h('span', {}, t('До конца этапа «{0}»', [next.name])),
-        h('b', {}, durationText(minutesUntil(next.due, clock))),
-        h('small', {}, t('сдать до {0}', [dueText(next.due)]))),
-      !hack.finished && !next && hack.stages.length > 0 && h('p', { class: 'hkcount' }, h('span', {}, t('Все сроки этапов прошли'))),
-      hack.finished && hackStandings(hack)),
-    h('div', { class: 'hkteams' }, hack.teams.map((team) => h('section', { class: 'hkteam', 'data-team': team.id },
-      h('div', { class: 'hkteamhead' }, h('b', {}, team.name), team.film && h('small', {}, t('«{0}»', [team.film]))),
-      h('ul', { class: 'hkmembers board' }, team.members.map((name) => h('li', {}, h('span', { class: 'hkwho' }, name), teamRole(team, name) && h('small', {}, teamRole(team, name))))),
-      hack.stages.length > 0 && h('div', { class: 'hkstagerow' }, hack.stages.map((stage) => {
-        const status = stageState(hack, team.id, stage, clock);
-        return h('span', { class: `hkstage hk-${status}`, title: stageLabel(status) }, stage.name, ': ', stageLabel(status));
-      })),
-      Object.keys(team.equipment).length > 0 && h('p', { class: 'help hkgearline' }, t('Техника: {0}', [Object.entries(team.equipment).map(([name, qty]) => (qty > 1 ? `${name} × ${qty}` : name)).join(', ')]))))),
-  ];
 }
 
 /* Кому дать: студенты без инициативы получают больше заданий, цель — опытный специалист */
@@ -6097,7 +5773,7 @@ function hintWorks() {
     ...state.allEvents
       .filter((event) => ['task', 'event', 'practice'].includes(event.type) && event.cancelled !== true && event.pending !== true && event.date >= from)
       .map((event) => ({ date: event.type === 'task' && event.deadline ? event.deadline.slice(0, 10) : event.date, students: event.participants })),
-    ...allPastWorks().filter((work) => work.date >= from).map((work) => ({ date: work.date, students: work.students })),
+    ...refsOf('pastwork').filter((work) => work.date >= from).map((work) => ({ date: work.date, students: work.students })),
   ];
 }
 
@@ -6149,7 +5825,7 @@ function studentFileSheet() {
   const { from, to } = filePeriod(fileState.period);
   const data = studentFile({
     student, events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'),
-    achievements: allAchievements(), bonuses: allBonuses(), pastWorks: allPastWorks(), from, to, nowISO: clock.iso, nowTime: clock.time,
+    achievements: refsOf('achievement'), bonuses: refsOf('bonus'), pastWorks: refsOf('pastwork'), from, to, nowISO: clock.iso, nowTime: clock.time,
   });
   const long = (iso) => fmt(iso, { day: 'numeric', month: 'long', year: 'numeric' });
   const a = data.attendance;
@@ -6198,7 +5874,7 @@ function studentFileSheet() {
     h('h3', {}, t('Участие и достижения')),
     data.items.length || data.awards.length
       ? [data.items.length > 0 && table([t('Дата'), t('Вид'), t('Название'), t('Роль')], data.items.map((item) => h('tr', {},
-        h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title, item.past && h('small', { class: 'pastmark' }, t('внесено задним числом'))), h('td', {}, item.role === 'role' ? t('с ролью') : item.role)))),
+        h('td', {}, shortDate(item.date)), h('td', {}, typeLabel(item.type)), h('td', {}, item.title, item.past && h('small', { class: 'pastmark' }, t('внесено задним числом'))), h('td', {}, item.past && item.role ? t('с ролью') : item.role)))),
       data.awards.length > 0 && table([t('Дата'), t('Достижение'), t('Результат')], data.awards.map((item) => h('tr', {},
         h('td', {}, shortDate(item.date)), h('td', {}, item.name), h('td', {}, item.result))))]
       : h('p', { class: 'free' }, t('За период участий и достижений нет.')),
@@ -6215,7 +5891,8 @@ function drawStudentFile() {
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Личное дело студента')), closeButton(dialog)),
     h('div', { class: 'tabs weektools', role: 'group', 'aria-label': t('Период') },
-      periods.map(([id, label]) => h('button', { type: 'button', class: fileState.period === id ? 'active' : '', 'aria-pressed': String(fileState.period === id), onclick: () => { fileState.period = id; drawStudentFile(); } }, label))),
+      periods.map(([id, label]) => h('button', { type: 'button', class: fileState.period === id ? 'active' : '', 'aria-pressed': String(fileState.period === id), onclick: () => { fileState.period = id; drawStudentFile(); } }, label)),
+      student && h('span', { class: 'fileflags' }, flagToggles(student))),
     h('div', { class: 'sheetbody paperview' }, studentFileSheet()),
     h('div', { class: 'sheetfoot' }, printButtons(studentFileSheet, () => t('Личное дело {0}.pdf', [student?.name ?? '']))),
   );
@@ -6236,7 +5913,6 @@ function tick() {
     render();
     refreshTicker();
     refreshGear();
-    if ($('hackathon').open && hackState.tab === 'board') drawHackathon();
   }
   if (Date.now() - state.lastActivity > IDLE_MS) resetIdle();
 }
@@ -6275,7 +5951,6 @@ function wire() {
   $('open-groupweek').addEventListener('click', openGroupWeek);
   $('open-chronicle').addEventListener('click', openChronicle);
   $('open-grade').addEventListener('click', openGrades);
-  $('open-hackathon').addEventListener('click', () => openHackathon());
   // Табло перемены: любое касание или нажатие убирает его и откладывает на минуту.
   for (const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, touched, { capture: true, passive: true });
   setInterval(refreshBoard, 5000);

@@ -147,7 +147,8 @@ const REPEAT_EVERY = new Set(['day', 'weekdays', 'monsat', 'week', '2weeks', 'mo
 const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
 const HAND_IN = new Set(['done', 'rework']);
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork', 'hackathon']);
+const FLAG_COLORS = ['yellow', 'red', 'blue', 'green'];
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork', 'flagname']);
 const PAST_WORK_TYPES = ['task', 'practice', 'event'];
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -207,109 +208,6 @@ async function replaceFile(temp, target) {
   }
 }
 
-const PART_ID_RE = /^[\w-]{1,40}$/;
-const cleanText = (value, max) => String(value ?? '').trim().slice(0, max);
-/** Список имён без повторов (без учёта регистра и ё). */
-function uniqueNames(list, max = 500) {
-  const seen = new Set();
-  const out = [];
-  for (const item of Array.isArray(list) ? list : []) {
-    const name = cleanText(item, 200);
-    const key = name.toLowerCase().replaceAll('ё', 'е');
-    if (name && !seen.has(key)) {
-      seen.add(key);
-      out.push(name);
-    }
-    if (out.length >= max) break;
-  }
-  return out;
-}
-
-/**
- * Кинохакатон: дни и часы, команды с ролями и техникой, этапы со сроками, сдача этапов,
- * критерии, жюри и оценки. approved — команды утверждены, finished — итоги подведены.
- * Один студент — только в одной команде; роли и сдача — только у своих команд и этапов.
- */
-function normalizeHackathon(raw) {
-  const out = {};
-  out.name = cleanText(raw.name, 200);
-  out.from = DATE_RE.test(raw.from ?? '') ? raw.from : '';
-  out.to = DATE_RE.test(raw.to ?? '') ? raw.to : '';
-  out.start = TIME_RE.test(raw.start ?? '') ? raw.start : '09:00';
-  out.end = TIME_RE.test(raw.end ?? '') && raw.end > out.start ? raw.end : '18:00';
-  out.place = cleanText(raw.place, 200);
-  out.groups = (Array.isArray(raw.groups) ? raw.groups : []).map(String).filter((id) => ID_RE.test(id)).slice(0, 50);
-  out.keyRoles = uniqueNames(raw.keyRoles, 20);
-  out.approved = raw.approved === true;
-  out.finished = raw.finished === true;
-  out.by = cleanText(raw.by, 80);
-  const taken = new Set();
-  const teamIds = new Set();
-  out.teams = (Array.isArray(raw.teams) ? raw.teams : []).slice(0, 40).flatMap((team) => {
-    const id = String(team?.id ?? '');
-    if (!PART_ID_RE.test(id) || teamIds.has(id)) return [];
-    teamIds.add(id);
-    const members = uniqueNames(team.members, 60).filter((name) => {
-      const key = name.toLowerCase().replaceAll('ё', 'е');
-      if (taken.has(key)) return false;
-      taken.add(key);
-      return true;
-    });
-    const inTeam = new Set(members);
-    const roles = {};
-    for (const [name, role] of Object.entries(team.roles && typeof team.roles === 'object' ? team.roles : {})) {
-      if (inTeam.has(name) && cleanText(role, 80)) roles[name] = cleanText(role, 80);
-    }
-    const equipment = {};
-    for (const [name, qty] of Object.entries(team.equipment && typeof team.equipment === 'object' ? team.equipment : {}).slice(0, 60)) {
-      if (cleanText(name, 200) && Number.isInteger(qty) && qty > 0 && qty <= 999) equipment[cleanText(name, 200)] = qty;
-    }
-    return [{ id, name: cleanText(team.name, 80) || id, members, roles, equipment, film: cleanText(team.film, 200) }];
-  });
-  const stageIds = new Set();
-  out.stages = (Array.isArray(raw.stages) ? raw.stages : []).slice(0, 20).flatMap((stage) => {
-    const id = String(stage?.id ?? '');
-    const name = cleanText(stage?.name, 120);
-    if (!PART_ID_RE.test(id) || stageIds.has(id) || !name || !MOMENT_RE.test(stage.due ?? '')) return [];
-    stageIds.add(id);
-    return [{ id, name, due: stage.due }];
-  }).sort((a, b) => a.due.localeCompare(b.due));
-  out.handIn = {};
-  for (const team of out.teams) {
-    const given = raw.handIn?.[team.id];
-    if (!given || typeof given !== 'object') continue;
-    const marks = Object.fromEntries(Object.entries(given).filter(([stage, status]) => stageIds.has(stage) && HAND_IN.has(status)));
-    if (Object.keys(marks).length) out.handIn[team.id] = marks;
-  }
-  const criterionIds = new Set();
-  out.criteria = (Array.isArray(raw.criteria) ? raw.criteria : []).slice(0, 20).flatMap((criterion) => {
-    const id = String(criterion?.id ?? '');
-    const name = cleanText(criterion?.name, 120);
-    if (!PART_ID_RE.test(id) || criterionIds.has(id) || !name) return [];
-    criterionIds.add(id);
-    const max = Number.isInteger(criterion.max) && criterion.max >= 1 && criterion.max <= 100 ? criterion.max : 10;
-    return [{ id, name, max }];
-  });
-  out.jury = uniqueNames(raw.jury, 20);
-  out.scores = {};
-  for (const team of out.teams) {
-    const byCriterion = raw.scores?.[team.id];
-    if (!byCriterion || typeof byCriterion !== 'object') continue;
-    for (const criterion of out.criteria) {
-      const byJuror = byCriterion[criterion.id];
-      if (!byJuror || typeof byJuror !== 'object') continue;
-      for (const juror of out.jury) {
-        const value = byJuror[juror];
-        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > criterion.max) continue;
-        out.scores[team.id] ??= {};
-        out.scores[team.id][criterion.id] ??= {};
-        out.scores[team.id][criterion.id][juror] = Math.round(value * 10) / 10;
-      }
-    }
-  }
-  return out;
-}
-
 /** Запись справочника: группа, студент, техника или преподаватель. */
 function normalizeRef(raw) {
   if (!raw || !REF_KINDS.has(raw.kind)) return null;
@@ -334,6 +232,14 @@ function normalizeRef(raw) {
     for (const field of ['nick', 'nickOk', 'phoneKey', 'phoneCode', 'phoneCodeAt', 'phoneBound', 'codeActive']) delete ref[field];
     // Когда куратор нажал «Разобрались»: ранний сигнал считает только то, что было позже.
     ref.signalSince = STAMP_RE.test(raw.signalSince ?? '') ? raw.signalSince : '';
+    // Флажки преподавателя: жёлтый, красный, синий, зелёный, без повторов и в постоянном порядке.
+    ref.flags = FLAG_COLORS.filter((color) => Array.isArray(raw.flags) && raw.flags.includes(color));
+  }
+  if (raw.kind === 'flagname') {
+    // Подпись цвета флажка: «Красный — группа риска». Одна запись на цвет.
+    if (!FLAG_COLORS.includes(raw.color)) return null;
+    ref.color = raw.color;
+    ref.name = ref.name.slice(0, 60);
   }
   if (raw.kind === 'achievement') {
     // Достижение в портфолио: название — в name, студент, дата и результат (диплом, место).
@@ -405,8 +311,6 @@ function normalizeRef(raw) {
     ref.until = MOMENT_RE.test(raw.until ?? '') ? raw.until : '';
     if (!ref.until) return null;
   }
-  if (raw.kind === 'hackathon') Object.assign(ref, normalizeHackathon(raw));
-  if (raw.kind === 'hackathon' && (!ref.from || !ref.to || ref.from > ref.to)) return null;
   if (raw.kind === 'teacher') {
     // PIN были в версиях 1.18 и 1.19.
     delete ref.pin;

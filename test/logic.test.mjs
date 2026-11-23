@@ -1000,3 +1000,46 @@ test('прошлые курсы: внесённое задним числом д
   assert.ok(file.items.some((item) => item.title === 'Хакатон'), 'хакатон в портфолио');
   assert.equal(file.grade.points, 25);
 });
+
+test('кому дать: меньше всех участий, давно без заданий, мало баллов', () => {
+  const works = [
+    { date: '2026-11-01', students: ['Аня', 'Боря'] },
+    { date: '2026-10-25', students: ['Аня', 'Вера'] },
+    { date: '2026-09-20', students: ['Гоша'] },
+  ];
+  const points = new Map([['аня', 80], ['боря', 40], ['вера', 30], ['гоша', 10], ['даша', 0]]);
+  const rows = L.balanceHints({ candidates: ['Аня', 'Боря', 'Вера', 'Гоша', 'Даша'], works, points, roles: ['Оператор'], todayISO: '2026-11-03', exclude: ['Боря'] });
+  assert.deepEqual(rows.map((row) => row.name), ['Даша', 'Гоша'], 'Вера на уровне остальных');
+  assert.deepEqual(rows[0].reasons, ['none', 'points']);
+  assert.equal(rows[1].days, 44);
+  assert.ok(rows[1].reasons.includes('long'));
+  assert.deepEqual(rows[0].untried, ['Оператор']);
+});
+
+test('подробности сигнала: где и как студент проседает — пары, преподаватели, дни', () => {
+  const at = (date, time) => new Date(`${date}T${time}`).toISOString();
+  const events = [
+    { id: 'm1', type: 'lesson', title: 'Математика', responsible: 'Иванова А. А.', date: '2026-11-02', start: '09:00', end: '10:30', participants: ['Петров'] },
+    { id: 'm2', type: 'lesson', title: 'Математика', responsible: 'Иванова А. А.', date: '2026-11-09', start: '09:00', end: '10:30', participants: ['Петров'] },
+    { id: 'h1', type: 'lesson', title: 'История', responsible: 'Сидоров П. П.', date: '2026-11-03', start: '10:40', end: '12:10', participants: ['Петров'] },
+    { id: 'h2', type: 'lesson', title: 'История', responsible: 'Сидоров П. П.', date: '2026-11-04', start: '10:40', end: '12:10', participants: ['Петров'] },
+    { id: 'x', type: 'lesson', title: 'Физкультура', date: '2026-11-05', start: '09:00', end: '10:30', participants: ['Петров'] },
+  ];
+  const attendance = [
+    { eventId: 'm1', marks: {} , lock: { at: at('2026-11-02', '10:30') } },
+    { eventId: 'm2', marks: { 'Петров': { status: 'present', at: at('2026-11-09', '09:55') } } },
+    { eventId: 'h1', marks: { 'Петров': { status: 'present', at: at('2026-11-03', '10:55') } } },
+    { eventId: 'h2', marks: { 'Петров': { status: 'present', at: at('2026-11-04', '10:40') } } },
+    { eventId: 'x', marks: { 'Петров': { status: 'sick' } } },
+  ];
+  const incidents = L.attendanceIncidents({ events, attendance, name: 'петров', from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-10', nowTime: '12:00' });
+  assert.deepEqual(incidents.map((i) => [i.id, i.kind, i.minutes ?? i.came]), [['m1', 'absent', false], ['h1', 'late', 15], ['m2', 'absent', true]]);
+  assert.equal(incidents[0].teacher, 'Иванова А. А.');
+  const sum = L.incidentSummary(incidents);
+  assert.deepEqual([sum.absent, sum.absentDays, sum.late, sum.lateMinutes], [2, 2, 1, 15]);
+  assert.deepEqual(sum.subjects.map((s) => [s.title, s.absent, s.late]), [['Математика', 2, 0], ['История', 0, 1]]);
+  assert.deepEqual(sum.weekdays[0], { weekday: 0, absent: 2, late: 0 }, 'понедельники');
+  // «Разобрались» после 2 ноября: первый прогул уже не в счёт.
+  const since = new Date(2026, 10, 2, 12, 0).toISOString();
+  assert.equal(L.attendanceIncidents({ events, attendance, name: 'Петров', from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-10', nowTime: '12:00', since }).length, 2);
+});
