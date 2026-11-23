@@ -20,19 +20,24 @@ Register-ScheduledTask -TaskName 'KerdiisLaunch' -Force `
   -Principal (New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited) `
   -Settings $launchSettings | Out-Null
 
-# Left alone when present: an update runs inside this task.
+# Updates are manual only: the task has no schedule and runs when someone presses
+# "Check for updates" in the program. Left alone when present (an update may be
+# running inside it), except that the schedule of older versions is removed.
 if (-not (Get-ScheduledTask -TaskName 'KerdiisUpdate' -ErrorAction SilentlyContinue)) {
   $script = Join-Path $root 'update.ps1'
-  $boot = New-ScheduledTaskTrigger -AtStartup
-  $boot.Delay = 'PT2M'
-  $night = New-ScheduledTaskTrigger -Daily -At 3:00am -RandomDelay (New-TimeSpan -Hours 1)
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 15)
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
   Register-ScheduledTask -TaskName 'KerdiisUpdate' `
     -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"") `
-    -Trigger @($boot, $night) `
     -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
     -Settings $settings | Out-Null
+} else {
+  $existing = Get-ScheduledTask -TaskName 'KerdiisUpdate'
+  if ($existing.Triggers.Count -gt 0) {
+    $existing.Triggers = @()
+    $existing.Settings.RestartCount = 0
+    Set-ScheduledTask -InputObject $existing | Out-Null
+  }
 }
 
 # Lets ordinary users start the update check from the program. Read and execute

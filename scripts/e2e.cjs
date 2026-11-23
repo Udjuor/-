@@ -1571,6 +1571,73 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await until(async () => (await page.getAttribute('#net', 'data-level')) === 'good', 'зелёный индикатор связи');
   await page.locator('header.topbar').screenshot({ path: path.join(shots, 'net-indicator.png') });
 
+  // Разделение по ПЦК: ПЦК в справочнике, преподаватели закреплены, учебная часть включает разделение
+  // и выдаёт код ПЦК. Компьютер ПЦК получает свои пары и общее, чужие уходят с него без удаления у других.
+  await openSection('#open-catalog');
+  await page.click('#catalog .tabs button:has-text("ПЦК")');
+  await paste('#c-add-unit', 'ПЦК информационных технологий\nПЦК дизайна\n');
+  await page.waitForSelector('#catalog .refrow:has-text("ПЦК дизайна")');
+  const dir = async () => (await page.evaluate(() => window.calendar.directory())).value;
+  const units = (await dir()).filter((r) => r.kind === 'unit');
+  const unitId = (name) => units.find((u) => u.name.includes(name)).id;
+  // Преподаватель закрепляется за ПЦК в строке справочника.
+  await page.click('#catalog .tabs button:has-text("Преподаватели")');
+  await paste('#c-add-teacher', 'Информатикова И. И.\nДизайнерова Д. Д.\n');
+  await page.waitForSelector('#catalog .refrow:has-text("Дизайнерова")');
+  await page.click('#catalog .refrow:has-text("Информатикова") button:has-text("Изменить")');
+  await page.selectOption('#c-unit', { label: 'ПЦК информационных технологий' });
+  await page.click('#catalog .refrow.editing button.primary');
+  await page.waitForSelector('#catalog .refrow:has-text("Информатикова"):has-text("ПЦК информационных технологий")');
+  const designer = (await dir()).find((r) => r.kind === 'teacher' && r.name === 'Дизайнерова Д. Д.');
+  assert.equal((await page.evaluate((ref) => window.calendar.saveRefs([{ ref: { ...ref, unit: ref.unitId }, base: ref.updatedAt }]), { ...designer, unitId: unitId('дизайна') })).ok, true);
+  await shot('units');
+  await page.click('#catalog [aria-label=Закрыть]');
+  const lesson = (title, responsible, extra = {}) => page.evaluate((event) => window.calendar.save(event), {
+    title, date: day(2), start: '12:00', end: '13:30', type: 'lesson', responsible, participants: [], ...extra,
+  });
+  assert.equal((await lesson('Сети и протоколы', 'Информатикова И. И.')).ok, true);
+  assert.equal((await lesson('Композиция', 'Дизайнерова Д. Д.')).ok, true);
+  assert.equal((await lesson('Классный час для всех', 'Дизайнерова Д. Д.', { unit: 'all' })).ok, true);
+  await until(async () => (await teacherStore.list()).some((e) => e.title === 'Композиция'), 'до разделения компьютер получает всё');
+
+  await page.click('#settings');
+  await page.waitForSelector('#preferences[open] #s-access-enable');
+  await page.click('#s-access-enable');
+  await page.waitForSelector('#s-access-enable:has-text("нажмите ещё раз")');
+  await page.click('#s-access-enable');
+  await page.waitForSelector('#s-access-message:has-text("Разделение включено")');
+  await page.click('#preferences [data-access-kind=unit]');
+  await page.check(`#preferences .s-grant[value="unit:${unitId('информационных')}"]`);
+  await page.click('#s-access-issue');
+  await page.waitForSelector('#s-access-code');
+  const unitCode = await page.inputValue('#s-access-code');
+  assert.match(unitCode, /^KRD1-/);
+  assert.match(fs.readFileSync(path.join(home, 'config.ini'), 'utf8'), /access=KRD1-/);
+  await shot('access-settings');
+  await page.click('#preferences [aria-label=Закрыть]');
+
+  // Код вводят на компьютере ПЦК информационных технологий.
+  const { Access } = require('../src/main/access');
+  teacher.access = new Access(unitCode);
+  await teacher.syncWith('127.0.0.1:47800');
+  await until(async () => !(await teacherStore.list()).some((e) => e.title === 'Композиция'), 'чужая пара ушла с компьютера ПЦК');
+  const titles = (await teacherStore.list()).map((e) => e.title);
+  assert.ok(titles.includes('Сети и протоколы'), 'своя пара на месте');
+  assert.ok(titles.includes('Классный час для всех'), 'общее для колледжа видно всем');
+  assert.ok((await page.evaluate(() => window.calendar.list())).value.some((e) => e.title === 'Композиция'), 'у учебной части пара осталась');
+  // Новая пара ПЦК дизайна до компьютера ИТ не доходит, а новая своя — доходит.
+  await lesson('Цветоведение', 'Дизайнерова Д. Д.');
+  await lesson('Базы данных', 'Информатикова И. И.');
+  await teacher.syncWith('127.0.0.1:47800');
+  const after = (await teacherStore.list()).map((e) => e.title);
+  assert.ok(after.includes('Базы данных'));
+  assert.ok(!after.includes('Цветоведение'));
+  // В форме события — выбор ПЦК.
+  await page.click('#add');
+  await page.waitForSelector('#form[open] #f-unit');
+  assert.deepEqual((await page.$$eval('#f-unit option', (o) => o.map((x) => x.textContent))).sort(), ['Весь колледж', 'ПЦК дизайна', 'ПЦК информационных технологий', 'По преподавателю']);
+  await page.click('#form [aria-label=Закрыть]');
+
   assert.deepEqual(errors, [], 'ошибок на странице нет');
   await app.close();
   await teacher.stop();

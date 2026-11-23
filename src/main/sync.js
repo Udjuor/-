@@ -8,6 +8,9 @@
 //
 // Все сообщения зашифрованы ключом сети (AES-256-GCM): в них фамилии студентов,
 // а ключ заодно подтверждает, что отправитель из той же сети.
+//
+// Если в сети включено разделение по ПЦК (access.js), перед обменом устройства доказывают
+// друг другу пропуска, отдают только записи этих пропусков и сами хранят только свои.
 const crypto = require('node:crypto');
 const dgram = require('node:dgram');
 const fs = require('node:fs');
@@ -15,6 +18,10 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { revision } = require('./store');
+const { Access, POLICY_ID, allowed, recordScope, scopeContext } = require('./access');
+
+/** Разовый вызов для доказательства пропусков живёт минуту и годится один раз. */
+const CHALLENGE_MS = 60_000;
 
 const DEFAULT_PORT = 47800;
 const DISCOVERY_PORT = 47801;
@@ -138,8 +145,10 @@ class SyncNode {
   constructor({
     store, device, networkKey, peers = [], peersFile = null, onChange = () => {},
     port = DEFAULT_PORT, discoveryPort = DISCOVERY_PORT, discoveryTargets = null, timers = true, protocol = PROTOCOL,
-    version = '', edition = '', clock = () => Date.now(),
+    version = '', edition = '', clock = () => Date.now(), access = null,
   }) {
+    this.access = access ?? new Access('');
+    this.challenges = new Map(); // разовый вызов → когда истекает
     this.version = version;
     this.edition = edition;
     this.clock = clock;
@@ -195,6 +204,7 @@ class SyncNode {
       });
     });
     this.port = this.server.address().port;
+    await this.purge();
     await this.startDiscovery();
     if (this.useTimers) {
       this.timers.push(setInterval(() => this.round(), ROUND_MS));
@@ -325,8 +335,54 @@ class SyncNode {
     }
   }
 
+  /** Включено ли разделение по ПЦК и что нужно, чтобы решать, чья запись. */
+  async scope(records = null) {
+    const all = records ?? await this.store.records();
+    const policy = all.find((record) => record.id === POLICY_ID && !record.deleted);
+    return { enabled: Boolean(policy?.enabled), policy, all };
+  }
+
+  /** Свои пропуска: при полном доступе — всё. */
+  ownGrants() {
+    return new Set(this.access.full ? ['all'] : this.access.grants.keys());
+  }
+
+  /** Убирает с устройства записи чужих ПЦК. Отметок об удалении нет: у других устройств они остаются. */
+  async purge() {
+    const { enabled, all } = await this.scope();
+    if (!enabled || this.access.full) return 0;
+    const ctx = scopeContext(all);
+    const mine = this.ownGrants();
+    const removed = await this.store.forget((record) => !allowed(recordScope(record, ctx), mine));
+    if (removed) this.onChange();
+    return removed;
+  }
+
+  newChallenge() {
+    const now = this.clock();
+    for (const [nonce, until] of this.challenges) if (until < now) this.challenges.delete(nonce);
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    this.challenges.set(nonce, now + CHALLENGE_MS);
+    return nonce;
+  }
+
+  takeChallenge(nonce) {
+    const until = this.challenges.get(String(nonce ?? ''));
+    this.challenges.delete(String(nonce ?? ''));
+    return Boolean(until && until >= this.clock());
+  }
+
   async answer(message) {
     if (message.type === 'ping') return { count: (await this.store.records()).length };
+    // Разделение по ПЦК: выдаём разовый вызов и доказываем свои пропуска на вызов собеседника.
+    if (message.type === 'challenge') {
+      const claims = (Array.isArray(message.claims) ? message.claims : []).map(String).slice(0, 200);
+      return {
+        challenge: this.newChallenge(),
+        claims: this.access.claims(),
+        proofs: this.access.prove(String(message.nonce ?? ''), this.device.id, claims),
+      };
+    }
     // Встречная проверка: «попробуй достучаться до меня» — так видно, что входящие блокирует брандмауэр.
     if (message.type === 'probe') {
       const targets = (message.targets ?? []).map(String).filter((a) => ADDRESS.test(a)).slice(0, 4);
@@ -337,9 +393,19 @@ class SyncNode {
       return {};
     }
     const mine = await this.store.records();
+    const { enabled } = await this.scope(mine);
+    // Без проверенных пропусков собеседник получает только общие записи.
+    let grants = null;
+    if (enabled) {
+      grants = this.takeChallenge(message.challenge)
+        ? this.access.verify(message.proofs, message.challenge, String(message.from?.id ?? ''))
+        : new Set();
+    }
+    const ctx = enabled ? scopeContext(mine) : null;
     const theirs = new Map((message.manifest ?? []).map((item) => [item.id, item.revision]));
     const ours = new Set(mine.map((record) => record.id));
     const send = mine.filter((record) => {
+      if (grants && !allowed(recordScope(record, ctx), grants)) return false;
       const other = theirs.get(record.id);
       return other === undefined || revision(record) > other;
     });
@@ -351,8 +417,20 @@ class SyncNode {
   }
 
   async accept(records) {
-    const changed = await this.store.merge(records);
+    const current = await this.store.records();
+    const { enabled } = await this.scope([...current, ...records]);
+    let incoming = records;
+    if (enabled && !this.access.full) {
+      // Чужие записи не сохраняем. Новую версию своей записи берём, даже если она ушла в другой ПЦК:
+      // после слияния purge() её уберёт.
+      const ctx = scopeContext([...current, ...records]);
+      const mine = this.ownGrants();
+      const held = new Set(current.map((record) => record.id));
+      incoming = records.filter((record) => held.has(record.id) || allowed(recordScope(record, ctx), mine));
+    }
+    const changed = incoming.length ? await this.store.merge(incoming) : false;
     if (changed) {
+      await this.purge();
       this.onChange();
       this.nudge();
     }
@@ -386,19 +464,34 @@ class SyncNode {
     try {
       const records = await this.store.records();
       const manifest = records.map((record) => ({ id: record.id, revision: revision(record) }));
-      const reply = await this.request(address, { type: 'sync', manifest });
+      const { enabled } = await this.scope(records);
+      // Разделение по ПЦК: сначала обмен пропусками. Старое устройство вызова не даст — с ним только общее.
+      let peerGrants = null;
+      let proof = {};
+      if (enabled) {
+        const nonce = crypto.randomBytes(16).toString('base64url');
+        const hello = await this.request(address, { type: 'challenge', nonce, claims: this.access.claims() });
+        peerGrants = new Set();
+        if (typeof hello.challenge === 'string') {
+          peerGrants = this.access.verify(hello.proofs, nonce, String(hello.from?.id ?? ''));
+          proof = { challenge: hello.challenge, proofs: this.access.prove(hello.challenge, this.device.id, Array.isArray(hello.claims) ? hello.claims.map(String) : []) };
+        }
+      }
+      const reply = await this.request(address, { type: 'sync', manifest, ...proof });
       if (reply.from?.id === this.device.id) return false; // в списке адресов оказался свой
       if (!(reply.from?.protocol >= PROTOCOL)) throw Object.assign(new Error('старая версия'), { status: 'outdated' });
       this.remember(reply.from?.id, reply.from?.name, address, { ...about(reply.from), ...this.skewOf(reply.from) });
       this.learn(reply.peers);
       await this.accept(reply.send ?? []);
       const wanted = new Set(reply.want ?? []);
-      if (wanted.size) {
-        await this.request(address, { type: 'push', records: records.filter((record) => wanted.has(record.id)) });
-      }
+      const ctx = peerGrants ? scopeContext(records) : null;
+      const pushing = records.filter((record) => wanted.has(record.id) && (!peerGrants || allowed(recordScope(record, ctx), peerGrants)));
+      if (pushing.length) await this.request(address, { type: 'push', records: pushing });
       this.manualStatus.set(address, 'ok');
       setStatus('ok', reply.from?.id);
       this.lastOkAt = this.clock();
+      // Только что узнали, что в сети включено разделение: сразу второй обмен, уже с пропусками.
+      if (!enabled && (await this.scope()).enabled) return this.syncWith(address, peerId);
       return true;
     } catch (err) {
       const status = err.status ?? 'offline';

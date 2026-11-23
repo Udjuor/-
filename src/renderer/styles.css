@@ -1188,3 +1188,10 @@ body:not([data-skin="newyear"]) .garlanditem { animation: garland-sway 4s ease-i
 .dutycode { font-size: 1.1rem; font-weight: 600; }
 .dutytable select:disabled { opacity: .6; }
 .chip.dutychip { --type: #8250df; }
+
+/* Разделение по ПЦК */
+#s-access .targets { margin: .4rem 0; }
+.accesschoices { display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; margin: .4rem 0 .6rem; }
+.accesschoices .checkrow { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.2rem; }
+.accesscode { margin: .6rem 0; display: flex; flex-wrap: wrap; gap: .4rem; align-items: flex-start; }
+.accesscode textarea { flex: 1 1 100%; font-family: ui-monospace, Consolas, monospace; font-size: .85rem; padding: .4rem .6rem; border: .05rem solid var(--border); border-radius: .3rem; background: var(--canvas-subtle); color: var(--fg); word-break: break-all; }

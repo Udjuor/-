@@ -43,6 +43,7 @@ function saveConfig(homeDir, config) {
     `summaryAuto=${config.summaryAuto ? 1 : 0}`,
     `summaryDir=${config.summaryDir}`,
     `summaryWeek=${config.summaryWeek}`,
+    `access=${config.access ?? ''}`,
   ];
   fs.writeFileSync(path.join(homeDir, 'config.ini'), `${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -85,6 +86,8 @@ function loadConfig(homeDir) {
     summaryAuto: values.summaryAuto === '1',
     summaryDir: values.summaryDir || '',
     summaryWeek: /^\d{4}-\d{2}-\d{2}$/.test(values.summaryWeek ?? '') ? values.summaryWeek : '',
+    // Код доступа при разделении по ПЦК: полный (учебная часть) или с пропусками (ПЦК, куратор, панель).
+    access: values.access || '',
   };
   if (!values.deviceId) {
     try {

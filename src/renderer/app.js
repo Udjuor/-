@@ -422,6 +422,7 @@ let loading = false;
 async function refresh() {
   if (loading) return;
   loading = true;
+  await refreshAccess();
   const result = await api.list();
   loading = false;
   const error = result.ok ? null : result.message;
@@ -1299,6 +1300,19 @@ async function openForm(source = {}) {
     responsibleInput.value = value;
     updateConflicts();
   }));
+  // ПЦК события: по ответственному преподавателю, общее для колледжа или выбранное.
+  // На компьютере ПЦК — только свои ПЦК: событие чужого ПЦК сюда бы не вернулось.
+  const ownUnits = state.access?.enabled && !state.access.full
+    ? new Set(state.access.grants.filter((grant) => grant.startsWith('unit:')).map((grant) => grant.slice(5)))
+    : null;
+  const unitChoices = refsOf('unit').filter((unit) => !ownUnits || ownUnits.has(unit.id) || unit.id === source.unit);
+  const unitField = canManage() && refsOf('unit').length > 0 && h('div', { class: 'field half' },
+    h('label', { for: 'f-unit' }, t('ПЦК')),
+    h('select', { id: 'f-unit' },
+      h('option', { value: '' }, t('По преподавателю')),
+      h('option', { value: 'all', selected: source.unit === 'all' }, t('Весь колледж')),
+      unitChoices.map((unit) => h('option', { value: unit.id, selected: source.unit === unit.id }, unit.name))),
+    h('p', { class: 'help' }, t('Кто увидит событие, когда включено разделение по ПЦК.')));
   const conflictBox = h('section', { class: 'conflicts', 'aria-live': 'polite', hidden: true });
   const ownBox = h('p', { class: 'help ownbox', hidden: true });
   const message = h('p', { class: 'message error' });
@@ -1342,6 +1356,7 @@ async function openForm(source = {}) {
     ...readDeadline(),
     place: $('f-place').value.trim(),
     responsible: $('f-responsible').value.trim(),
+    ...($('f-unit') ? { unit: $('f-unit').value } : source.unit ? { unit: source.unit } : {}),
     participants: draft.participants,
     roles: hasRoles({ type: draft.type }) ? Object.fromEntries(draft.participants.filter((name) => draft.roles[name]).map((name) => [name, draft.roles[name]])) : {},
     ...withOwnCameras(),
@@ -1621,7 +1636,7 @@ async function openForm(source = {}) {
   },
     h('div', { class: 'sheetbody' },
       h('div', { class: 'fields' },
-        typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, targets,
+        typeField, title, date, allDayField, from, to, repeat, prep, deadline, place, offsiteField, responsible, unitField, targets,
         participants.element, hintBox, rolesBox, decisionsBox, equipment.element, ownBox, conflictBox,
         h('div', { class: 'field' },
           h('label', { for: 'f-notes' }, t('Примечание')),
@@ -1842,6 +1857,7 @@ const CATALOG_TABS = [
   ['groups', t('Группы и студенты')],
   ['equipment', t('Техника')],
   ['teacher', t('Преподаватели')],
+  ['unit', t('ПЦК')],
   ['role', t('Роли')],
 ];
 
@@ -1938,11 +1954,16 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
     const birthday = ref.kind === 'student' || ref.kind === 'teacher'
       ? h('input', { id: 'c-birthday', type: 'date', value: ref.birthday ?? '', max: now().iso, 'aria-label': t('День рождения'), title: t('День рождения') })
       : null;
+    const unit = ref.kind === 'teacher' && refsOf('unit').length
+      ? h('select', { id: 'c-unit', 'aria-label': t('ПЦК') },
+        h('option', { value: '' }, t('Без ПЦК')),
+        refsOf('unit').map((item) => h('option', { value: item.id, selected: item.id === ref.unit }, item.name)))
+      : null;
     const hide = ref.kind === 'student' || ref.kind === 'teacher'
       ? h('label', { class: 'check hidepublic', title: t('Нет согласия на показ: на панелях в аудиториях человека не будет в грейде и поздравлениях') },
         h('input', { id: 'c-hide', type: 'checkbox', checked: ref.hidePublic === true }), t('Не показывать на панелях'))
       : null;
-    return h('li', { class: 'refrow editing' }, input, move, limit, birthday, hide,
+    return h('li', { class: 'refrow editing' }, input, move, unit, limit, birthday, hide,
       h('button', {
         type: 'button',
         class: 'primary',
@@ -1951,7 +1972,7 @@ function refRow(ref, { confirmText = t('Удалить из списка?'), rem
           if (!name) return;
           catalog.message = '';
           await commitCatalog(await api.saveRefs([{
-            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}), ...(birthday ? { birthday: birthday.value } : {}), ...(hide ? { hidePublic: hide.querySelector('input').checked } : {}) },
+            ref: { ...ref, name, ...(move ? { groupId: move.value } : {}), ...(limit ? { quantity: parseQuantity(limit.value) } : {}), ...(birthday ? { birthday: birthday.value } : {}), ...(hide ? { hidePublic: hide.querySelector('input').checked } : {}), ...(unit ? { unit: unit.value } : {}) },
             base: ref.updatedAt,
           }]));
         },
@@ -2045,6 +2066,17 @@ function simplePane(kind, placeholder, emptyText) {
     refList(items.map((item) => refRow(item)), emptyText));
 }
 
+/** Преподаватели с их ПЦК. */
+function teacherPane() {
+  const items = refsOf('teacher');
+  const units = new Map(refsOf('unit').map((unit) => [unit.id, unit.name]));
+  return h('section', {},
+    addForm('c-add-teacher', t('ФИО, можно с датой рождения, или столбцы из таблицы'), (text) => addRefs(text, 'teacher', items)),
+    refList(items.map((item) => refRow(item, {
+      detail: [units.get(item.unit) ?? (units.size ? t('Без ПЦК') : ''), item.birthday && t('🎂 {0}', [fmt(item.birthday, { day: 'numeric', month: 'long' })])].filter(Boolean).join(' · ') || null,
+    })), t('Добавьте преподавателей, чтобы выбирать ответственных.')));
+}
+
 function equipmentPane() {
   const items = refsOf('equipment');
   const quantity = h('input', { id: 'c-add-qty', class: 'qtyinput', type: 'number', min: 0, placeholder: t('Без лимита'), 'aria-label': t('Количество, пусто означает без лимита') });
@@ -2109,7 +2141,12 @@ function drawCatalog({ fromTop = false } = {}) {
           h('button', { class: 'plain', id: 'open-rolestats', onclick: openRoleStats }, t('Итоги по ролям')),
           simplePane('role', t('Например: оператор, ведущий, фотограф'), t('Добавьте роли, чтобы назначать их студентам в заданиях, практике и мероприятиях.')),
         ]
-        : simplePane('teacher', t('ФИО, можно с датой рождения, или столбцы из таблицы'), t('Добавьте преподавателей, чтобы выбирать ответственных.'));
+        : catalog.tab === 'unit'
+          ? [
+            simplePane('unit', t('Например: ПЦК информационных технологий'), t('Добавьте ПЦК, чтобы закрепить за ними преподавателей.')),
+            h('p', { class: 'help' }, t('Преподавателя закрепляют за ПЦК на вкладке «Преподаватели». Пары и планы события относятся к ПЦК ответственного преподавателя. Когда в настройках включено разделение по ПЦК, компьютеры одной ПЦК не получают данных другой.')),
+          ]
+          : teacherPane();
   dialog.replaceChildren(
     h('div', { class: 'sheethead' }, h('h2', {}, t('Справочники')), closeButton(dialog)),
     h('div', { class: 'tabs', role: 'group', 'aria-label': t('Раздел справочников') }, CATALOG_TABS.map(([tab, label]) =>
@@ -4005,7 +4042,8 @@ function refreshDeadlines() {
 const dutyState = { groupId: '', month: '', settings: false, code: '', unlocked: '', headman: '', newCode: '', message: '' };
 
 function dutyGroups() {
-  return refsOf('group').filter((group) => !parentGroup(group, refsOf('group')) && groupMembers(group, refsOf('group'), refsOf('student')).length)
+  const visible = fullGroupIds();
+  return refsOf('group').filter((group) => !parentGroup(group, refsOf('group')) && (!visible || visible.has(group.id)) && groupMembers(group, refsOf('group'), refsOf('student')).length)
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 }
 
@@ -4181,7 +4219,8 @@ const SIGNAL_TEXT = {
 function currentSignals() {
   if (isClient()) return [];
   const clock = now();
-  return earlySignals({ events: state.allEvents, attendance: state.attendance, students: refsOf('student'), groups: refsOf('group'), nowISO: clock.iso, nowTime: clock.time });
+  // При разделении по ПЦК — только студенты групп, которые компьютер видит целиком (куратор).
+  return earlySignals({ events: state.allEvents, attendance: state.attendance, students: refsOf('student').filter((student) => studentVisible(student.name)), groups: refsOf('group'), nowISO: clock.iso, nowTime: clock.time });
 }
 
 /** Счётчик на кнопке «Сигналы». Студенты здесь видны по именам, поэтому только в версии для преподавателей. */
@@ -4763,6 +4802,14 @@ function openWelcome() {
     return h('div', { class: 'field settingnext' }, h('label', { for: id }, label), element, help && h('p', { class: 'help' }, help));
   };
 
+  // Код доступа, если в колледже включено разделение по ПЦК.
+  const accessInput = () => {
+    const element = h('input', { id: 'w-access', value: draft.access ?? '', autocomplete: 'off', spellcheck: 'false', placeholder: 'KRD1-…' });
+    element.addEventListener('input', () => { draft.access = element.value.trim(); });
+    return h('div', { class: 'field settingnext' }, h('label', { for: 'w-access' }, t('Код доступа')), element,
+      h('p', { class: 'help' }, t('Нужен, если в колледже включено разделение по ПЦК: код выдают в учебной части. Иначе оставьте пустым.')));
+  };
+
   const skip = async () => {
     await api.finishSetup();
     state.settings = await api.getSettings();
@@ -4770,7 +4817,16 @@ function openWelcome() {
   };
 
   const finish = async () => {
-    const result = await api.saveSettings({ ...current, ...draft, theme: undefined });
+    if (draft.access) {
+      const applied = await api.applyAccess(draft.access);
+      if (!applied.ok) {
+        failure.textContent = t('Код не подходит: проверьте, что он скопирован целиком и выдан в этой сети.');
+        return;
+      }
+    }
+    const settings = { ...draft };
+    delete settings.access;
+    const result = await api.saveSettings({ ...current, ...settings, theme: undefined });
     if (!result.ok) {
       failure.textContent = result.code === 'short-key' ? t('Ключ сети должен быть не короче 12 символов') : t('Настройки не сохранены: нет доступа к файлу настроек.');
       return;
@@ -4804,7 +4860,7 @@ function openWelcome() {
         h('p', { class: 'help' }, t('Преподаватель видит мероприятия всех устройств.'))),
     ],
     () => {
-      if (current.hasKey) return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), h('p', { class: 'help' }, t('Ключ сети уже задан.'))];
+      if (current.hasKey) return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), h('p', { class: 'help' }, t('Ключ сети уже задан.')), accessInput()];
       const key = input('w-key', t('Ключ сети'), 'syncKey', t('Создайте ключ или введите тот, что уже есть на других устройствах. Без ключа программа работает только на этом устройстве.'));
       const field = key.querySelector('input');
       const row = h('div', { class: 'adder' });
@@ -4816,7 +4872,7 @@ function openWelcome() {
           draft.syncKey = field.value;
         },
       }, t('Создать')));
-      return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), key];
+      return [h('h3', { class: 'settinghead' }, t('Обмен между устройствами')), key, accessInput()];
     },
     () => [
       h('h3', { class: 'settinghead' }, t('Служебная записка')),
@@ -4858,6 +4914,140 @@ function openWelcome() {
   dialog.addEventListener('cancel', (e) => e.preventDefault());
   draw();
   dialog.showModal();
+}
+
+
+/*
+ * Разделение по ПЦК. Пока не включено, все компьютеры видят всё. Включает компьютер учебной части:
+ * он получает полный доступ и выдаёт коды — ПЦК, кураторам групп, панелям аудиторий, а полный код —
+ * учебной, методической и воспитательной части. Компьютер без кода видит только общее.
+ */
+const grantLabel = (grant) => {
+  const [kind, id] = [grant.slice(0, grant.indexOf(':')), grant.slice(grant.indexOf(':') + 1)];
+  if (kind === 'unit') return refsOf('unit').find((unit) => unit.id === id)?.name ?? id;
+  if (kind === 'group') return t('куратор группы {0}', [refsOf('group').find((group) => group.id === id)?.name ?? id]);
+  if (kind === 'room') return t('аудитория {0}', [id]);
+  return grant;
+};
+
+async function refreshAccess() {
+  const result = await api.accessState();
+  state.access = result.ok ? result.value : null;
+}
+
+/** Группы, которые этот компьютер видит целиком. null — все (разделение выключено или полный доступ). */
+function fullGroupIds() {
+  const access = state.access;
+  if (!access?.enabled || access.full) return null;
+  const ids = new Set(access.grants.filter((grant) => grant.startsWith('group:')).map((grant) => grant.slice(6)));
+  for (const group of refsOf('group')) if (ids.has(parentGroup(group, refsOf('group'))?.id)) ids.add(group.id);
+  return ids;
+}
+
+function studentVisible(name) {
+  const ids = fullGroupIds();
+  if (!ids) return true;
+  return ids.has(studentByName(name)?.groupId);
+}
+
+function accessSection() {
+  const box = h('section', { class: 'setting', id: 's-access' });
+  const view = { confirm: '', code: '', message: '', kind: 'unit', selected: new Set() };
+  const draw = async () => {
+    await refreshAccess();
+    const access = state.access ?? { enabled: false, full: false, grants: [], hasCode: false };
+    const units = refsOf('unit');
+    const codeBox = view.code && h('div', { class: 'accesscode' },
+      h('textarea', { id: 's-access-code', readonly: true, rows: 3, 'aria-label': t('Код доступа') }, view.code),
+      h('button', { type: 'button', class: 'plain', onclick: () => { navigator.clipboard?.writeText(view.code); view.message = t('Код скопирован.'); draw(); } }, t('Копировать')),
+      h('p', { class: 'help' }, t('Код — как ключ: передайте его лично, не пишите в общий чат. Вводится в настройках компьютера или в мастере первого запуска панели.')));
+    const applyBox = h('div', { class: 'adder' },
+      h('input', { id: 's-access-apply', placeholder: t('Код доступа KRD1-…'), autocomplete: 'off', spellcheck: 'false', 'aria-label': t('Код доступа') }),
+      h('button', { type: 'button', onclick: async () => {
+        const result = await api.applyAccess($('s-access-apply').value);
+        view.message = result.ok ? t('Код применён.') : t('Код не подходит: проверьте, что он скопирован целиком и выдан в этой сети.');
+        await loadDirectory();
+        await refresh();
+        draw();
+      } }, t('Применить')));
+    let body;
+    if (!access.enabled) {
+      body = [
+        h('p', { class: 'help' }, t('Сейчас все компьютеры видят всё. С разделением компьютеры ПЦК получают только свои пары и планы, кураторы — все пары своих групп, панели — свою аудиторию, а учебная, методическая и воспитательная части — весь колледж. Справочники общие.')),
+        units.length
+          ? h('button', { type: 'button', id: 's-access-enable', class: view.confirm === 'enable' ? 'danger' : 'plain', onclick: async () => {
+            if (view.confirm !== 'enable') {
+              view.confirm = 'enable';
+              return draw();
+            }
+            const result = await api.enableAccess();
+            Object.assign(view, { confirm: '', message: result.ok ? t('Разделение включено. Этот компьютер видит весь колледж и выдаёт коды доступа.') : storeMessage(result) });
+            return draw();
+          } }, view.confirm === 'enable' ? t('Включить? Остальным компьютерам понадобится код — нажмите ещё раз') : t('Включить разделение по ПЦК'))
+          : h('p', { class: 'help' }, t('Сначала добавьте ПЦК в «Справочниках» и закрепите за ними преподавателей.')),
+        h('p', { class: 'help' }, t('Если код доступа уже выдали, введите его:')),
+        applyBox,
+      ];
+    } else if (access.full) {
+      const groups = refsOf('group').filter((group) => !parentGroup(group, refsOf('group')));
+      const rooms = [...new Set(state.allEvents.map((event) => event.place).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+      const kinds = [['unit', t('ПЦК')], ['group', t('Куратор')], ['room', t('Панель аудитории')], ['all', t('Полный доступ')]];
+      const choices = view.kind === 'unit' ? units.map((unit) => [`unit:${unit.id}`, unit.name])
+        : view.kind === 'group' ? groups.map((group) => [`group:${group.id}`, group.name])
+          : view.kind === 'room' ? rooms.map((room) => [`room:${room.trim().toLowerCase().replaceAll('\u0451', '\u0435').replace(/\s+/g, ' ')}`, room])
+            : [];
+      body = [
+        h('p', {}, t('Разделение включено. Этот компьютер видит весь колледж и выдаёт коды доступа.')),
+        h('div', { class: 'targets', role: 'group', 'aria-label': t('Кому код') }, kinds.map(([id, label]) => h('button', {
+          type: 'button', 'aria-pressed': String(view.kind === id), 'data-access-kind': id, onclick: () => { Object.assign(view, { kind: id, code: '' }); draw(); },
+        }, label))),
+        view.kind === 'all'
+          ? h('p', { class: 'help' }, t('Полный доступ — только для компьютеров учебной, методической и воспитательной части: они видят весь колледж и сами могут выдавать коды.'))
+          : choices.length
+            ? h('div', { class: 'accesschoices' }, choices.map(([grant, label]) => h('label', { class: 'checkrow' }, h('input', {
+              type: 'checkbox', class: 's-grant', value: grant, checked: view.selected.has(grant),
+              onchange: (e) => { if (e.target.checked) view.selected.add(grant); else view.selected.delete(grant); view.code = ''; },
+            }), label)))
+            : h('p', { class: 'help' }, t('Список пуст.')),
+        h('button', { type: 'button', class: 'primary', id: 's-access-issue', onclick: async () => {
+          const grants = view.kind === 'all' ? 'all' : [...view.selected];
+          if (grants !== 'all' && !grants.length) {
+            view.message = t('Отметьте, что будет видно по коду.');
+            return draw();
+          }
+          const result = await api.issueAccess(grants);
+          Object.assign(view, { code: result.ok ? result.value : '', message: result.ok ? '' : storeMessage(result) });
+          return draw();
+        } }, t('Получить код')),
+        codeBox,
+        view.selected.size > 0 && view.kind !== 'all' && h('p', { class: 'help', id: 's-access-selected' }, t('В коде: {0}.', [[...view.selected].map(grantLabel).join(', ')])),
+        h('p', { class: 'help' }, t('Отметки на вкладках складываются: преподаватель ПЦК, который ещё и куратор, получает один код на всё.')),
+        h('button', { type: 'button', class: view.confirm === 'disable' ? 'danger' : 'plain', id: 's-access-disable', onclick: async () => {
+          if (view.confirm !== 'disable') {
+            view.confirm = 'disable';
+            return draw();
+          }
+          const result = await api.disableAccess();
+          Object.assign(view, { confirm: '', message: result.ok ? t('Разделение выключено: компьютеры снова получат всё при следующем обмене.') : storeMessage(result) });
+          return draw();
+        } }, view.confirm === 'disable' ? t('Выключить? Все компьютеры снова будут видеть всё — нажмите ещё раз') : t('Выключить разделение')),
+      ];
+    } else {
+      body = [
+        h('p', {}, access.grants.length
+          ? t('Этот компьютер видит: {0}. И общее для колледжа.', [access.grants.map(grantLabel).join(', ')])
+          : t('Разделение включено, а кода у этого компьютера нет: видно только общее для колледжа.')),
+        h('p', { class: 'help' }, t('Код выдают на компьютере учебной части. Новый код заменяет прежний.')),
+        applyBox,
+      ];
+    }
+    box.replaceChildren(
+      h('h3', { class: 'settinghead' }, t('Разделение по ПЦК')),
+      view.message && h('p', { class: 'notice', id: 's-access-message' }, view.message),
+      ...body);
+  };
+  draw();
+  return box;
 }
 
 async function openSettings() {
@@ -4953,6 +5143,7 @@ async function openSettings() {
           h('label', { for: 's-memo-signer' }, t('Подпись')),
           memoSigner,
           h('p', { class: 'help' }, t('Как под запиской, например Семенов И. А. Настраивается отдельно на каждом устройстве.')))),
+      accessSection(),
       templateSection(),
       backupSection(),
       summarySection(),
@@ -5005,7 +5196,7 @@ async function openSettings() {
           line.textContent = t('Проверяю обновления. Если есть новая версия, программа закроется и откроется снова.');
           const result = await api.checkUpdate();
           button.disabled = false;
-          if (!result.ok) line.textContent = t('Проверку запустить не удалось. Обновления по-прежнему проверяются сами при включении компьютера и ночью.');
+          if (!result.ok) line.textContent = t('Проверку запустить не удалось. Обновите программу вручную: запустите установщик новой версии.');
           else if (!result.status) line.textContent = t('Проверка ещё идёт. Результат появится здесь при следующем открытии настроек.');
           else line.textContent = updateText(result.status);
         },
@@ -5558,7 +5749,8 @@ function drawGrades() {
   const dialog = $('grade');
   const { from, to } = ratingPeriod(now().iso);
   const hidden = hiddenOnPanel();
-  const inGroup = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)));
+  // При разделении по ПЦК рейтинг целиком виден только по группам, которые компьютер видит полностью.
+  const inGroup = currentGrades().filter((row) => (!gradeGroup || row.group === gradeGroup) && !hidden.has(nameKey(row.name)) && studentVisible(row.name));
   const flagsOfRow = (row) => (canManage() ? studentByName(row.name)?.flags ?? [] : []);
   const rows = inGroup.filter((row) => !gradeFlag || (gradeFlag === 'none' ? !flagsOfRow(row).length : flagsOfRow(row).includes(gradeFlag)));
   // Группировка по флажкам: разделы по цветам, студент с двумя флажками — в обоих.

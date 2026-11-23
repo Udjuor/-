@@ -9,6 +9,7 @@ const { LANGUAGES, loadConfig, saveConfig, splitPeers } = require('./config');
 const { EventStore, PET_COATS_IDS, PET_KINDS, petKindLockKey, petKindLocked } = require('./store');
 const { buildMemo, templateFields } = require('./memo');
 const { SyncNode, generateKey } = require('./sync');
+const { Access, POLICY_ID, fullCode, grantCode, newSecret, parseCode, secretPrint } = require('./access');
 const { firewallState, repairFirewall } = require('./netcheck');
 
 // Папка общая для всех учётных записей компьютера: на панелях их бывает несколько.
@@ -112,6 +113,7 @@ async function restartSync() {
     onChange: () => win?.webContents.send('events:changed'),
     version: app.getVersion(),
     edition,
+    access: new Access(config.access),
   });
   try {
     await node.start();
@@ -624,6 +626,61 @@ function registerHandlers() {
     }
     return { ok: true, status: null };
   });
+
+  // Разделение по ПЦК. Включает и выдаёт коды компьютер с полным доступом (учебная часть).
+  const accessPolicy = async () => (await store.records()).find((record) => record.id === POLICY_ID && !record.deleted) ?? null;
+  const accessState = async () => {
+    const policy = await accessPolicy();
+    const access = new Access(config.access);
+    return {
+      enabled: Boolean(policy?.enabled),
+      full: access.full && access.matches(policy),
+      grants: access.full ? [] : [...access.grants.keys()],
+      hasCode: Boolean(access.code),
+    };
+  };
+  const applyAccess = async (code) => {
+    const parsed = parseCode(code);
+    if (code && !parsed) throw Object.assign(new Error('bad code'), { code: 'invalid' });
+    const access = new Access(code);
+    if (access.full && !access.matches(await accessPolicy())) throw Object.assign(new Error('other network'), { code: 'invalid' });
+    config = { ...config, access: access.code };
+    saveConfig(homeDir(), config);
+    await restartSync();
+    win?.webContents.send('events:changed');
+    return accessState();
+  };
+  ipcMain.handle('access:get', () => respond(accessState));
+  ipcMain.handle('access:enable', () => managed(async () => {
+    const policy = await accessPolicy();
+    const current = new Access(config.access);
+    if (policy?.enabled) throw Object.assign(new Error('already'), { code: 'conflict' });
+    // Повторное включение тем же компьютером — тем же секретом, коды остаются в силе.
+    const code = current.full && current.matches(policy) ? current.code : fullCode(newSecret());
+    config = { ...config, access: code };
+    saveConfig(homeDir(), config);
+    await store.savePolicy({ enabled: true, print: secretPrint(new Access(code).secret) });
+    await restartSync();
+    sync?.nudge();
+    return accessState();
+  }));
+  ipcMain.handle('access:disable', () => managed(async () => {
+    const policy = await accessPolicy();
+    const access = new Access(config.access);
+    if (!access.full || !access.matches(policy)) throw Object.assign(new Error('not full'), { code: 'forbidden' });
+    await store.savePolicy({ enabled: false, print: policy.print });
+    sync?.nudge();
+    return accessState();
+  }));
+  // Код для другого компьютера: полный — для учебной, методической и воспитательной части, или с пропусками.
+  ipcMain.handle('access:issue', (_e, grants) => managed(async () => {
+    const access = new Access(config.access);
+    if (!access.full || !access.matches(await accessPolicy())) throw Object.assign(new Error('not full'), { code: 'forbidden' });
+    if (grants === 'all') return fullCode(access.secret);
+    return grantCode(access.secret, (Array.isArray(grants) ? grants : []).map(String));
+  }));
+  // Код вводят в настройках версии для преподавателей и в мастере первого запуска (в том числе на панели).
+  ipcMain.handle('access:apply', (_e, code) => (config.setupDone ? managed : respond)(() => applyAccess(String(code ?? '').trim())));
 
   ipcMain.handle('settings:get', () => ({
     deviceId: config.deviceId,

@@ -130,6 +130,9 @@ function normalizeEvent(raw) {
   // Запись со страницы студента из 1.44 убрана вместе со страницей.
   delete event.signup;
   delete event.requests;
+  // ПЦК события: пусто — по ответственному преподавателю, 'all' — общее для колледжа.
+  event.unit = raw.unit === 'all' || ID_RE.test(raw.unit ?? '') ? raw.unit : '';
+  if (!event.unit) delete event.unit;
   // Когда событие появилось.
   event.createdAt = /^\d{4}-\d{2}-\d{2}T/.test(raw.createdAt ?? '') ? String(raw.createdAt) : '';
   const valid =
@@ -148,9 +151,11 @@ const MARK_STATUSES = new Set(['present', 'sick', 'order', 'excused']);
 const ROLE_TYPES = new Set(['practice', 'task', 'event']);
 const HAND_IN = new Set(['done', 'rework']);
 const FLAG_COLORS = ['yellow', 'red', 'blue', 'green'];
+/** Номер записи политики доступа, как POLICY_ID в access.js. */
+const ACCESS_POLICY_ID = '5c1a7e00-0000-4000-8000-0000000000ac';
 /** Окрасы питомца, как PET_COATS в pet.mjs. */
 const PET_COATS_IDS = ['snow', 'cocoa', 'gold', 'sky', 'mint', 'night'];
-const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork', 'flagname']);
+const REF_KINDS = new Set(['group', 'student', 'equipment', 'teacher', 'role', 'notice', 'achievement', 'bonus', 'pastwork', 'flagname', 'unit', 'access']);
 const PAST_WORK_TYPES = ['task', 'practice', 'event'];
 const NOTICE_COLORS = new Set(['blue', 'green', 'yellow', 'red']);
 const MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -338,6 +343,16 @@ function normalizeRef(raw) {
     // PIN были в версиях 1.18 и 1.19.
     delete ref.pin;
     delete ref.hasPin;
+    // ПЦК преподавателя: его пары и планы видят только этот ПЦК, кураторы и учебная часть.
+    ref.unit = ID_RE.test(raw.unit ?? '') ? raw.unit : '';
+    if (!ref.unit) delete ref.unit;
+  } else delete ref.unit;
+  if (raw.kind === 'access') {
+    // Политика доступа сети: одна запись, отпечаток секрета полного доступа.
+    if (raw.id !== ACCESS_POLICY_ID || !/^[0-9a-f]{16}$/.test(raw.print ?? '')) return null;
+    ref.enabled = raw.enabled === true;
+    ref.print = raw.print;
+    ref.name = 'access';
   }
   if (raw.kind === 'equipment') {
     // Пустое количество означает «без лимита».
@@ -882,6 +897,22 @@ class EventStore {
     return current;
   }
 
+  /**
+   * Убирает записи с этого устройства без отметки об удалении: так при разделении по ПЦК
+   * уходят чужие данные, а у остальных устройств они остаются.
+   */
+  async forget(predicate) {
+    const records = await this.records();
+    let removed = 0;
+    for (const record of records) {
+      if (!predicate(record)) continue;
+      await fsp.rm(this.fileFor(record.id), { force: true });
+      this.cache.delete(path.basename(this.fileFor(record.id)));
+      removed += 1;
+    }
+    return removed;
+  }
+
   async write(record) {
     await fsp.mkdir(this.dir, { recursive: true });
     const target = this.fileFor(record.id);
@@ -924,6 +955,16 @@ class EventStore {
       else if (fields.length) await this.journal('edit', event, { fields });
     }
     return event;
+  }
+
+  /** Политика доступа сети: одна запись с постоянным номером, пишется поверх. */
+  async savePolicy({ enabled, print }) {
+    const current = await this.readCurrent(ACCESS_POLICY_ID);
+    const ref = normalizeRef({ kind: 'access', id: ACCESS_POLICY_ID, name: 'access', enabled, print, updatedAt: '', updatedBy: this.deviceId });
+    if (!ref) throw new StoreError('invalid', 'Неверная политика доступа');
+    const saved = { ...ref, updatedAt: nextStamp(current?.updatedAt) };
+    await this.write(saved);
+    return saved;
   }
 
   async saveRef(input, baseUpdatedAt = null) {

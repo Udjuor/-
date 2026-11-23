@@ -436,3 +436,51 @@ test('часы: расхождение с другими устройствам�
   await panel.node.syncWith(b.node.at);
   assert.equal(panel.node.status().clockSkew, null, 'две минуты — не повод');
 });
+
+test('разделение по ПЦК: чужие планы не приходят на компьютер, учебная часть и куратор видят своё', async (t) => {
+  const { Access, fullCode, grantCode, newSecret, secretPrint } = require('../src/main/access');
+  const secret = newSecret();
+  const office = await device(t, 'office', { access: new Access(fullCode(secret)) });
+  const itUnit = await office.store.saveRef({ kind: 'unit', name: 'ПЦК информационных технологий' });
+  const artUnit = await office.store.saveRef({ kind: 'unit', name: 'ПЦК дизайна' });
+  const it = await device(t, 'it', { access: new Access(grantCode(secret, [`unit:${itUnit.id}`])) });
+  const art = await device(t, 'art', { access: new Access(grantCode(secret, [`unit:${artUnit.id}`])) });
+  const legacy = await device(t, 'legacy');
+  // Учебная часть заводит ПЦК, преподавателей, группу и включает разделение.
+  const group = await office.store.saveRef({ kind: 'group', name: 'ИС-21' });
+  await office.store.saveRef({ kind: 'student', name: 'Иванов И.', groupId: group.id });
+  await office.store.saveRef({ kind: 'teacher', name: 'Петрова А. А.', unit: itUnit.id });
+  await office.store.saveRef({ kind: 'teacher', name: 'Сидоров Б. Б.', unit: artUnit.id });
+  const curator = await device(t, 'curator', { access: new Access(grantCode(secret, [`group:${group.id}`])) });
+  // До включения у «it» уже была копия всего — после включения чужое уходит.
+  await office.store.save({ ...sample, title: 'Рисунок', responsible: 'Сидоров Б. Б.' });
+  await office.store.save({ ...sample, title: 'Сети', responsible: 'Петрова А. А.' });
+  await office.store.save({ ...sample, title: 'Линейка', responsible: 'Сидоров Б. Б.', unit: 'all', participants: [] });
+  await office.store.save({ ...sample, title: 'Скетчинг', responsible: 'Сидоров Б. Б.', participants: [] });
+  await office.node.syncWith(it.node.at);
+  assert.equal((await it.store.list()).length, 4, 'до включения — всё');
+  await office.store.savePolicy({ enabled: true, print: secretPrint(secret) });
+
+  const titles = async (d) => (await d.store.list()).map((e) => e.title).sort();
+  await office.node.syncWith(it.node.at);
+  assert.deepEqual(await titles(it), ['Линейка', 'Сети'], 'свой ПЦК и общее; чужое убрано без отметки об удалении');
+  assert.equal((await office.store.list()).length, 4, 'у учебной части всё на месте');
+  await art.node.syncWith(office.node.at);
+  assert.deepEqual(await titles(art), ['Линейка', 'Рисунок', 'Скетчинг']);
+  // ПЦК между собой обмениваются только общим.
+  await it.store.save({ ...sample, title: 'Базы данных', responsible: 'Петрова А. А.' });
+  await it.node.syncWith(art.node.at);
+  assert.deepEqual(await titles(art), ['Линейка', 'Рисунок', 'Скетчинг']);
+  assert.deepEqual(await titles(it), ['Базы данных', 'Линейка', 'Сети']);
+  // Учебная часть забирает новое у ПЦК.
+  await office.node.syncWith(it.node.at);
+  assert.ok((await titles(office)).includes('Базы данных'));
+  // Куратор группы видит все пары своей группы, из любого ПЦК, но не чужие планы без его студентов.
+  await curator.node.syncWith(office.node.at);
+  assert.deepEqual(await titles(curator), ['Базы данных', 'Линейка', 'Рисунок', 'Сети']);
+  // Устройство без кода получает только общее.
+  await legacy.node.syncWith(office.node.at);
+  assert.deepEqual(await titles(legacy), ['Линейка']);
+  await office.node.syncWith(legacy.node.at);
+  assert.deepEqual(await titles(legacy), ['Линейка']);
+});
