@@ -1,4 +1,4 @@
-import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, dutyRoster, earlySignals, isHeld, incidentSummary, portfolio } from './logic.mjs';
+import { CANCEL_REASONS, JOURNAL_ACTIONS, JOURNAL_FIELD_LABELS, SIGNAL_ABSENT_WEEK, SIGNAL_LATE_WEEK, SIGNAL_STREAK, balanceHints, attendanceIncidents, dutyRoster, earlySignals, signalFrom, isHeld, incidentSummary, portfolio } from './logic.mjs';
 import { qrPath } from './qr.mjs';
 import {
   ABSENCE_REASONS, ABSENT_FROM_MINUTE, EVENT_TYPES, STUDY_DAY, isAllDay, MAX_REPEATS, REPEATS, practiceSpan, repeatDates, seriesFrom, LATE_FROM_MINUTE, actualStart, countsLateness, startDelay, OWN_CAMERA, activeNotices, addDays, addMonths, buildReport, busyFrom, TEMPLATE_FIELDS, deadlineAlerts, deadlineList, deadlineState, equipmentCount, equipmentLabel, equipmentNow, eventState, eventsOn, findConflicts, freeStock, fromISO, groupMembers, memoApplies, memoData, fromMinutes, hourRange, layoutDay,
@@ -3022,7 +3022,7 @@ const SUMMARY_LABELS = () => ({
   absent: t('Пропуски без причины и опоздания'),
   absentHeader: [t('Студент'), t('Группа'), t('Без причины'), t('Опоздания'), t('Отметок')],
   certificates: t('Ждём справку'),
-  certificatesHeader: [t('Студент'), t('Занятий'), t('С какого дня')],
+  certificatesHeader: [t('Студент'), t('Занятий'), t('С какого дня'), t('По какой день')],
   debts: t('Не сдали работы в срок'),
   debtsHeader: [t('Студент'), t('Долгов'), t('Что не сдано')],
 });
@@ -3574,12 +3574,19 @@ function deadlineItems() {
   return items;
 }
 
+/** Период болезни: «12 ноября» или «12–15 ноября». */
+function sickPeriod(period) {
+  return period.from === period.to ? shortDay(period.from) : t('{0} — {1}', [shortDay(period.from), shortDay(period.to)]);
+}
+
 function certificateItems() {
   const people = pendingCertificates(state.attendance, state.allEvents);
   const items = people.slice(0, MAX_DEADLINE_ALERTS).map((person) => ({
-    id: `certificate-${person.name}`,
+    id: `certificate-${person.name}-${person.periods.length}`,
     color: 'yellow',
-    name: t('{0}: предъявите справку для подтверждения больничного', [person.name]),
+    name: person.periods.length === 1
+      ? t('{0}: предъявите справку за {1}', [person.name, sickPeriod(person.periods[0])])
+      : t('{0}: предъявите справки за {1}', [person.name, person.periods.map(sickPeriod).join('; ')]),
   }));
   const rest = people.length - items.length;
   if (rest > 0) items.push({ id: 'certificate-rest', color: 'yellow', name: t('Ещё ждём справки: {0}', [rest]) });
@@ -3739,7 +3746,7 @@ function petItems() {
 /** Перезапускает строку, только если изменилось содержимое: иначе она бы дёргалась. */
 function refreshTicker() {
   const holiday = holidayGreeting(state.skin, now().iso);
-  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...gradeItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
+  const notices = [...(holiday ? [{ id: holiday.id, color: 'birthday', name: t(holiday.text) }] : []), ...birthdayItems(), ...bestGroupItems(), ...activeNotices(refsOf('notice'), moment()), ...deadlineItems(), ...certificateItems(), ...petItems()];
   const box = $('ticker');
   $('notices-open').hidden = isClient();
   const key = JSON.stringify([notices.map((notice) => [notice.id, notice.name, notice.color]), box.clientWidth]);
@@ -3974,8 +3981,9 @@ function decisionTable() {
 }
 
 /** Одна справка закрывает все занятия, на которых студент числится больным. */
-async function acceptCertificate(person) {
-  for (const { event, at } of person.classes) await api.mark(event.id, person.name, 'sick', { confirmed: true, at });
+/** Справка закрывает один период болезни: принимается по периодам. */
+async function acceptCertificate(person, period) {
+  for (const { event, at } of period.classes) await api.mark(event.id, person.name, 'sick', { confirmed: true, at });
   await refresh();
   refreshTicker();
   drawDeadlines();
@@ -3987,11 +3995,12 @@ function certificateTable() {
   return h('section', { class: 'petsection' },
     h('h3', {}, t('Ждём справку: {0}', [people.length])),
     h('div', { class: 'tablewrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, [t('Студент'), t('Занятия'), ''].map((name) => h('th', { scope: 'col' }, name)))),
-      h('tbody', {}, people.map((person) => h('tr', {},
-        h('td', {}, person.name),
-        h('td', {}, person.classes.map(({ event }) => `${shortDay(event.date)}, ${event.title}`).join('; ')),
-        h('td', {}, canManage() && h('button', { class: 'plain', onclick: () => acceptCertificate(person) }, t('Справка принята')))))))));
+      h('thead', {}, h('tr', {}, [t('Студент'), t('Период болезни'), t('Занятия'), ''].map((name) => h('th', { scope: 'col' }, name)))),
+      h('tbody', {}, people.flatMap((person) => person.periods.map((period, index) => h('tr', { 'data-certificate': `${person.name}|${period.from}` },
+        h('td', {}, index === 0 ? person.name : ''),
+        h('td', {}, sickPeriod(period)),
+        h('td', {}, period.classes.map(({ event }) => `${shortDay(event.date)}, ${event.title}`).join('; ')),
+        h('td', {}, canManage() && h('button', { class: 'plain', onclick: () => acceptCertificate(person, period) }, t('Справка принята'))))))))));
 }
 
 function drawDeadlines() {
@@ -4233,14 +4242,13 @@ function refreshSignals() {
   if ($('signals').open) drawSignals();
 }
 
-const SIGNAL_DAYS_SHOWN = 14;
 const signalOpen = new Set();
 
-/** Нарушения студента в окне сигнала: две недели или с «Разобрались», если это позже. */
+/** Нарушения студента для сигнала: с «Разобрались», но не дальше 60 дней назад. */
 function signalIncidents(student) {
   const clock = now();
   return attendanceIncidents({
-    events: state.allEvents, attendance: state.attendance, name: student.name, from: addDays(clock.iso, -(SIGNAL_DAYS_SHOWN - 1)), to: clock.iso,
+    events: state.allEvents, attendance: state.attendance, name: student.name, from: signalFrom(student, clock.iso), to: clock.iso,
     nowISO: clock.iso, nowTime: clock.time, since: student.signalSince ?? '',
   });
 }
@@ -4261,7 +4269,7 @@ function signalRating(name, from) {
 /** Подробности сигнала: где и как просел, каждая пара с прогулом или опозданием. */
 function signalDetails(student, incidents) {
   const sum = incidentSummary(incidents);
-  const from = addDays(now().iso, -(SIGNAL_DAYS_SHOWN - 1));
+  const from = signalFrom(student, now().iso);
   const rating = signalRating(student.name, from);
   const subjectText = (subject) => [
     subject.absent && t('прогулов: {0}', [subject.absent]),
@@ -4269,9 +4277,9 @@ function signalDetails(student, incidents) {
   ].filter(Boolean).join(', ');
   const worstDay = sum.weekdays[0];
   return h('div', { class: 'signaldetail' },
-    h('p', {}, t('За две недели: пар с прогулом {0} (дней {1}), опозданий {2}, всего {3} мин.', [sum.absent, sum.absentDays, sum.late, sum.lateMinutes])),
+    h('p', {}, t('С {0}: пар с прогулом {1} (дней {2}), опозданий {3}, всего {4} мин.', [shortDay(from), sum.absent, sum.absentDays, sum.late, sum.lateMinutes])),
     rating && h('p', {}, [
-      t('Рейтинг за две недели: было {0}, стало {1}.', [rating.before, rating.after]),
+      t('Рейтинг: было {0}, стало {1}.', [rating.before, rating.after]),
       rating.absent && t('Прогулы: {0}.', [signed(rating.absent)]),
       rating.late && t('Опоздания: {0}.', [signed(rating.late)]),
       rating.after === 0 && rating.absent + rating.late < 0 && t('Ниже нуля баллы не опускаются, поэтому минус виден не весь.'),
@@ -4303,7 +4311,7 @@ function drawSignals() {
     return h('li', { class: 'signal', 'data-signal': item.name },
       h('div', { class: 'signalhead' },
         h('strong', {}, item.name),
-        h('span', { class: 'help' }, [item.group, item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
+        h('span', { class: 'help' }, [item.group, item.raised && t('сигнал с {0}', [shortDay(item.raised)]), item.last && t('последний раз {0}', [shortDay(item.last)])].filter(Boolean).join(', '))),
       h('ul', { class: 'signalreasons' }, item.reasons.map((reason) => h('li', { class: `reason-${reason.kind}` }, SIGNAL_TEXT[reason.kind](reason.count)))),
       open && student && signalDetails(student, incidents),
       h('div', { class: 'targets' },
@@ -5636,16 +5644,6 @@ function currentGrades() {
 const gradeName = (name) => name;
 const studentByName = (name) => refsOf('student').find((s) => nameKey(s.name) === nameKey(name));
 
-/** Поздравления с новым званием: три дня после того, как студент его получил. */
-function gradeItems() {
-  const today = now().iso;
-  const hidden = hiddenOnPanel();
-  return currentGrades().filter((row) => !hidden.has(nameKey(row.name))).flatMap((row) => row.levelUps
-    .filter((up) => up.date >= addDays(today, -2))
-    .slice(-1)
-    .map((up) => ({ id: `grade-${row.name}-${up.level}`, color: 'trophy', name: t('⭐ {0} — новое звание «{1}»! Так держать!', [greetingName(row.name), gradeName(up.level)]) })));
-}
-
 let gradeGroup = '';
 
 /*
@@ -5828,7 +5826,7 @@ function calcText(item) {
     case 'day': return t('Был на парах: {0}', [lessonList(item.lessons)]);
     case 'late': return t('Опоздание: {0}', [lessonList(item.lessons, (l) => t(' — {0} мин', [l.late]))]);
     case 'absent': return [
-      t('Прогул за день: {0}', [lessonList(item.lessons, (l) => (l.certificate ? t(' (нет справки)') : l.late ? t(' (пришёл через {0} мин)', [l.late]) : ''))]),
+      t('Прогул за день: {0}', [lessonList(item.lessons, (l) => (l.late ? t(' (пришёл через {0} мин)', [l.late]) : ''))]),
       item.attended?.length ? h('small', { class: 'pastmark' }, t('на других парах был, но за день с прогулом +1 не начисляется')) : null,
     ];
     case 'task': return [t('Задание «{0}» сдано', [item.title]), past];

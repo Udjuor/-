@@ -575,6 +575,13 @@ test('ранний сигнал: пропуски подряд, частые п�
   // Куратор разобрался после пары 10 ноября: старое больше не считается.
   students[0].signalSince = new Date(2026, 10, 10, 11, 0).toISOString();
   assert.deepEqual(L.earlySignals({ events, attendance, students, groups, ...now }).map((s) => s.name), ['Петрова']);
+  // Никто не разобрался — сигнал держится и через три недели, хотя нарушения вышли из недели.
+  const later = L.earlySignals({ events, attendance, students, groups, nowISO: '2026-12-01', nowTime: '18:00' });
+  assert.deepEqual(later.map((s) => [s.name, s.raised]), [['Петрова', '2026-11-10']]);
+  // А больше чем за 60 дней назад старое не всплывает.
+  delete students[0].signalSince;
+  assert.equal(L.earlySignals({ events, attendance, students, groups, nowISO: '2027-01-20', nowTime: '18:00' }).length, 0);
+  assert.equal(L.signalFrom({ signalSince: '' }, '2026-12-01'), '2026-10-03');
 });
 
 test('портфолио: где был, где по приказу, и достижения', () => {
@@ -814,9 +821,9 @@ test('грейд: баллы по дням, задания, мероприяти
   assert.equal(early['Вера'].points, 0, 'прогул в день −4, болезнь без справки пока 0, практика +2, задание −2');
   assert.equal(early['Вера'].breakdown.absent, 1);
   assert.equal(early['Вера'].breakdown.practice, 1);
-  assert.equal(report('2026-11-20')['Вера'].breakdown.absent, 1, 'справку ждут месяц');
-  const late = report('2026-12-10');
-  assert.equal(late['Вера'].breakdown.absent, 2, 'справку не принесли за месяц — пропуск');
+  assert.equal(report('2026-11-20')['Вера'].breakdown.absent, 1);
+  const late = report('2027-01-30');
+  assert.equal(late['Вера'].breakdown.absent, 1, 'у справки нет срока: болезнь без справки прогулом не становится');
   assert.equal(early['Аня'].level, 'Intern');
   assert.equal(early['Аня'].next.name, 'Junior');
   assert.equal(early['Аня'].next.need, 60 - 12);
@@ -1068,4 +1075,18 @@ test('дежурство: по одному в учебный день, по о�
   const exempt = L.dutyRoster({ group: { ...groups[0], duty: {}, dutyExempt: ['васин'] }, groups, students, events, attendance: [], from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-01', nowTime: '08:00' });
   assert.deepEqual([...new Set(exempt.map((d) => d.name))], ['Антонов', 'Белова']);
   assert.equal(exempt.length, 7, 'отменённая пара — не учебный день');
+});
+
+test('справки по периодам болезни: подряд — одна справка, после возвращения — новая', () => {
+  const days = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-09', '2026-11-10'];
+  const events = days.map((date, i) => ({ id: `e${i}`, type: 'lesson', title: `Пара ${i}`, date, start: '09:00', end: '10:30', participants: ['Аня'] }));
+  const marks = ['sick', 'sick', 'present', 'sick', 'sick', 'sick'];
+  const attendance = marks.map((status, i) => ({ eventId: `e${i}`, marks: { Аня: status === 'sick' ? { status, confirmed: i === 4 ? true : false } : { status, at: 'x' } } }));
+  const [anya] = L.pendingCertificates(attendance, events);
+  assert.deepEqual(anya.periods.map((p) => [p.from, p.to, p.classes.length]), [
+    ['2026-11-02', '2026-11-03', 2],
+    ['2026-11-05', '2026-11-05', 1],
+    ['2026-11-10', '2026-11-10', 1],
+  ], 'пришёл 4-го — новый период; принятая справка 9-го тоже разделяет');
+  assert.equal(anya.classes.length, 4);
 });

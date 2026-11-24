@@ -252,21 +252,41 @@ export function deadlineAlerts(events, moment) {
   ];
 }
 
-/** Кто должен принести справку: по студенту, с занятиями в порядке дат. */
+/**
+ * Кто должен принести справку: по студенту, с занятиями в порядке дат, разбитыми на периоды болезни.
+ * Период — болезнь подряд: его прерывает любая другая отметка этого студента (пришёл, прогул,
+ * по приказу, принятая справка). На каждый период — своя справка. Срока у справки нет:
+ * пока её не приняли, болезнь остаётся «ждём справку» и в прогул не превращается.
+ */
 export function pendingCertificates(attendance, events) {
   const byId = new Map(events.map((event) => [event.id, event]));
-  const people = new Map();
+  const marksOf = new Map();
   for (const doc of attendance) {
     const event = byId.get(doc.eventId);
     if (!event || !isHeld(event)) continue;
     for (const [name, mark] of Object.entries(doc.marks ?? {})) {
-      if (mark.status !== 'sick' || mark.confirmed !== false) continue;
-      if (!people.has(name)) people.set(name, { name, classes: [] });
-      people.get(name).classes.push({ event, at: mark.at });
+      if (!mark?.status) continue;
+      if (!marksOf.has(name)) marksOf.set(name, []);
+      marksOf.get(name).push({ event, mark });
     }
   }
-  const list = [...people.values()];
-  for (const person of list) person.classes.sort((a, b) => a.event.date.localeCompare(b.event.date) || byTime(a.event, b.event));
+  const list = [];
+  for (const [name, marks] of marksOf) {
+    marks.sort((a, b) => a.event.date.localeCompare(b.event.date) || byTime(a.event, b.event));
+    const periods = [];
+    let current = null;
+    for (const { event, mark } of marks) {
+      if (mark.status === 'sick' && mark.confirmed === false) {
+        if (!current) {
+          current = { from: event.date, to: event.date, classes: [] };
+          periods.push(current);
+        }
+        current.to = event.date;
+        current.classes.push({ event, at: mark.at });
+      } else current = null;
+    }
+    if (periods.length) list.push({ name, periods, classes: periods.flatMap((period) => period.classes) });
+  }
   return list.sort((a, b) => a.classes[0].event.date.localeCompare(b.classes[0].event.date) || a.name.localeCompare(b.name, 'ru'));
 }
 
@@ -800,17 +820,28 @@ export const SIGNAL_STREAK = 3;
 /** За последние 7 дней: столько пропусков без причины или опозданий — повод поговорить. */
 export const SIGNAL_ABSENT_WEEK = 4;
 export const SIGNAL_LATE_WEEK = 3;
-const SIGNAL_DAYS = 14;
+/**
+ * Сигнал держится, пока куратор не нажмёт «Разобрались»: нарушения не «стареют».
+ * Чтобы при первом запуске не всплыли давние истории, смотрим не дальше 60 дней назад.
+ */
+export const SIGNAL_KEEP_DAYS = 60;
+
+/** С какой даты считаются нарушения студента для сигнала: с «Разобрались» или за 60 дней. */
+export function signalFrom(student, nowISO) {
+  const limit = addDays(nowISO, -(SIGNAL_KEEP_DAYS - 1));
+  const since = student.signalSince ? localMoment(student.signalSince).slice(0, 10) : '';
+  return since > limit ? since : limit;
+}
 
 /**
- * Студенты, у которых в последние две недели копятся пропуски или опоздания.
- * since — когда куратор в последний раз нажал «Разобрались»: раньше этого не считается.
+ * Студенты, у которых копились пропуски или опоздания: 3 прогула подряд или за любые 7 дней
+ * 4 прогула либо 3 опоздания. Сигнал остаётся, пока куратор не нажмёт «Разобрались» (signalSince):
+ * что было раньше этого, не считается.
  */
 export function earlySignals({ events, attendance, students, groups, nowISO, nowTime }) {
   const docOf = new Map(attendance.map((doc) => [doc.eventId, doc]));
   const groupName = new Map(groups.map((group) => [group.id, group.name]));
-  const weekFrom = addDays(nowISO, -6);
-  const from = addDays(nowISO, -(SIGNAL_DAYS - 1));
+  const from = addDays(nowISO, -(SIGNAL_KEEP_DAYS - 1));
   const held = events
     .filter((event) => event.date >= from && isHeld(event) && takesAttendance(event) && hasEnded(event, nowISO, nowTime) && docOf.get(event.id))
     .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
@@ -828,19 +859,33 @@ export function earlySignals({ events, attendance, students, groups, nowISO, now
     const rows = (rowsOf.get(nameKey(student.name)) ?? []).filter((row) => !since || `${row.date}T${row.end}` > localMoment(since));
     let streak = 0;
     let longest = 0;
+    let since3 = null;
     for (const row of rows) {
-      if (row.status === 'absent') longest = Math.max(longest, ++streak);
-      else if (row.status === 'present') streak = 0;
+      if (row.status === 'absent') {
+        longest = Math.max(longest, ++streak);
+        if (streak === SIGNAL_STREAK && !since3) since3 = row.date;
+      } else if (row.status === 'present') streak = 0;
     }
-    const week = rows.filter((row) => row.date >= weekFrom);
-    const absentWeek = week.filter((row) => row.status === 'absent').length;
-    const lateWeek = week.filter((row) => row.status === 'present' && row.late > 0).length;
+    // Самая плотная неделя: любые 7 дней подряд.
+    const absences = rows.filter((row) => row.status === 'absent').map((row) => row.date);
+    const lates = rows.filter((row) => row.status === 'present' && row.late > 0).map((row) => row.date);
+    const densest = (dates) => dates.reduce((best, date) => {
+      const count = dates.filter((other) => other <= date && other >= addDays(date, -6)).length;
+      return count > best.count ? { count, date } : best;
+    }, { count: 0, date: null });
+    const absentWeek = densest(absences);
+    const lateWeek = densest(lates);
     const reasons = [];
     if (longest >= SIGNAL_STREAK) reasons.push({ kind: 'streak', count: longest });
-    if (absentWeek >= SIGNAL_ABSENT_WEEK) reasons.push({ kind: 'absentWeek', count: absentWeek });
-    if (lateWeek >= SIGNAL_LATE_WEEK) reasons.push({ kind: 'lateWeek', count: lateWeek });
+    if (absentWeek.count >= SIGNAL_ABSENT_WEEK) reasons.push({ kind: 'absentWeek', count: absentWeek.count });
+    if (lateWeek.count >= SIGNAL_LATE_WEEK) reasons.push({ kind: 'lateWeek', count: lateWeek.count });
     if (!reasons.length) continue;
-    signals.push({ id: student.id, name: student.name, group: groupName.get(student.groupId) ?? '', reasons, last: rows.at(-1)?.date ?? null, weight: longest * 2 + absentWeek * 2 + lateWeek });
+    // Когда сигнал появился: первый раз, когда сработало хоть одно правило.
+    const raised = [since3, absentWeek.count >= SIGNAL_ABSENT_WEEK && absentWeek.date, lateWeek.count >= SIGNAL_LATE_WEEK && lateWeek.date].filter(Boolean).sort()[0];
+    signals.push({
+      id: student.id, name: student.name, group: groupName.get(student.groupId) ?? '', reasons, last: rows.at(-1)?.date ?? null, raised,
+      weight: longest * 2 + absentWeek.count * 2 + lateWeek.count,
+    });
   }
   return signals.sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name, 'ru'));
 }
@@ -1038,7 +1083,7 @@ export function weeklySummaryCsv({ events, attendance, students, groups, from, t
     blank,
     [L.certificates],
     L.certificatesHeader,
-    ...certificates.map((person) => [person.name, person.classes.length, person.classes[0]?.event.date ?? '']),
+    ...certificates.flatMap((person) => person.periods.map((period) => [person.name, period.classes.length, period.from, period.to])),
     blank,
     [L.debts],
     L.debtsHeader,
@@ -1262,9 +1307,6 @@ export function yearChronicle({ events, attendance, students, groups, achievemen
 
 /** Баллы. День считается целиком: прогул в этот день −4, опоздание −2 (и +1 за то, что пришёл), иначе +1. */
 export const GRADE_POINTS = { day: 1, absent: -4, late: -2, task: 3, taskMissed: -2, event: 5, role: 2, practice: 2 };
-/** Болезнь без справки становится пропуском, если справку не принесли за неделю. */
-// Справку о болезни ждут месяц; не принесли — пропуск без причины.
-export const CERTIFICATE_DAYS = 30;
 /**
  * Рейтинг — один непрерывный счёт с первого курса до выпуска, без сброса по семестрам.
  * Учёт в Kerdiis начат 1 сентября 2026 года: с этой даты считаются все курсы.
@@ -1352,10 +1394,10 @@ export function gradeReport({ events, attendance, students, groups, from, to, no
         if (!person.days.has(event.date)) person.days.set(event.date, { present: false, late: false, absent: false, presentAt: [], lateAt: [], absentAt: [] });
         const day = person.days.get(event.date);
         const lesson = { title: event.title, start: event.start };
-        const overdueCertificate = row.status === 'sick' && row.unconfirmed && addDays(event.date, CERTIFICATE_DAYS) < nowISO;
-        if (row.status === 'absent' || overdueCertificate) {
+        // Болезнь без справки прогулом не становится: у справки нет срока.
+        if (row.status === 'absent') {
           day.absent = true;
-          day.absentAt.push({ ...lesson, certificate: overdueCertificate, late: row.lateMark ? row.late : 0 });
+          day.absentAt.push({ ...lesson, late: row.lateMark ? row.late : 0 });
         } else if (row.status === 'present') {
           day.present = true;
           day.presentAt.push(lesson);

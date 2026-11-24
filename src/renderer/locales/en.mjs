@@ -1397,7 +1397,14 @@ export default {
     "Разделение по ПЦК": "Separation by subject committee",
     "В коде: {0}.": "In the code: {0}.",
     "Отметки на вкладках складываются: преподаватель ПЦК, который ещё и куратор, получает один код на всё.": "Ticks on the tabs add up: a committee teacher who is also a curator gets one code for everything.",
-    "Проверку запустить не удалось. Обновите программу вручную: запустите установщик новой версии.": "Couldn’t start the check. Update the program manually: run the installer of the new version."
+    "Проверку запустить не удалось. Обновите программу вручную: запустите установщик новой версии.": "Couldn’t start the check. Update the program manually: run the installer of the new version.",
+    "С {0}: пар с прогулом {1} (дней {2}), опозданий {3}, всего {4} мин.": "Since {0}: classes missed {1} (days {2}), late arrivals {3}, {4} min in total.",
+    "Рейтинг: было {0}, стало {1}.": "Rating: was {0}, now {1}.",
+    "сигнал с {0}": "signal since {0}",
+    "По какой день": "Until",
+    "{0}: предъявите справку за {1}": "{0}: please bring a medical certificate for {1}",
+    "{0}: предъявите справки за {1}": "{0}: please bring medical certificates for {1}",
+    "Период болезни": "Sick period"
   },
   "plurals": {
     "events": {

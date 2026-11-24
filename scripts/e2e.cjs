@@ -1504,7 +1504,7 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.waitForSelector('#signals .signal:has-text("Тестов Ученик30") .signaltable tbody tr >> nth=2');
   assert.match(await signal.textContent(), /пар с прогулом 3 \(дней 3\)/);
   assert.match(await signal.textContent(), /Где проседает[\s\S]*Пара без Ученика30/);
-  assert.match(await signal.textContent(), /Рейтинг за две недели: было \d+, стало \d+\. Прогулы: −12\./);
+  assert.match(await signal.textContent(), /Рейтинг: было \d+, стало \d+\. Прогулы: −12\./);
   assert.equal(await signal.locator('[data-flag]').count(), 0, 'флажки — команды, в сигналах их нет');
   await shot('signal-detail');
   // Докладная: период, все нарушения таблицей, меры и подпись.
