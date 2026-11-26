@@ -257,7 +257,7 @@ function dutyOn(iso) {
       dutyCache.rosters.set(cacheKey, dutyDays(group, first, addDays(addMonths(first, 1), -1)));
     }
     const day = dutyCache.rosters.get(cacheKey).find((item) => item.date === iso);
-    return day ? [{ group, name: day.name, date: iso }] : [];
+    return day?.name ? [{ group, name: day.name, date: iso }] : [];
   });
 }
 
@@ -4045,10 +4045,10 @@ function refreshDeadlines() {
 
 
 /*
- * Дежурство: по одному студенту группы в каждый учебный день, по очереди.
- * Очередь считает dutyRoster; здесь — месяц графика, замены, кто не дежурит, начало и печать.
+ * Дежурство: по одному студенту группы в учебный день. Не автоматическое — студенты вписываются сами.
+ * Дни считает dutyRoster; здесь — месяц графика, запись, кто не дежурит и печать.
  */
-const dutyState = { groupId: '', month: '', settings: false, code: '', unlocked: '', headman: '', newCode: '', message: '' };
+const dutyState = { groupId: '', month: '', settings: false, message: '' };
 
 function dutyGroups() {
   const visible = fullGroupIds();
@@ -4060,7 +4060,7 @@ function dutyDays(group, from, to) {
   const clock = now();
   return dutyRoster({
     group, groups: refsOf('group'), students: refsOf('student'), events: state.allEvents, attendance: state.attendance,
-    from, to, nowISO: clock.iso, nowTime: clock.time, start: `${schoolYearOf(clock.iso)}-09-01`,
+    from, to, nowISO: clock.iso, nowTime: clock.time,
   });
 }
 
@@ -4076,8 +4076,7 @@ function openDuty(groupId = '', date = '') {
   if (groupId) dutyState.groupId = groupId;
   if (!groups.some((group) => group.id === dutyState.groupId)) dutyState.groupId = groups[0]?.id ?? '';
   dutyState.month = (date || now().iso).slice(0, 7);
-  // Староста входит заново при каждом открытии: панель общая.
-  Object.assign(dutyState, { code: '', unlocked: '', headman: '', newCode: '', message: '' });
+  dutyState.message = '';
   drawDuty();
   $('duty').showModal();
 }
@@ -4116,13 +4115,13 @@ function drawDuty() {
   const onDuty = members.filter((name) => !exempt.has(nameKey(name)));
   const todayDuty = dutyDays(group, today, today)[0];
   const monthName = fmt(`${dutyState.month}-01`, { month: 'long', year: 'numeric' });
-  const stateText = (day) => (day.done === true ? t('отдежурил') : day.done === false ? t('не пришёл — дежурит в следующий раз') : '');
-  // Распределяет староста (с панели, по коду) или преподаватель.
-  const canEdit = canManage() || dutyState.unlocked === group.id;
+  const stateText = (day) => (day.done === true ? t('отдежурил') : day.done === false ? t('не пришёл') : '');
+  // Дежурных вписывают сами студенты на панели: на сегодня и вперёд. Прошедшие дни меняет преподаватель.
+  const canEdit = (day) => canManage() || day.date >= today;
   const replace = async (day, value) => {
-    const result = await api.setDuty(group.id, dutyState.code, { [day.date]: value });
+    const result = await api.setDuty(group.id, '', { [day.date]: value });
     if (!result.ok) {
-      dutyState.message = result.code === 'forbidden' ? t('Код старосты не подходит.') : storeMessage(result);
+      dutyState.message = storeMessage(result);
       drawDuty();
       return;
     }
@@ -4131,42 +4130,6 @@ function drawDuty() {
     drawDuty();
     render();
   };
-  const unlock = async () => {
-    const code = $('duty-code').value.trim();
-    const result = await api.checkDuty(group.id, code);
-    if (!result.ok) {
-      dutyState.message = t('Код старосты не подходит.');
-      drawDuty();
-      return;
-    }
-    Object.assign(dutyState, { code, unlocked: group.id, headman: result.value.headman, message: '' });
-    drawDuty();
-  };
-  const newCode = async (headman) => {
-    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 9000 + 1000);
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`kerdiis-duty:${code}`));
-    const headCode = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-    dutyState.newCode = headman ? code : '';
-    await saveDutyGroup(group, headman ? { headman, headCode } : { headman: '', headCode: '' });
-  };
-  const headBox = isClient()
-    ? h('div', { class: 'dutyhead', id: 'duty-head' }, !group.headman
-      ? h('p', { class: 'help' }, t('Старосту группы назначает преподаватель. Пока график только для просмотра.'))
-      : canEdit
-        ? [h('p', {}, t('Дежурных распределяет староста: {0}', [dutyState.headman || group.headman])),
-          h('button', { type: 'button', class: 'plain', id: 'duty-logout', onclick: () => { Object.assign(dutyState, { code: '', unlocked: '' }); drawDuty(); } }, t('Выйти'))]
-        : [h('label', {}, h('span', {}, t('Староста {0}: код', [group.headman])),
-          h('input', { id: 'duty-code', type: 'password', inputmode: 'numeric', maxlength: 8, autocomplete: 'off', onkeydown: (e) => { if (e.key === 'Enter') unlock(); } })),
-          h('button', { type: 'button', class: 'primary', id: 'duty-login', onclick: unlock }, t('Распределить'))])
-    : h('div', { class: 'dutyhead', id: 'duty-head' },
-      h('label', {}, h('span', {}, t('Староста')),
-        h('select', { id: 'duty-headman', onchange: (e) => newCode(e.target.value) },
-          h('option', { value: '' }, t('Не назначен')),
-          members.map((name) => h('option', { value: name, selected: name === group.headman }, name)))),
-      group.headman && h('button', { type: 'button', class: 'plain', id: 'duty-newcode', onclick: () => newCode(group.headman) }, t('Новый код')),
-      dutyState.newCode
-        ? h('p', { class: 'dutycode', id: 'duty-newcode-value' }, t('Код старосты: {0}. Передайте его старосте — код показывается один раз.', [dutyState.newCode]))
-        : group.headman && h('p', { class: 'help' }, t('Староста распределяет дежурных на панели по своему коду. Забыли код — выдайте новый.')));
   dialog.replaceChildren(
     head,
     h('div', { class: 'targets weektools' },
@@ -4176,26 +4139,23 @@ function drawDuty() {
       h('strong', { id: 'duty-month' }, monthName),
       h('button', { type: 'button', class: 'plain', 'aria-label': t('Следующий месяц'), onclick: () => shift(1) }, '›')),
     h('div', { class: 'sheetbody' },
-      headBox,
+      isClient() && h('p', { class: 'dutyhead', id: 'duty-head' }, t('Дежурных вписывают сами студенты группы: выберите себя в строке нужного дня. Прошедшие дни меняет только преподаватель.')),
       dutyState.message && h('p', { class: 'message error', id: 'duty-message' }, dutyState.message),
-      todayDuty && h('p', { class: 'dutytoday', id: 'duty-today' }, t('Сегодня дежурит: {0}', [todayDuty.name])),
-      h('p', { class: 'help' }, t('Дежурство — обязательная воспитательная работа. По одному студенту в каждый день, когда у группы есть пары. Староста распределяет одногруппников; где он никого не выбрал, дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Дежурные видны в верхней строке дня.')),
+      todayDuty?.name && h('p', { class: 'dutytoday', id: 'duty-today' }, t('Сегодня дежурит: {0}', [todayDuty.name])),
+      h('p', { class: 'help' }, t('Дежурство — обязательная воспитательная работа. По одному студенту в день, когда у группы есть пары. Дежурство не автоматическое: дежурит тот, кто сам вписался на панели. Дежурные видны в верхней строке дня.')),
       days.length
         ? h('div', { class: 'tablewrap' }, h('table', { class: 'filetable dutytable' },
-          h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Отметка'), t('Назначить')].map((name) => h('th', { scope: 'col' }, name)))),
+          h('thead', {}, h('tr', {}, [t('Дата'), t('Дежурный'), t('Отметка'), t('Вписаться')].map((name) => h('th', { scope: 'col' }, name)))),
           h('tbody', {}, days.map((day) => h('tr', { 'data-date': day.date, class: [day.date === today ? 'today' : '', day.done === false ? 'missed' : ''].filter(Boolean).join(' ') },
             h('td', {}, fmt(day.date, { weekday: 'short', day: 'numeric', month: 'long' })),
-            h('td', {}, h('b', {}, day.name), !day.manual && h('small', { class: 'pastmark' }, t('по очереди'))),
+            h('td', {}, day.name ? h('b', {}, day.name) : h('small', { class: 'pastmark' }, t('никто не вписался'))),
             h('td', {}, stateText(day)),
-            h('td', {}, h('select', { 'aria-label': t('Замена: {0}', [day.date]), disabled: !canEdit, onchange: (e) => replace(day, e.target.value) },
-              h('option', { value: '', selected: !day.manual }, t('По очереди')),
-              onDuty.map((name) => h('option', { value: name, selected: day.manual && name === day.name }, name)))))))))
+            h('td', {}, h('select', { 'aria-label': t('Дежурный: {0}', [day.date]), disabled: !canEdit(day), onchange: (e) => replace(day, e.target.value) },
+              h('option', { value: '', selected: !day.name }, t('— никто —')),
+              onDuty.map((name) => h('option', { value: name, selected: name === day.name }, name)))))))))
         : h('p', { class: 'help' }, t('В этом месяце у группы нет пар.')),
       canManage() && h('details', { class: 'dutysettings', open: dutyState.settings, ontoggle: (e) => { dutyState.settings = e.target.open; } },
-        h('summary', {}, t('Начало графика и кто не дежурит')),
-        h('label', { class: 'field' }, h('span', { class: 'label' }, t('Начало графика')),
-          h('input', { type: 'date', id: 'duty-from', value: group.dutyFrom ?? '', onchange: (e) => saveDutyGroup(group, { dutyFrom: e.target.value }) }),
-          h('p', { class: 'help' }, t('Если не указано — с 1 сентября. Новое начало запускает очередь заново, с первого по алфавиту.'))),
+        h('summary', {}, t('Кто не дежурит')),
         h('fieldset', { class: 'dutyexempt' },
           h('legend', {}, t('Не дежурят: {0}', [members.length - onDuty.length])),
           members.map((name) => h('label', { class: 'checkrow' },
@@ -6394,7 +6354,7 @@ function wire() {
   $('open-groupweek').addEventListener('click', openGroupWeek);
   $('open-chronicle').addEventListener('click', openChronicle);
   $('open-grade').addEventListener('click', openGrades);
-  $('open-duty').addEventListener('click', openDuty);
+  $('open-duty').addEventListener('click', () => openDuty());
   // Табло перемены: любое касание или нажатие убирает его и откладывает на минуту.
   for (const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, touched, { capture: true, passive: true });
   setInterval(refreshBoard, 5000);

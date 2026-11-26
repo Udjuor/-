@@ -23,7 +23,6 @@ contextBridge.exposeInMainWorld('calendar', {
   disableAccess: () => ipcRenderer.invoke('access:disable'),
   issueAccess: (grants) => ipcRenderer.invoke('access:issue', grants),
   applyAccess: (code) => ipcRenderer.invoke('access:apply', code),
-  checkDuty: (groupId, code) => ipcRenderer.invoke('duty:check', groupId, code),
   setDuty: (groupId, code, changes) => ipcRenderer.invoke('duty:set', groupId, code, changes),
   removeRefs: (refs) => ipcRenderer.invoke('directory:remove', refs),
   attendance: () => ipcRenderer.invoke('attendance:list'),

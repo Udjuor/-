@@ -1404,7 +1404,16 @@ export default {
     "По какой день": "Until",
     "{0}: предъявите справку за {1}": "{0}: please bring a medical certificate for {1}",
     "{0}: предъявите справки за {1}": "{0}: please bring medical certificates for {1}",
-    "Период болезни": "Sick period"
+    "Период болезни": "Sick period",
+    "Дежурных вписывают сами студенты группы: выберите себя в строке нужного дня. Прошедшие дни меняет только преподаватель.": "Students of the group sign up for duty themselves: pick yourself in the row of the day. Past days can only be changed by a teacher.",
+    "Дежурство — обязательная воспитательная работа. По одному студенту в каждый день, когда у группы есть пары. Студенты сами вписываются на панели; где никто не вписался, дежурит тот, кто дольше всех не дежурил. Если дежурный в свой день не пришёл, он дежурит в следующий учебный день. Дежурные видны в верхней строке дня.": "Duty is mandatory educational work. One student on each day the group has classes. Students sign up themselves on the panel; where nobody has signed up, the student who has gone longest without duty is on duty. If the student on duty did not come on their day, they are on duty the next school day. Students on duty are shown in the top row of the day.",
+    "не пришёл": "did not come",
+    "Дежурство — обязательная воспитательная работа. По одному студенту в день, когда у группы есть пары. Дежурство не автоматическое: дежурит тот, кто сам вписался на панели. Дежурные видны в верхней строке дня.": "Duty is mandatory educational work. One student on each day the group has classes. Duty is not automatic: the student on duty is the one who signed up on the panel. Students on duty are shown in the top row of the day.",
+    "Вписаться": "Sign up",
+    "никто не вписался": "nobody signed up",
+    "Дежурный: {0}": "On duty: {0}",
+    "— никто —": "— nobody —",
+    "Кто не дежурит": "Who is exempt from duty"
   },
   "plurals": {
     "events": {

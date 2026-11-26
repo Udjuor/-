@@ -1051,30 +1051,25 @@ test('подробности сигнала: где и как студент п�
   assert.equal(L.attendanceIncidents({ events, attendance, name: 'Петров', from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-10', nowTime: '12:00', since }).length, 2);
 });
 
-test('дежурство: по одному в учебный день, по очереди, замены и неявка', () => {
-  const groups = [{ id: 'g', name: 'ИС-21', duty: { '2026-11-05': 'Белова' } }];
+test('дежурство: только кто сам вписался, без очереди; неявка по отметкам', () => {
+  const groups = [{ id: 'g', name: 'ИС-21', duty: { '2026-11-04': 'васин', '2026-11-05': 'Белова', '2026-11-06': 'Чужой' } }];
   const students = ['Антонов', 'Белова', 'Васин'].map((name) => ({ name, groupId: 'g' }));
   const who = students.map((s) => s.name);
-  const dates = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-09', '2026-11-10'];
+  const dates = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06'];
   const events = dates.map((date, i) => ({ id: `l${i}`, type: 'lesson', title: 'Пара', date, start: '09:00', end: '10:30', participants: who }));
   events.push({ id: 'x', type: 'lesson', title: 'Отменена', date: '2026-11-07', start: '09:00', end: '10:30', participants: who, cancelled: true });
   const at = (date) => new Date(`${date}T09:00`).toISOString();
-  // 4 ноября Васин не пришёл: дежурство не состоялось, он дежурит в следующий учебный день.
-  const attendance = [{ eventId: 'l2', marks: { 'Антонов': { status: 'present', at: at('2026-11-04') }, 'Белова': { status: 'present', at: at('2026-11-04') } } }];
+  const attendance = [{ eventId: 'l2', marks: { 'Антонов': { status: 'present', at: at('2026-11-04') } } }];
   const roster = L.dutyRoster({ group: groups[0], groups, students, events, attendance, from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-08', nowTime: '12:00' });
-  assert.deepEqual(roster.map((d) => [d.date.slice(8), d.name, d.manual, d.done]), [
-    ['02', 'Антонов', false, null],
-    ['03', 'Белова', false, null],
-    ['04', 'Васин', false, false],
-    ['05', 'Белова', true, null],
-    ['06', 'Васин', false, null],
-    ['09', 'Антонов', false, null],
-    ['10', 'Белова', false, null],
-  ]);
-  // Освобождённые не дежурят.
-  const exempt = L.dutyRoster({ group: { ...groups[0], duty: {}, dutyExempt: ['васин'] }, groups, students, events, attendance: [], from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-01', nowTime: '08:00' });
-  assert.deepEqual([...new Set(exempt.map((d) => d.name))], ['Антонов', 'Белова']);
-  assert.equal(exempt.length, 7, 'отменённая пара — не учебный день');
+  assert.deepEqual(roster.map((d) => [d.date.slice(8), d.name, d.done]), [
+    ['02', '', null],
+    ['03', '', null],
+    ['04', 'Васин', false],
+    ['05', 'Белова', null],
+    ['06', '', null],
+  ], 'никто не вписался — никто не дежурит; чужие не принимаются; отменённая пара — не учебный день');
+  const exempt = L.dutyRoster({ group: { ...groups[0], dutyExempt: ['Белова'] }, groups, students, events, attendance: [], from: '2026-11-01', to: '2026-11-30', nowISO: '2026-11-01', nowTime: '08:00' });
+  assert.equal(exempt.find((d) => d.date === '2026-11-05').name, '', 'освобождённый не дежурит');
 });
 
 test('справки по периодам болезни: подряд — одна справка, после возвращения — новая', () => {

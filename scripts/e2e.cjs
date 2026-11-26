@@ -1124,38 +1124,31 @@ const page_shot = (target, name) => target.screenshot({ path: path.join(shots, `
   await page.click('#studentfile [aria-label=Закрыть]');
   await page.click('#grade [aria-label=Закрыть]');
 
-  // Дежурство: по одному студенту группы в учебный день, по очереди; замена и освобождение.
+  // Дежурство не автоматическое: пока никто не вписался, дежурного нет; вписался — виден в строке дня.
   await page.click('#open-sections');
   await page.click('#open-duty');
   await page.waitForSelector('#duty[open]');
   await page.selectOption('#duty-group', { label: 'ИС-21' });
-  await page.waitForSelector('#duty .dutytable tbody tr');
-  const dutyRows = await page.$$eval('#duty .dutytable tbody tr', (rows) => rows.map((row) => [row.dataset.date, row.querySelector('b').textContent]));
-  assert.equal(new Set(dutyRows.map(([date]) => date)).size, dutyRows.length, 'один дежурный в день');
   await page.waitForSelector(`#duty tr.today[data-date="${day(0)}"]`);
-  const todayName = await page.textContent(`#duty tr[data-date="${day(0)}"] b`);
-  assert.equal((await page.textContent('#duty-today')).trim(), `Сегодня дежурит: ${todayName}`);
-  const substitute = (await page.$$eval(`#duty tr[data-date="${day(0)}"] select option`, (options) => options.map((o) => o.value))).find((name) => name && name !== todayName);
-  await page.selectOption(`#duty tr[data-date="${day(0)}"] select`, substitute);
-  await page.waitForSelector(`#duty tr[data-date="${day(0)}"] b:text-is("${substitute}")`);
-  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'group' && r.duty?.[day(0)] === substitute), 'замена на другом устройстве');
+  assert.equal(await page.locator('#duty .dutytable tbody b').count(), 0, 'без записи никто не дежурит');
+  assert.equal(await page.locator('#duty-today').count(), 0);
+  assert.equal(await page.locator('.dutychip[data-duty="ИС-21"]').count(), 0, 'в строке дня пусто');
+  const dutyName = (await page.$$eval(`#duty tr[data-date="${day(0)}"] select option`, (options) => options.map((o) => o.value))).find(Boolean);
+  await page.selectOption(`#duty tr[data-date="${day(0)}"] select`, dutyName);
+  await page.waitForSelector(`#duty tr[data-date="${day(0)}"] b:text-is("${dutyName}")`);
+  assert.equal((await page.textContent('#duty-today')).trim(), `Сегодня дежурит: ${dutyName}`);
+  assert.equal(await page.locator('#duty .dutytable tbody b').count(), 1, 'остальные дни не заполняются сами');
+  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'group' && r.duty?.[day(0)] === dutyName), 'запись на другом устройстве');
   await page.click('#duty .dutysettings summary');
-  await page.check(`#duty [data-exempt="${todayName}"]`);
+  await page.check(`#duty [data-exempt="${dutyName}"]`);
   await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 1")');
-  assert.equal(await page.locator(`#duty .dutytable b:text-is("${todayName}")`).count(), 0, 'освобождённый не дежурит');
-  // Старосту назначает преподаватель: код показывается один раз, в справочнике — только отпечаток.
-  await page.selectOption('#duty-headman', todayName === substitute ? dutyRows[0][1] : substitute);
-  const shownCode = (await page.textContent('#duty-newcode-value')).match(/Код старосты: (\d{4})/)[1];
-  await until(async () => (await teacherStore.directory()).some((r) => r.kind === 'group' && r.name === 'ИС-21' && r.headCode), 'староста на другом устройстве');
-  const withHead = (await teacherStore.directory()).find((r) => r.kind === 'group' && r.name === 'ИС-21');
-  assert.match(withHead.headCode, /^[0-9a-f]{64}$/);
-  assert.equal(JSON.stringify(withHead).includes(shownCode), false, 'код не хранится открыто');
+  assert.equal(await page.locator(`#duty .dutytable b:text-is("${dutyName}")`).count(), 0, 'освобождённый не дежурит');
+  assert.equal(await page.locator('#duty-head, #duty-code, #duty-from').count(), 0, 'ни кода, ни начала очереди');
   await shot('duty');
-  await page.uncheck(`#duty [data-exempt="${todayName}"]`);
+  await page.uncheck(`#duty [data-exempt="${dutyName}"]`);
   await page.waitForSelector('#duty .dutyexempt legend:has-text("Не дежурят: 0")');
   await page.click('#duty [aria-label=Закрыть]');
-  // Дежурный — в верхней строке дня.
-  await page.waitForSelector(`.dutychip[data-duty="ИС-21"]:has-text("Дежурит: ${substitute}")`);
+  await page.waitForSelector(`.dutychip[data-duty="ИС-21"]:has-text("Дежурит: ${dutyName}")`);
 
   // Кому дать: в новом задании — студенты с наименьшим опытом, одним нажатием в участники.
   await page.click('#add');
